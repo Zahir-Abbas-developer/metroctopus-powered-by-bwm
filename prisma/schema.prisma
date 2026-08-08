@@ -49,6 +49,9 @@ model User {
   mentions      CommentMention[]
   attachments   Attachment[]
   activity      Activity[]       @relation("ActivityActor")
+  attendance    AttendanceDay[]
+  leaveRequests LeaveRequest[]   @relation("LeaveSubject")
+  leaveReviews  LeaveRequest[]   @relation("LeaveReviewer")
 
   @@index([role])
   @@index([isActive])
@@ -379,4 +382,118 @@ model Notification {
 
   @@index([userId, readAt])
   @@index([userId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — Attendance
+// ---------------------------------------------------------------------------
+
+/// One person's working day.
+///
+/// `date` is the Asia/Karachi calendar date stored at UTC midnight, the same
+/// convention as every other date-only field here. All attendance arithmetic
+/// resolves to Karachi wall-clock regardless of where the member's device is.
+model AttendanceDay {
+  id           String    @id @default(cuid())
+  userId       String
+  date         DateTime
+  clockInAt    DateTime?
+  clockOutAt   DateTime?
+  /// "PRESENT" | "LATE" | "ABSENT" | "LEAVE" | "OFF"
+  status       String    @default("PRESENT")
+  /// Minutes between clock-in and clock-out, once the day is closed.
+  totalMinutes Int?
+  /// True when the evaluation job closed the day because nobody clocked out.
+  autoClosed   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user   User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checks AvailabilityCheck[]
+
+  @@unique([userId, date])
+  @@index([date])
+  @@index([userId, date])
+}
+
+/// A hidden, randomly scheduled proof-of-availability.
+///
+/// `scheduledAt` is the secret. It is generated server-side at clock-in and
+/// must never reach a member's browser before it triggers — see
+/// lib/attendance-visibility.ts, which is the single place that decides what a
+/// member is allowed to see.
+model AvailabilityCheck {
+  id              String    @id @default(cuid())
+  attendanceDayId String
+  scheduledAt     DateTime
+  /// scheduledAt + the configured window (60 minutes by default).
+  windowEndsAt    DateTime
+  respondedAt     DateTime?
+  /// "SCHEDULED" | "ACTIVE" | "PASSED" | "MISSED" | "CANCELLED"
+  status          String    @default("SCHEDULED")
+  createdAt       DateTime  @default(now())
+
+  day AttendanceDay @relation(fields: [attendanceDayId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceDayId])
+  @@index([status, scheduledAt])
+  @@index([status, windowEndsAt])
+}
+
+/// A member's request to be off on a given day.
+model LeaveRequest {
+  id           String    @id @default(cuid())
+  userId       String
+  date         DateTime
+  reason       String
+  /// "PENDING" | "APPROVED" | "REJECTED"
+  status       String    @default("PENDING")
+  reviewedById String?
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  user       User  @relation("LeaveSubject", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("LeaveReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  /// One request per person per day — a second would make "is this day
+  /// approved?" ambiguous.
+  @@unique([userId, date])
+  @@index([status, date])
+}
+
+/// Agency-wide configuration, editable by the owner without a deploy.
+///
+/// A single row rather than a key/value table: these settings are a fixed,
+/// known set, and typed columns mean a bad value fails at the database rather
+/// than at whatever code parses the string.
+model Settings {
+  /// Always "singleton".
+  id String @id @default("singleton")
+
+  /// Minutes past Karachi midnight.
+  shiftStartMinutes  Int @default(720)  // 12:00
+  shiftEndMinutes    Int @default(1320) // 22:00
+  clockInOpensMinutes Int @default(690) // 11:30
+  /// Clock-in later than shiftStart + grace counts as LATE.
+  graceMinutes       Int @default(15)
+  /// No clock-in by this time and no approved leave means ABSENT.
+  absentCutoffMinutes Int @default(900) // 15:00
+
+  checksPerDay            Int @default(3)
+  checkWindowMinutes      Int @default(60)
+  /// Earliest a check may fall, measured from clock-in.
+  checkEarliestOffsetMinutes Int @default(45)
+  /// Latest a check may be scheduled, so its window still ends by shift end.
+  checkLatestMinutes      Int @default(1260) // 21:00
+  checkMinGapMinutes      Int @default(90)
+
+  /// Penalties, stored positive and applied as deductions.
+  penaltyLateClockIn   Float @default(0.5)
+  penaltyAbsentDay     Float @default(3)
+  penaltyMissedCheck   Float @default(1)
+
+  /// Working days as ISO weekday numbers, 1 = Monday. Sunday (7) is off.
+  workdays String @default("1,2,3,4,5,6")
+
+  updatedAt DateTime @updatedAt
 }

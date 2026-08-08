@@ -6,7 +6,9 @@ import { signOut } from "next-auth/react";
 import {
   BarChart3,
   Briefcase,
+  CalendarCheck,
   CheckSquare,
+  Clock,
   FileText,
   Gauge,
   KanbanSquare,
@@ -28,6 +30,8 @@ const ICONS: Record<NavKey, LucideIcon> = {
   clients: Briefcase,
   projects: Layers,
   "my-tasks": CheckSquare,
+  "my-attendance": CalendarCheck,
+  attendance: Clock,
   "my-performance": Gauge,
   "my-reports": FileText,
   team: Users2,

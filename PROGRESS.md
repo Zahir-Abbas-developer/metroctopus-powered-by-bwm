@@ -882,3 +882,203 @@ The decisions that shaped it, in order of how much they mattered:
 - **The rejection reason in the board drawer uses `window.prompt`** — validated
   and functional, but the one control in the app that isn't designed. The
   project planner has a proper modal for the same action.
+
+---
+
+## Phase 7 — Smart attendance with random availability checks (8 August 2026)
+
+A remote agency has no doorway to walk through. This phase replaces the one
+signal a physical office gives for free — is this person actually here — with
+something a distributed team can run: a clock-in with a grace period, and
+random, unannounced availability checks through the day that must be answered
+inside a window.
+
+The whole feature turns on one property, so it was designed around it first.
+
+### Secrecy is the feature
+
+If a member can discover when the next check lands, the check measures nothing.
+So the scheduled times are treated as a secret with a single exit point:
+
+```
+lib/attendance-visibility.ts
+  visibleCheck(check)   -> null for SCHEDULED. Always.
+  visibleChecks(checks) -> resolved and active only, chronological
+  visibleTally(checks)  -> passed / missed / cancelled / resolved
+  adminTally(checks)    -> counts only, never a time
+```
+
+No member-facing payload is built by spreading a Prisma row. Every one of them
+goes through this module, which means the guarantee is enforced in one file
+rather than re-litigated in each of the six endpoints and four components that
+touch a check.
+
+Four consequences worth naming, because each is a leak that had to be closed:
+
+- **`visibleTally` has no `total` and no `pending`.** A member who learns "3
+  checks today" and can see two resolved knows the third is still ahead — and
+  more usefully, knows when they are free. The tally counts what has finished
+  and stops there.
+- **`GET /api/attendance/me` withholds `checksPerDay`** from the settings it
+  returns, for the same reason.
+- **Clock-in returns `monitored: true`, not a count.** The response originally
+  returned `checksScheduled: 3`. That is the same leak by another route, found
+  while writing the walkthrough. Knowing the day is watched is the deterrent
+  and is meant to be public; knowing how often is not.
+- **Times are generated at clock-in, server-side**, from `crypto.randomInt` —
+  the one moment the member cannot be observing the scheduler.
+
+The test that matters isn't "no `scheduledAt` field". It serialises a payload
+built around a known secret instant and asserts that neither the timestamp, nor
+its epoch, nor the pending check's id appears anywhere in the JSON.
+
+### The rules, exactly as specified
+
+| Rule | Where |
+| --- | --- |
+| Shift 12:00–22:00 Asia/Karachi | `Settings.shiftStartMinutes` / `shiftEndMinutes` |
+| Clock-in opens 11:30 | `clockInOpensMinutes` |
+| After 12:15 → LATE, −0.5 | `graceMinutes`, `penaltyLateClockIn` |
+| No clock-in by 15:00 → ABSENT, −3 | `absentCutoffMinutes`, `penaltyAbsentDay` |
+| Missed check → −1 | `penaltyMissedCheck` |
+| 3 checks/day, 60-minute window | `checksPerDay`, `checkWindowMinutes` |
+| Not in the first 45 minutes, ≥90 minutes apart, none after 21:00 | `checkEarliestOffsetMinutes`, `checkMinGapMinutes`, `checkLatestMinutes` |
+| Sundays and approved leave exempt | `workdays`, `LeaveRequest` |
+| Unclosed days auto-close at 22:00 | `runDailyAttendanceSweep` |
+
+Every one of these is a column in `Settings`, editable from the owner's
+settings panel, so changing the working day is not a deploy.
+
+Two derived rules exist because a configurable value can describe an impossible
+day:
+
+- `effectiveCheckLatest()` takes `min(checkLatestMinutes, shiftEnd − window)`.
+  An owner who lengthens the window to 120 minutes without touching the latest
+  check time would otherwise create checks that expire after everyone has gone
+  home — and every one of them would be missed through nobody's fault.
+- `feasibleCount()` degrades gracefully. Someone clocking in at 14:50 cannot
+  fit three checks 90 minutes apart before 21:00, so they get two. The
+  alternative — cramming them in — would punish a late start twice.
+
+### Time, without trusting a clock
+
+`lib/attendance-time.ts` is arithmetic, not `Intl`. Asia/Karachi is UTC+5 with
+no DST, so every conversion is an offset:
+
+```ts
+export const KARACHI_UTC_OFFSET_MINUTES = 5 * 60;
+```
+
+The reason is not performance. A member's device timezone must never enter the
+calculation of whether they were late — otherwise changing a laptop clock
+changes a penalty. Nothing in the attendance path reads the local zone. One
+test asserts the offset against `Intl` across four months of the year, so if
+Pakistan ever adopts DST the suite fails rather than silently mis-scoring
+everyone.
+
+### Idempotency, again
+
+A check can never charge twice. The mechanism is the same one the scoring
+engine already used — a unique `dedupeKey` on `ScoreEvent`:
+
+```
+check:<id>:MISS            a missed availability check
+day:<id>:LATE_CLOCK_IN     a late start
+day:<id>:ABSENT            a day with no clock-in
+excuse:<eventId>           the owner's reversal
+```
+
+This matters more here than anywhere else in the app, because there is no job
+runner. Serverless has nothing running at 16:12 to fire a check, so state is
+settled lazily: **any read of attendance advances it**. The member's own
+60-second poll settles their checks; the owner opening the board settles
+everyone's; the daily cron is the backstop for someone who never opens the app.
+All three paths run the same `settleChecks()`, and the result is identical
+because the transition depends on the clock, not on who asked.
+
+The walkthrough re-reads state six times after a check expires and confirms the
+ledger still holds exactly one penalty.
+
+### Excusing, without erasing
+
+The owner can excuse any attendance penalty. The original event is never
+deleted or edited — a compensating `MANUAL_ADJUST` of the exact opposite value
+is written alongside it, with a required reason of at least five characters,
+attributed to the owner, and charged to the same cycle as the original.
+
+Deleting would have been one line less code and would have erased the fact that
+someone was late — and with it any pattern worth noticing. Both rows stay
+visible in the ledger: what happened, and that it was set aside.
+
+### What was built
+
+**Data** — `AttendanceDay`, `AvailabilityCheck`, `LeaveRequest`, `Settings`,
+plus three new score event types (`ATTENDANCE_MISS`, `LATE_CLOCK_IN`,
+`ABSENT_DAY`). Migration `20260808170000_attendance`.
+
+**Member** — a clock-in/out card at the top of the dashboard, a sticky
+availability banner that follows them across every page, `/my-attendance` with
+a month calendar and check history, and leave requests.
+
+**Owner** — `/attendance` with four tabs: a live board that refreshes every
+minute, a members × days matrix with CSV export, a leave inbox, and the
+settings panel. Plus a "Team present today" figure on the dashboard.
+
+**Integration** — the daily sweep runs first inside `/api/cron/evaluate`, so
+absences and missed checks land in the ledger before any report is frozen.
+Monthly member reports gained an attendance section (days present, late,
+absent; checks passed; average response time) and a narrative sentence:
+*"You passed 44 of 51 availability checks this month."*
+
+The narrative keeps delivery and attendance apart. The trouble-area qualifier
+is a module name, so "2 absent days in Google Ads" would blame a service for
+somebody's absence. Delivery problems get *"Watch out: …in Google Ads"*;
+attendance gets its own *"Also on the record: …"*.
+
+### Verification
+
+- **135 unit tests** (49 added this phase: 20 time, 12 schedule, 12 visibility,
+  5 narrative).
+- **40 walkthrough checks** through the real HTTP API with real sessions:
+  sign in as Subtain → clock in → confirm the three generated times appear
+  nowhere in their payload → owner triggers a check → pass it → owner triggers
+  and expires another → one penalty, still one after six re-reads → a closed
+  window refuses a late answer → the board reads 1 passed / 1 missed / 1
+  pending → excuse the penalty (original kept, reversal exact, second attempt
+  409s) → request and approve leave → CSV export → clock out, and the third
+  check is **cancelled, not missed**.
+- **Access control**: a member gets 403 on the board, the matrix, settings and
+  the test trigger, and 307 off `/attendance`.
+- **Migration verified on real Postgres** — `migrate deploy` from empty, then
+  inserts proving the `(userId, date)` unique index, the `dedupeKey` unique
+  index, the nullable `milestoneId`, and that the `Settings` defaults land.
+- `tsc`, `next lint` and the production build clean.
+
+### Two bugs found
+
+1. **`ProposedEvent.milestoneId` was `string`, not `string | null`.** Every
+   score event before this phase belonged to a milestone; attendance events
+   belong to nobody. Writing `""` to satisfy the type violates the foreign key.
+   Confirmed with a real insert — *"Foreign key constraint violated"* — before
+   widening the type and having `applyEvents` write `?? null`. This would have
+   crashed clock-in in production on the first late arrival.
+2. **Clock-in leaked the number of checks.** Covered above. Found by writing
+   the assertion first and watching it fail.
+
+TypeScript caught a third on its own: adding three event types made the
+`Record<ScoreEventType, …>` icon maps in `PerformanceProfile` and
+`MemberReportDocument` incomplete. Exhaustive records earn their keep.
+
+### Known limits
+
+- **The test trigger is gated but real.** `/api/attendance/dev-trigger` refuses
+  to run unless `ALLOW_TEST_TRIGGERS=1` or the build is non-production, because
+  in production it would be a way to manufacture or dodge penalties. The owner
+  UI hides the buttons under the same condition and shows a warning banner when
+  they are live.
+- **Check settlement is lazy.** A member who never opens the app has their
+  checks settled by the daily cron rather than the minute the window closes.
+  The score is the same; the board is up to a day stale for that person.
+- **Auto-closed days carry no penalty** in v1. The day is flagged so the owner
+  can see it happened.
+- **Leave is a single day per request.** A week off is seven requests.

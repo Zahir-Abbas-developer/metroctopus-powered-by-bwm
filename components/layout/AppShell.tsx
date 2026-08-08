@@ -7,6 +7,7 @@ import { Menu, X } from "lucide-react";
 import { Sidebar, type SidebarUser } from "@/components/layout/Sidebar";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CommandPalette } from "@/components/layout/CommandPalette";
+import { AvailabilityBanner } from "@/components/attendance/AvailabilityBanner";
 
 /**
  * Fixed 240px rail on desktop; a slide-over drawer below `lg`. The drawer
@@ -96,6 +97,10 @@ export function AppShell({
           <CommandPalette />
           <NotificationBell />
         </div>
+
+        {/* Above everything: a check is worthless if it can be missed by being
+            on the wrong screen. */}
+        <AvailabilityBanner />
 
         <main className="mx-auto w-full max-w-shell px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
           {children}

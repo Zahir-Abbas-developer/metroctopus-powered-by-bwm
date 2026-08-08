@@ -1,8 +1,11 @@
 import Link from "next/link";
 import {
+  AlarmClock,
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
+  BellOff,
+  CalendarX,
   Clock3,
   Gauge,
   Minus,
@@ -30,6 +33,9 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   REJECTED: ThumbsDown,
   EARLY_BONUS: TrendingUp,
   MANUAL_ADJUST: SlidersHorizontal,
+  ATTENDANCE_MISS: BellOff,
+  LATE_CLOCK_IN: AlarmClock,
+  ABSENT_DAY: CalendarX,
 };
 
 export type ProfileMember = {

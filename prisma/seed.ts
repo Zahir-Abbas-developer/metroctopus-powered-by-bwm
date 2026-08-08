@@ -8,6 +8,12 @@ import { generateReports } from "../lib/reports";
 import { notify } from "../lib/notifications";
 import { mentionedUserIds } from "../lib/mentions";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "../lib/scoring";
+import {
+  formatKarachiClock,
+  karachiDay,
+  karachiInstant,
+  karachiWeekday,
+} from "../lib/attendance-time";
 
 const prisma = new PrismaClient();
 
@@ -314,16 +320,244 @@ async function main() {
   }
 
   const scoreEvents = await backfillScoreEvents(admin.id);
+  // After the backfill: it clears the ledger, and attendance writes into it.
+  const attendance = await seedAttendance();
   const { reports, notifications } = await seedReportsAndNotifications();
   const collab = await seedCollaboration(admin.id);
 
   print({
     projectCount,
     milestoneCount,
-    scoreEvents,
+    scoreEvents: scoreEvents + attendance.scoreEvents,
     reports,
     notifications,
+    attendanceDays: attendance.attendanceDays,
+    availabilityChecks: attendance.availabilityChecks,
+    leaveRequests: attendance.leaveRequests,
     ...collab,
+  });
+}
+
+/**
+ * Four weeks of attendance history.
+ *
+ * Deterministic rather than random: the same seed run produces the same past
+ * every time, so a screenshot taken today still matches the data tomorrow. The
+ * pattern per member comes from a stable hash of their id, which gives each
+ * person a different-looking month without anyone's being invented twice.
+ *
+ * Score events are written with production's dedupe keys, so a later
+ * evaluation run recognises them and cannot charge the same day again.
+ */
+async function seedAttendance() {
+  await prisma.availabilityCheck.deleteMany({});
+  await prisma.attendanceDay.deleteMany({});
+  await prisma.leaveRequest.deleteMany({});
+
+  const settings = await prisma.settings.upsert({
+    where: { id: "singleton" },
+    update: {},
+    create: { id: "singleton" },
+  });
+
+  const workdays = settings.workdays
+    .split(",")
+    .map((day) => Number(day.trim()))
+    .filter(Boolean);
+
+  const members = await prisma.user.findMany({
+    where: { role: "MEMBER", isActive: true },
+    select: { id: true, name: true },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const now = new Date();
+  const today = karachiDay(now);
+
+  let days = 0;
+  let checks = 0;
+  let scoreEvents = 0;
+  let leave = 0;
+
+  for (const [memberIndex, member] of members.entries()) {
+    const seed = hash(member.id);
+
+    // One approved day off in the recent past, one request still waiting.
+    const approvedLeaveDay = addDays(today, -(6 + memberIndex));
+    const pendingLeaveDay = addDays(today, 4 + memberIndex);
+
+    await prisma.leaveRequest.create({
+      data: {
+        userId: member.id,
+        date: approvedLeaveDay,
+        reason: "Family commitment — arranged cover with the team.",
+        status: "APPROVED",
+        reviewedAt: addDays(approvedLeaveDay, -2),
+      },
+    });
+    // Only the first two members have something outstanding; an inbox where
+    // every single person is waiting on a decision isn't a realistic demo.
+    if (memberIndex < 2) {
+      await prisma.leaveRequest.create({
+        data: {
+          userId: member.id,
+          date: pendingLeaveDay,
+          reason: "Medical appointment in the afternoon.",
+          status: "PENDING",
+        },
+      });
+      leave += 1;
+    }
+    leave += 1;
+
+    // Yesterday backwards, so today is left alone for the live walkthrough.
+    for (let back = 1; back <= 28; back += 1) {
+      const day = addDays(today, -back);
+      const weekday = karachiWeekday(day);
+
+      if (!workdays.includes(weekday)) {
+        await prisma.attendanceDay.create({
+          data: { userId: member.id, date: day, status: "OFF" },
+        });
+        days += 1;
+        continue;
+      }
+
+      if (day.getTime() === approvedLeaveDay.getTime()) {
+        await prisma.attendanceDay.create({
+          data: { userId: member.id, date: day, status: "LEAVE" },
+        });
+        days += 1;
+        continue;
+      }
+
+      const roll = (seed + back * 2_654_435_761) >>> 0;
+
+      // Roughly: 1 absence a month, a late start most weeks, otherwise on time.
+      const absent = roll % 29 === 3;
+      const late = !absent && roll % 7 === 2;
+
+      if (absent) {
+        const record = await prisma.attendanceDay.create({
+          data: { userId: member.id, date: day, status: "ABSENT" },
+        });
+        days += 1;
+
+        await createAttendanceEvent({
+          userId: member.id,
+          type: "ABSENT_DAY",
+          points: -settings.penaltyAbsentDay,
+          reason: `No clock-in by ${formatKarachiClock(settings.absentCutoffMinutes)} and no approved leave.`,
+          dedupeKey: `day:${record.id}:ABSENT`,
+          at: karachiInstant(day, settings.absentCutoffMinutes),
+        });
+        scoreEvents += 1;
+        continue;
+      }
+
+      const startMinutes = late
+        ? settings.shiftStartMinutes + settings.graceMinutes + 5 + (roll % 40)
+        : settings.clockInOpensMinutes + 15 + (roll % 25);
+      const endMinutes = settings.shiftEndMinutes - (roll % 20);
+
+      const clockInAt = karachiInstant(day, startMinutes);
+      const clockOutAt = karachiInstant(day, endMinutes);
+
+      const record = await prisma.attendanceDay.create({
+        data: {
+          userId: member.id,
+          date: day,
+          clockInAt,
+          clockOutAt,
+          status: late ? "LATE" : "PRESENT",
+          totalMinutes: endMinutes - startMinutes,
+        },
+      });
+      days += 1;
+
+      if (late) {
+        await createAttendanceEvent({
+          userId: member.id,
+          type: "LATE_CLOCK_IN",
+          points: -settings.penaltyLateClockIn,
+          reason: `Clocked in at ${formatKarachiClock(startMinutes)}, after the ${formatKarachiClock(
+            settings.shiftStartMinutes + settings.graceMinutes,
+          )} grace period.`,
+          dedupeKey: `day:${record.id}:LATE_CLOCK_IN`,
+          at: clockInAt,
+        });
+        scoreEvents += 1;
+      }
+
+      // Three checks spread across the day, kept clear of the edges.
+      for (let index = 0; index < settings.checksPerDay; index += 1) {
+        const spread = Math.floor(
+          (endMinutes - startMinutes - 90) / Math.max(1, settings.checksPerDay),
+        );
+        const scheduledMinutes =
+          startMinutes + 45 + index * spread + ((roll >> (index * 3)) % 25);
+        const scheduledAt = karachiInstant(day, scheduledMinutes);
+        const windowEndsAt = new Date(
+          scheduledAt.getTime() + settings.checkWindowMinutes * 60_000,
+        );
+
+        // About one check in fourteen goes unanswered.
+        const missed = ((roll >> (index * 5)) & 0xff) % 14 === 1;
+
+        const check = await prisma.availabilityCheck.create({
+          data: {
+            attendanceDayId: record.id,
+            scheduledAt,
+            windowEndsAt,
+            status: missed ? "MISSED" : "PASSED",
+            respondedAt: missed
+              ? null
+              : new Date(scheduledAt.getTime() + (60 + (roll % 900)) * 1000),
+          },
+        });
+        checks += 1;
+
+        if (missed) {
+          await createAttendanceEvent({
+            userId: member.id,
+            type: "ATTENDANCE_MISS",
+            points: -settings.penaltyMissedCheck,
+            reason: `Missed availability check (${formatKarachiClock(scheduledMinutes)}–${formatKarachiClock(
+              scheduledMinutes + settings.checkWindowMinutes,
+            )}).`,
+            dedupeKey: `check:${check.id}:MISS`,
+            at: windowEndsAt,
+          });
+          scoreEvents += 1;
+        }
+      }
+    }
+  }
+
+  return { attendanceDays: days, availabilityChecks: checks, leaveRequests: leave, scoreEvents };
+}
+
+async function createAttendanceEvent(event: {
+  userId: string;
+  type: string;
+  points: number;
+  reason: string;
+  dedupeKey: string;
+  at: Date;
+}) {
+  const cycle = agencyYearMonth(event.at);
+  await prisma.scoreEvent.create({
+    data: {
+      userId: event.userId,
+      milestoneId: null,
+      type: event.type,
+      points: event.points,
+      reason: event.reason,
+      dedupeKey: event.dedupeKey,
+      year: cycle.year,
+      month: cycle.month,
+      createdAt: event.at,
+    },
   });
 }
 
@@ -665,6 +899,9 @@ function print(stats: {
   notifications: number;
   comments: number;
   activity: number;
+  attendanceDays: number;
+  availabilityChecks: number;
+  leaveRequests: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -686,6 +923,10 @@ function print(stats: {
   );
   console.log(`  ${stats.reports} reports · ${stats.notifications} notifications`);
   console.log(`  ${stats.comments} comments · ${stats.activity} activity entries`);
+  console.log(
+    `  ${stats.attendanceDays} attendance days · ${stats.availabilityChecks} checks · ` +
+      `${stats.leaveRequests} leave requests`,
+  );
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");
 }

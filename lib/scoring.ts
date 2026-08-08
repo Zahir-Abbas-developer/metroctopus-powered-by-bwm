@@ -37,6 +37,12 @@ export const SCORE_EVENT_TYPES = [
   "REJECTED",
   "EARLY_BONUS",
   "MANUAL_ADJUST",
+  // Phase 7 — attendance. These are flat charges rather than weight-scaled:
+  // a working day has no "weight", so the amounts come from Settings and are
+  // passed in by the caller. See attendanceDeduction below.
+  "ATTENDANCE_MISS",
+  "LATE_CLOCK_IN",
+  "ABSENT_DAY",
 ] as const;
 
 export type ScoreEventType = (typeof SCORE_EVENT_TYPES)[number];
@@ -47,7 +53,21 @@ export const SCORE_EVENT_LABEL: Record<ScoreEventType, string> = {
   REJECTED: "Work rejected",
   EARLY_BONUS: "Delivered early",
   MANUAL_ADJUST: "Manual adjustment",
+  ATTENDANCE_MISS: "Missed availability check",
+  LATE_CLOCK_IN: "Late start",
+  ABSENT_DAY: "Absent",
 };
+
+/** The attendance events, for anywhere that needs to treat them as a group. */
+export const ATTENDANCE_EVENT_TYPES = [
+  "ATTENDANCE_MISS",
+  "LATE_CLOCK_IN",
+  "ABSENT_DAY",
+] as const;
+
+export function isAttendanceEvent(type: string): boolean {
+  return (ATTENDANCE_EVENT_TYPES as readonly string[]).includes(type);
+}
 
 /** Multipliers applied to a milestone's weight. */
 export const RATES = {
@@ -105,6 +125,18 @@ export function missedDeduction(weight: number): number {
 /** Points lost for one rejection of submitted work. */
 export function rejectionDeduction(weight: number): number {
   return round(-weight * RATES.REJECTED);
+}
+
+/**
+ * Points lost for an attendance failure.
+ *
+ * Unlike delivery penalties there is no weight to scale by — a missed check is
+ * a missed check — so the amount is configured per agency and handed in. The
+ * sign is normalised here so a positive setting can never accidentally reward
+ * someone for being absent.
+ */
+export function attendanceDeduction(configuredPenalty: number): number {
+  return round(-Math.abs(configuredPenalty));
 }
 
 /** True when the delivery landed a full day or more before the deadline. */
@@ -168,7 +200,12 @@ export function scoreBand(score: number): ScoreBand {
 
 export type ProposedEvent = {
   userId: string;
-  milestoneId: string;
+  /**
+   * Null for events that are not about a milestone — the attendance charges,
+   * for instance. It is a real foreign key, so "" is a constraint violation
+   * rather than an empty value.
+   */
+  milestoneId: string | null;
   type: ScoreEventType;
   points: number;
   reason: string;

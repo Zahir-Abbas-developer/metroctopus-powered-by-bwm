@@ -31,6 +31,13 @@ export type MemberNarrativeFacts = {
   delta: number | null;
   /** Where the worst slip happened, e.g. "Google Ads" — optional. */
   troubleArea?: string | null;
+  /** Omitted for reports frozen before attendance existed. */
+  attendance?: {
+    checksPassed: number;
+    checksTotal: number;
+    daysAbsent: number;
+    daysLate: number;
+  } | null;
 };
 
 /**
@@ -98,16 +105,40 @@ export function narrateMemberReport(
       : `${s.possessive} score of ${formatScore(facts.score)} sits in the ${band} band${movement}.`,
   );
 
-  // 3 — only when there is something to act on.
-  const warnings: string[] = [];
-  if (facts.missedCount > 0) warnings.push(`${pluralise(facts.missedCount, "missed deadline")}`);
-  if (facts.lateCount > 0) warnings.push(`${pluralise(facts.lateCount, "late delivery")}`);
-  if (facts.rejectedCount > 0) warnings.push(`${pluralise(facts.rejectedCount, "rejection")}`);
+  // 3 — availability. Past tense, so it needs no verb agreement.
+  const attendance = facts.attendance;
+  if (attendance && attendance.checksTotal > 0) {
+    sentences.push(
+      attendance.checksPassed === attendance.checksTotal
+        ? `${s.they} answered all ${pluralise(attendance.checksTotal, "availability check")} ${facts.periodPhrase}.`
+        : `${s.they} passed ${attendance.checksPassed} of ${attendance.checksTotal} availability checks ${facts.periodPhrase}.`,
+    );
+  }
 
-  if (warnings.length > 0) {
+  // 4 — only when there is something to act on. Delivery and attendance are
+  // kept apart: the trouble area is a module name, and tacking it onto "2
+  // absent days" would blame a service for somebody's absence.
+  const delivery: string[] = [];
+  if (facts.missedCount > 0) delivery.push(`${pluralise(facts.missedCount, "missed deadline")}`);
+  if (facts.lateCount > 0) delivery.push(`${pluralise(facts.lateCount, "late delivery")}`);
+  if (facts.rejectedCount > 0) delivery.push(`${pluralise(facts.rejectedCount, "rejection")}`);
+
+  const presence: string[] = [];
+  if (attendance && attendance.daysAbsent > 0) {
+    presence.push(`${pluralise(attendance.daysAbsent, "absent day")}`);
+  }
+  if (attendance && attendance.daysLate > 0) {
+    presence.push(`${pluralise(attendance.daysLate, "late start")}`);
+  }
+
+  if (delivery.length > 0) {
     const where = facts.troubleArea ? ` in ${facts.troubleArea}` : "";
-    sentences.push(`Watch out: ${joinList(warnings)}${where}.`);
-  } else if (facts.completedTotal > 0) {
+    sentences.push(`Watch out: ${joinList(delivery)}${where}.`);
+  }
+
+  if (presence.length > 0) {
+    sentences.push(`Also on the record: ${joinList(presence)}.`);
+  } else if (delivery.length === 0 && facts.completedTotal > 0) {
     sentences.push(
       voice === "second"
         ? "Nothing slipped — keep it there."

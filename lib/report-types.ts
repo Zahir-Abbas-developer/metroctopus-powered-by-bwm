@@ -29,6 +29,25 @@ export const REPORT_TYPE_TONE: Record<ReportType, BadgeTone> = {
 /** Bumped if the payload shape ever changes; old reports keep their version. */
 export const PAYLOAD_VERSION = 1 as const;
 
+/**
+ * The attendance half of a member report.
+ *
+ * Optional rather than required, and the version stays at 1: it was added in
+ * Phase 7 and every report frozen before then simply doesn't have it. Making it
+ * required would mean claiming reports contain a section they never did.
+ */
+export type ReportAttendance = {
+  daysPresent: number;
+  daysLate: number;
+  daysAbsent: number;
+  daysOnLeave: number;
+  checksPassed: number;
+  checksTotal: number;
+  /** Null when no check was answered in the period. */
+  avgResponseSeconds: number | null;
+  minutesWorked: number;
+};
+
 export type MemberReportPayload = {
   version: typeof PAYLOAD_VERSION;
   kind: "MEMBER";
@@ -60,6 +79,8 @@ export type MemberReportPayload = {
     rejected: number;
   };
   onTimeRate: number;
+  /** Absent on reports frozen before Phase 7. */
+  attendance?: ReportAttendance;
   narrative: { second: string; third: string };
 };
 

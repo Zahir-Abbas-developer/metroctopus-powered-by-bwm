@@ -122,6 +122,61 @@ describe("narrateMemberReport", () => {
     assert.match(text, /Watch out: 1 missed deadline, 2 late deliveries and 1 rejection\./);
   });
 
+  it("reports availability checks in both voices", () => {
+    const attendance = { checksPassed: 68, checksTotal: 72, daysAbsent: 0, daysLate: 0 };
+
+    assert.match(
+      narrateMemberReport(facts({ attendance })),
+      /You passed 68 of 72 availability checks this month\./,
+    );
+    assert.match(
+      narrateMemberReport(facts({ attendance }), "third"),
+      /Ayesha passed 68 of 72 availability checks this month\./,
+    );
+  });
+
+  it("says so plainly when every check was answered", () => {
+    const text = narrateMemberReport(
+      facts({ attendance: { checksPassed: 72, checksTotal: 72, daysAbsent: 0, daysLate: 0 } }),
+    );
+    assert.match(text, /You answered all 72 availability checks this month\./);
+    assert.doesNotMatch(text, /72 of 72/);
+  });
+
+  it("says nothing about checks when none were scheduled", () => {
+    const text = narrateMemberReport(
+      facts({ attendance: { checksPassed: 0, checksTotal: 0, daysAbsent: 0, daysLate: 0 } }),
+    );
+    assert.doesNotMatch(text, /availability check/);
+  });
+
+  it("keeps absences out of the delivery warning, so a module isn't blamed for them", () => {
+    const text = narrateMemberReport(
+      facts({
+        troubleArea: "Google Ads reporting",
+        attendance: { checksPassed: 5, checksTotal: 6, daysAbsent: 2, daysLate: 3 },
+      }),
+    );
+
+    assert.match(text, /Watch out: 1 late delivery in Google Ads reporting\./);
+    assert.match(text, /Also on the record: 2 absent days and 3 late starts\./);
+    assert.doesNotMatch(text, /absent days? in Google Ads/);
+  });
+
+  it("doesn't claim nothing slipped when someone was absent", () => {
+    const text = narrateMemberReport(
+      facts({
+        lateCount: 0,
+        completedOnTime: 10,
+        troubleArea: null,
+        attendance: { checksPassed: 6, checksTotal: 6, daysAbsent: 1, daysLate: 0 },
+      }),
+    );
+
+    assert.doesNotMatch(text, /Nothing slipped/);
+    assert.match(text, /Also on the record: 1 absent day\./);
+  });
+
   it("omits the location when there isn't one", () => {
     const text = narrateMemberReport(facts({ troubleArea: null }));
     assert.match(text, /Watch out: 1 late delivery\./);

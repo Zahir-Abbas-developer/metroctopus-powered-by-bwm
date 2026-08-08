@@ -12,6 +12,8 @@ export type NavKey =
   | "clients"
   | "projects"
   | "my-tasks"
+  | "my-attendance"
+  | "attendance"
   | "my-performance"
   | "my-reports"
   | "team"
@@ -42,6 +44,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: "clients", label: "Clients", href: "/clients", roles: ["ADMIN"] },
   { key: "projects", label: "Projects", href: "/projects", roles: ["ADMIN"] },
   { key: "my-tasks", label: "My tasks", href: "/my-tasks", roles: ["ADMIN", "MEMBER"] },
+  {
+    key: "my-attendance",
+    label: "My attendance",
+    href: "/my-attendance",
+    roles: ["ADMIN", "MEMBER"],
+  },
+  { key: "attendance", label: "Attendance", href: "/attendance", roles: ["ADMIN"] },
   {
     key: "my-performance",
     label: "My performance",

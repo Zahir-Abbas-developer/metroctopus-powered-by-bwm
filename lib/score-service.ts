@@ -45,7 +45,7 @@ export async function applyEvents(
       await prisma.scoreEvent.create({
         data: {
           userId: proposal.userId,
-          milestoneId: proposal.milestoneId,
+          milestoneId: proposal.milestoneId ?? null,
           type: proposal.type,
           points: proposal.points,
           reason: proposal.reason,

@@ -9,6 +9,7 @@ import { applyEvents } from "@/lib/score-service";
 import { evaluateCompletion, evaluateMissed, type MilestoneFacts } from "@/lib/scoring";
 import { notifyDueTomorrow, notifyOverdue } from "@/lib/notifications";
 import { generateReports, type GenerationResult, type ReportType } from "@/lib/reports";
+import { runDailyAttendanceSweep, type DailySweepResult } from "@/lib/attendance";
 
 /**
  * The daily evaluation pass.
@@ -40,6 +41,7 @@ export type EvaluationResult = {
   milestonesMissed: number;
   missedPointsApplied: number;
   notificationsSent: number;
+  attendance: DailySweepResult;
   reports: GenerationResult | null;
 };
 
@@ -47,6 +49,10 @@ export async function runEvaluation(
   now: Date = new Date(),
   options: { generateReports?: boolean } = {},
 ): Promise<EvaluationResult> {
+  // Attendance first: absences and missed checks become score events before
+  // any report is frozen, so a report never omits a charge the same run made.
+  const attendance = await runDailyAttendanceSweep(now);
+
   const deadlines = await raiseDeadlineNotices(now);
   const lateOrBonusApplied = await catchUpCompletions();
   const closeout = await closeOutEndedProjects(now);
@@ -70,6 +76,7 @@ export async function runEvaluation(
     lateOrBonusApplied,
     ...closeout,
     notificationsSent: deadlines.sent,
+    attendance,
     reports,
   };
 }

@@ -9,6 +9,7 @@ import {
   Timer,
   TriangleAlert,
   Trophy,
+  UserCheck,
 } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
@@ -34,7 +35,9 @@ import { StatCard } from "@/components/ui/StatCard";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { RunEvaluationButton } from "@/components/dashboard/RunEvaluationButton";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
+import { AttendanceCard } from "@/components/attendance/AttendanceCard";
 import { recentActivity } from "@/lib/activity";
+import { karachiDay } from "@/lib/attendance-time";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -99,6 +102,18 @@ export default async function DashboardPage({
 
   // Owner-only: the feed spans everyone's work by definition.
   const activity = isAdmin ? await recentActivity(20) : [];
+
+  // Today's attendance, read-only. Nothing is settled here — the member's own
+  // poll and the daily job do the writing, so opening a dashboard can never
+  // change somebody's score.
+  const todayDays = isAdmin
+    ? await prisma.attendanceDay.findMany({
+        where: { date: karachiDay(now), user: { role: "MEMBER", isActive: true } },
+        select: { clockInAt: true, clockOutAt: true },
+      })
+    : [];
+  const presentToday = todayDays.filter((day) => day.clockInAt).length;
+  const stillWorking = todayDays.filter((day) => day.clockInAt && !day.clockOutAt).length;
 
   const memberIds = members.map((member) => member.id);
   const [scores, onTimeByMember] = await Promise.all([
@@ -169,6 +184,9 @@ export default async function DashboardPage({
         </div>
       </PageHeader>
 
+      {/* The day itself, before anything about the month. */}
+      {!isAdmin && <AttendanceCard />}
+
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
           <h2 className="font-display text-lg font-bold tracking-tight text-ink">
@@ -177,7 +195,11 @@ export default async function DashboardPage({
           {isAdmin && <RunEvaluationButton />}
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div
+          className={`grid gap-4 sm:grid-cols-2 ${
+            isAdmin ? "xl:grid-cols-5" : "xl:grid-cols-4"
+          }`}
+        >
           <StatCard
             label="Active clients"
             value={activeClients}
@@ -224,6 +246,29 @@ export default async function DashboardPage({
             }
             hint="Starts at 100 each month"
           />
+          {isAdmin && (
+            <StatCard
+              label="Team present today"
+              value={presentToday}
+              icon={UserCheck}
+              tone={
+                members.length === 0
+                  ? "neutral"
+                  : presentToday === members.length
+                    ? "success"
+                    : presentToday === 0
+                      ? "danger"
+                      : "warning"
+              }
+              hint={
+                presentToday === 0
+                  ? `Nobody of ${members.length} has clocked in`
+                  : stillWorking === presentToday
+                    ? `of ${members.length} · all still working`
+                    : `of ${members.length} · ${stillWorking} still working`
+              }
+            />
+          )}
         </div>
       </section>
 

@@ -19,6 +19,7 @@ import {
   reportDedupeKey,
   type ClientReportPayload,
   type MemberReportPayload,
+  type ReportAttendance,
   type ReportPayload,
   type ReportType,
 } from "@/lib/report-types";
@@ -110,6 +111,8 @@ async function buildMemberPayload(
     }),
   ]);
 
+  const attendance = await buildAttendanceSummary(userId, periodStart, rangeEnd);
+
   const score = monthlyScore(cycleEvents.map((event) => event.points));
   const previousScore =
     previousEvents.length === 0 && cycleEvents.length === 0
@@ -151,6 +154,12 @@ async function buildMemberPayload(
     score,
     delta: previousScore === null ? null : round(score - previousScore),
     troubleArea,
+    attendance: {
+      checksPassed: attendance.checksPassed,
+      checksTotal: attendance.checksTotal,
+      daysAbsent: attendance.daysAbsent,
+      daysLate: attendance.daysLate,
+    },
   };
 
   return {
@@ -190,10 +199,63 @@ async function buildMemberPayload(
     },
     onTimeRate:
       completed.length === 0 ? 0 : Math.round((onTime / completed.length) * 100),
+    attendance,
     narrative: {
       second: narrateMemberReport(narrativeFacts, "second"),
       third: narrateMemberReport(narrativeFacts, "third"),
     },
+  };
+}
+
+/**
+ * The attendance half of a member report.
+ *
+ * Reads only — the report states what the ledger and the attendance tables
+ * already say. Checks are counted by the day they belong to, so a check that
+ * fired at 9 PM on the last day of the period is inside it.
+ */
+async function buildAttendanceSummary(
+  userId: string,
+  periodStart: Date,
+  rangeEnd: Date,
+): Promise<ReportAttendance> {
+  const days = await prisma.attendanceDay.findMany({
+    where: { userId, date: { gte: periodStart, lt: rangeEnd } },
+    select: {
+      status: true,
+      totalMinutes: true,
+      checks: { select: { status: true, scheduledAt: true, respondedAt: true } },
+    },
+  });
+
+  const checks = days.flatMap((day) => day.checks);
+  const answered = checks.filter(
+    (check) => check.status === "PASSED" && check.respondedAt !== null,
+  );
+
+  // "Total" excludes cancelled checks: a check that was withdrawn when someone
+  // clocked out was never put to them, so counting it would depress the ratio
+  // for something that never happened.
+  const counted = checks.filter((check) => check.status !== "CANCELLED");
+
+  const responseSeconds = answered.map((check) =>
+    Math.max(0, Math.round((check.respondedAt!.getTime() - check.scheduledAt.getTime()) / 1000)),
+  );
+
+  return {
+    daysPresent: days.filter((day) => day.status === "PRESENT" || day.status === "LATE").length,
+    daysLate: days.filter((day) => day.status === "LATE").length,
+    daysAbsent: days.filter((day) => day.status === "ABSENT").length,
+    daysOnLeave: days.filter((day) => day.status === "LEAVE").length,
+    checksPassed: checks.filter((check) => check.status === "PASSED").length,
+    checksTotal: counted.length,
+    avgResponseSeconds:
+      responseSeconds.length === 0
+        ? null
+        : Math.round(
+            responseSeconds.reduce((sum, value) => sum + value, 0) / responseSeconds.length,
+          ),
+    minutesWorked: days.reduce((sum, day) => sum + (day.totalMinutes ?? 0), 0),
   };
 }
 

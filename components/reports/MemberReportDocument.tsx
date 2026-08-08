@@ -1,6 +1,9 @@
 import {
+  AlarmClock,
   ArrowDownRight,
   ArrowUpRight,
+  BellOff,
+  CalendarX,
   Clock3,
   Minus,
   ScrollText,
@@ -23,6 +26,9 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   REJECTED: ThumbsDown,
   EARLY_BONUS: TrendingUp,
   MANUAL_ADJUST: SlidersHorizontal,
+  ATTENDANCE_MISS: BellOff,
+  LATE_CLOCK_IN: AlarmClock,
+  ABSENT_DAY: CalendarX,
 };
 
 /**
@@ -118,6 +124,66 @@ export function MemberReportDocument({
           tone={milestones.missed > 0 ? "bad" : undefined}
         />
       </section>
+
+      {/* Attendance — absent on reports frozen before Phase 7. */}
+      {payload.attendance && (
+        <section className="report-section space-y-3">
+          <div>
+            <h2 className="font-display text-base font-bold tracking-tight text-ink">
+              Attendance
+            </h2>
+            <p className="mt-0.5 text-[13px] text-ink/50">
+              Days worked and the random availability checks that were answered.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <Figure
+              label="Days present"
+              value={payload.attendance.daysPresent}
+              hint="Clocked in"
+            />
+            <Figure
+              label="Days late"
+              value={payload.attendance.daysLate}
+              hint="After the grace period"
+              tone={payload.attendance.daysLate > 0 ? "bad" : undefined}
+            />
+            <Figure
+              label="Days absent"
+              value={payload.attendance.daysAbsent}
+              hint="No clock-in, no leave"
+              tone={payload.attendance.daysAbsent > 0 ? "bad" : undefined}
+            />
+            <Figure
+              label="Checks passed"
+              value={
+                payload.attendance.checksTotal === 0
+                  ? "—"
+                  : `${payload.attendance.checksPassed}/${payload.attendance.checksTotal}`
+              }
+              hint="Answered inside the window"
+              tone={
+                payload.attendance.checksTotal > 0 &&
+                payload.attendance.checksPassed === payload.attendance.checksTotal
+                  ? "good"
+                  : payload.attendance.checksPassed < payload.attendance.checksTotal
+                    ? "bad"
+                    : undefined
+              }
+            />
+            <Figure
+              label="Avg response"
+              value={
+                payload.attendance.avgResponseSeconds === null
+                  ? "—"
+                  : formatResponse(payload.attendance.avgResponseSeconds)
+              }
+              hint="From check to confirmation"
+            />
+          </div>
+        </section>
+      )}
 
       {/* Points */}
       <section className="report-section rounded-card border border-line bg-white">
@@ -252,7 +318,8 @@ function Figure({
   tone,
 }: {
   label: string;
-  value: number;
+  /** A ratio like "4/5" or an em dash reads as a figure too. */
+  value: number | string;
   hint: string;
   tone?: "good" | "bad";
 }) {
@@ -261,7 +328,7 @@ function Figure({
       <p className="eyebrow text-ink/45">{label}</p>
       <p
         className={cn(
-          "mt-4 font-display text-[32px] font-extrabold leading-none tracking-[-0.03em]",
+          "mt-4 font-display text-[32px] font-extrabold leading-none tracking-[-0.03em] tabular-nums",
           tone === "good" && "text-brand",
           tone === "bad" && "text-danger",
           !tone && "text-ink",
@@ -272,6 +339,14 @@ function Figure({
       <p className="mt-2 text-[12px] text-ink/45">{hint}</p>
     </div>
   );
+}
+
+/** "42s" up to a minute, then "3m 10s" — a raw 190 means nothing at a glance. */
+function formatResponse(seconds: number): string {
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
 }
 
 function PointsCell({
