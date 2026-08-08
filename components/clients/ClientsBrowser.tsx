@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Building2, Plus, Search, SlidersHorizontal } from "lucide-react";
+import { Building2, Layers, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
@@ -10,6 +10,10 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { ClientCard } from "@/components/clients/ClientCard";
 import { ClientWizard } from "@/components/clients/ClientWizard";
+import {
+  ServiceCatalogModal,
+  type CatalogService,
+} from "@/components/clients/ServiceCatalogModal";
 import { CLIENT_STATUSES, CLIENT_STATUS_LABEL, type ClientStatus } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { ClientSummary, ServiceSummary } from "@/lib/types";
@@ -19,12 +23,21 @@ type Status = "loading" | "ready" | "error";
 
 const FILTERS: Filter[] = ["ALL", ...CLIENT_STATUSES];
 
-export function ClientsBrowser({ services }: { services: ServiceSummary[] }) {
+export function ClientsBrowser({
+  services,
+  catalog,
+}: {
+  /** Active services, for the onboarding wizard. */
+  services: ServiceSummary[];
+  /** Every service including retired ones, for the catalogue manager. */
+  catalog: CatalogService[];
+}) {
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -73,9 +86,18 @@ export function ClientsBrowser({ services }: { services: ServiceSummary[] }) {
         title="Clients"
         description="Every account on retainer, what they've bought, and how this month's delivery is tracking."
         actions={
-          <Button icon={<Plus className="h-4 w-4" />} onClick={() => setWizardOpen(true)}>
-            Onboard client
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              icon={<Layers className="h-4 w-4" />}
+              onClick={() => setCatalogOpen(true)}
+            >
+              Services
+            </Button>
+            <Button icon={<Plus className="h-4 w-4" />} onClick={() => setWizardOpen(true)}>
+              Onboard client
+            </Button>
+          </>
         }
       />
 
@@ -185,6 +207,12 @@ export function ClientsBrowser({ services }: { services: ServiceSummary[] }) {
         open={wizardOpen}
         services={services}
         onClose={() => setWizardOpen(false)}
+      />
+
+      <ServiceCatalogModal
+        open={catalogOpen}
+        services={catalog}
+        onClose={() => setCatalogOpen(false)}
       />
     </div>
   );

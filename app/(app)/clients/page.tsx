@@ -12,12 +12,24 @@ export default async function ClientsPage() {
   await requireAdmin();
 
   // The catalogue is small and rarely changes, so it ships with the page
-  // rather than costing the wizard an extra request when it opens.
-  const services = await prisma.serviceCatalog.findMany({
-    where: { isActive: true },
+  // rather than costing the wizard an extra request when it opens. Retired
+  // services come along too — the catalogue manager needs to show them so they
+  // can be restored.
+  const catalog = await prisma.serviceCatalog.findMany({
     orderBy: { order: "asc" },
-    select: { id: true, name: true, slug: true, description: true },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      description: true,
+      isActive: true,
+    },
   });
 
-  return <ClientsBrowser services={services} />;
+  return (
+    <ClientsBrowser
+      catalog={catalog}
+      services={catalog.filter((service) => service.isActive)}
+    />
+  );
 }

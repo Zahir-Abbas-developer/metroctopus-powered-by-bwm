@@ -360,3 +360,97 @@ Score bands: 90–100 Excellent (green), 75–89 Good (blue), 60–74 Needs atte
 
 Weekly and monthly report generation for the owner and each member, built on
 the ledger this phase produced.
+
+---
+
+## Phase 2 acceptance & launch check (8 August 2026)
+
+Phase 2 was re-issued, so rather than rebuild it the existing implementation
+was audited line by line against the brief, the one real gap was closed, and
+the whole thing was launched from an empty database to prove it runs.
+
+### The gap that was found
+
+The brief describes `ServiceCatalog` as **admin-editable**. It was seeded and
+readable, and an unused `POST /api/services` existed, but there was no UI, no
+way to rename or retire a service, and — more importantly — no way to use one.
+A service the owner adds has no built-in planning template, so its projects
+arrived with nowhere to put the work.
+
+Closed with:
+
+- `PATCH /api/services/[id]` — rename, reword, retire, restore. The `slug` is
+  deliberately immutable, because it keys the planning template: renaming
+  "Google Ads Management" must not orphan the plan it generates. The last
+  active service cannot be retired, which would otherwise leave the onboarding
+  wizard with nothing to offer and no route back.
+- **Services** button on `/clients` opening a catalogue manager — add, rename,
+  retire and restore, with each row stating whether it carries a template.
+- `POST /api/modules` and `DELETE /api/modules/[id]`, plus an **Add a
+  workstream** action on the planner. Deleting is refused while a workstream
+  still holds milestones, since it would cascade through them.
+
+### Launch check
+
+Run from a clean slate — database file deleted, `.next` removed:
+
+| Step | Result |
+| --- | --- |
+| `prisma db push` onto an empty file | schema in sync |
+| `npm run db:seed` | 7 users, 5 clients, 4 projects, 12 modules, 55 milestones, 27 score events |
+| `npm test` | 39/39 |
+| `next lint` | clean |
+| `next build` | clean, 26 routes |
+| `npm start` + full acceptance suite | 126/126 |
+
+### Acceptance coverage
+
+126 checks against the running production build, mapped to the brief:
+
+- **Data model** — every field the brief lists on `Client`, `Project`,
+  `Module` and `Milestone` asserted present, `weight` defaulting to 3, the
+  many-to-many join table, and all five offerings seeded under their exact
+  names.
+- **Client management** — the card grid asserted on *rendered* output, not
+  server HTML, since it fetches in the browser: business name, industry, status
+  pill, budget, service badges, progress. Filters, search, and all three detail
+  tabs.
+- **Wizard** — its three steps opened and read in a real browser, then the
+  request it sends: client created, first project created, `endDate` defaulting
+  to start + 30 days, services linked, and the project page reachable.
+- **Templates** — 3 services + reporting = 4 modules; 5/5/5/4 milestones; every
+  Google Ads weight from the brief (4, 5, 3, 3, 4); Shopify starting at audit;
+  Creative starting at research; the four weekly reports exactly 7 days apart
+  and left unassigned; 15 delivery milestones auto-assigned.
+- **Planner** — header, days-remaining, completion, assignee chips, status
+  pills, and weight rendered as dots verified through the DOM. Add, edit,
+  reassign, reorder and delete all exercised, and a member refused.
+- **Catalogue** — add, rename (slug unchanged), retire, hidden from the wizard
+  while retired, restore, and a member refused.
+- **Member view** — groups compared against what the data implies, own-work-only
+  scope verified against the database, the full PENDING → IN_PROGRESS →
+  SUBMITTED flow, COMPLETED refused for a member and accepted for the owner.
+- **Dashboard** — each tile's figure read out of the rendered page and compared
+  against a live count from the database.
+
+### On the test harness
+
+Six rounds of "failures" in this pass were the harness, not the app — worth
+recording so the next suite avoids them:
+
+1. JSON bodies written inline inside `"$( ... )"` have their `\"` escapes
+   mangled and arrive truncated. Every body now goes through a variable.
+2. `UID` is readonly in bash; assigning to it silently leaves the shell's own
+   uid in place.
+3. `innerText` concatenates a heading with its count, so "Overdue2" defeats
+   `grep -w`.
+4. `innerText` never contains an input's placeholder — that needs a DOM
+   attribute read.
+5. Pages that fetch client-side have none of their data in server HTML, so
+   `curl | grep` proves nothing about what the user sees.
+6. Asserting that all three task groups always render was simply wrong: empty
+   groups are hidden by design. The check now derives the expected set from the
+   data.
+
+Only one behaviour changed as a result of this pass — the catalogue gap above.
+Everything else the brief asks for was already in place and is now proven.

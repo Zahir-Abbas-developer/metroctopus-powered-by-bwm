@@ -54,6 +54,7 @@ export const config = {
     "/api/clients/:path*",
     "/api/services/:path*",
     "/api/projects/:path*",
+    "/api/modules/:path*",
     "/api/milestones/:path*",
     "/api/score-events/:path*",
     "/api/my-tasks/:path*",

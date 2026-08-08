@@ -3,12 +3,21 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowLeft, CheckCircle2, ListChecks, Plus } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  CheckCircle2,
+  FolderPlus,
+  ListChecks,
+  Plus,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Input } from "@/components/ui/Input";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { MilestoneModal } from "@/components/projects/MilestoneModal";
 import { MilestoneRowItem, type MemberOption } from "@/components/projects/MilestoneRowItem";
@@ -52,6 +61,7 @@ export function ProjectPlanner({
     null,
   );
   const [rejecting, setRejecting] = useState<MilestoneRow | null>(null);
+  const [newWorkstream, setNewWorkstream] = useState<string | null>(null);
 
   const stats = useMemo(() => {
     const all = modules.flatMap((module) => module.milestones);
@@ -234,14 +244,35 @@ export function ProjectPlanner({
                     </p>
                   </div>
 
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    icon={<Plus className="h-3.5 w-3.5" />}
-                    onClick={() => setEditing({ module, milestone: null })}
-                  >
-                    Add milestone
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      icon={<Plus className="h-3.5 w-3.5" />}
+                      onClick={() => setEditing({ module, milestone: null })}
+                    >
+                      Add milestone
+                    </Button>
+
+                    {/* An empty workstream is removable; one with work is not,
+                        since deleting would cascade through its milestones. */}
+                    {module.milestones.length === 0 && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        aria-label={`Remove ${module.name}`}
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        onClick={() => {
+                          void mutate(
+                            module.id,
+                            () => fetch(`/api/modules/${module.id}`, { method: "DELETE" }),
+                            "Workstream removed.",
+                          );
+                        }}
+                        className="hover:text-danger"
+                      />
+                    )}
+                  </div>
                 </div>
 
                 {module.milestones.length === 0 ? (
@@ -303,6 +334,57 @@ export function ProjectPlanner({
               </Card>
             );
           })}
+        </div>
+      )}
+
+      {/* Add a workstream — the way a service with no built-in template, or
+          any ad-hoc piece of work, gets a home in the plan. */}
+      {newWorkstream === null ? (
+        <button
+          type="button"
+          onClick={() => setNewWorkstream("")}
+          className="flex w-full items-center justify-center gap-2 rounded-card border border-dashed border-line px-5 py-4 text-[13px] text-ink/45 transition-colors hover:border-ink/25 hover:bg-cream/50 hover:text-ink"
+        >
+          <FolderPlus className="h-4 w-4" />
+          Add a workstream
+        </button>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2.5 rounded-card border border-line bg-white p-4">
+          <Input
+            autoFocus
+            label="Workstream name"
+            placeholder="Email & SMS Marketing"
+            value={newWorkstream}
+            onChange={(event) => setNewWorkstream(event.target.value)}
+            className="min-w-[200px]"
+          />
+          <Button
+            onClick={() => {
+              const name = newWorkstream.trim();
+              if (name.length < 2) {
+                setError("A workstream needs a name of at least 2 characters.");
+                return;
+              }
+              void mutate(
+                "new-module",
+                () =>
+                  fetch("/api/modules", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ projectId: project.id, name }),
+                  }),
+                "Workstream added.",
+              ).then((ok) => {
+                if (ok) setNewWorkstream(null);
+              });
+            }}
+            loading={busyId === "new-module"}
+          >
+            Add
+          </Button>
+          <Button variant="ghost" onClick={() => setNewWorkstream(null)}>
+            Cancel
+          </Button>
         </div>
       )}
 
