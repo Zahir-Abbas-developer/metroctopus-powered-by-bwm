@@ -322,6 +322,7 @@ async function main() {
   const scoreEvents = await backfillScoreEvents(admin.id);
   // After the backfill: it clears the ledger, and attendance writes into it.
   const attendance = await seedAttendance();
+  const fairness = await seedFairness(admin.id);
   const { reports, notifications } = await seedReportsAndNotifications();
   const collab = await seedCollaboration(admin.id);
 
@@ -334,6 +335,7 @@ async function main() {
     attendanceDays: attendance.attendanceDays,
     availabilityChecks: attendance.availabilityChecks,
     leaveRequests: attendance.leaveRequests,
+    ...fairness,
     ...collab,
   });
 }
@@ -562,6 +564,240 @@ async function createAttendanceEvent(event: {
 }
 
 /**
+ * The Phase 8 fairness surfaces, with enough in them to be worth looking at:
+ * work blocked on a client, a couple of outage reports awaiting a decision,
+ * and some protected break time.
+ *
+ * Deliberately built out of the real service functions where the clock matters
+ * — a hand-written BlockPeriod row would be a fixture that agrees with the
+ * schema but not necessarily with `blockMilestone`.
+ */
+async function seedFairness(adminId: string) {
+  await prisma.blockPeriod.deleteMany({});
+  await prisma.outageReport.deleteMany({});
+  await prisma.breakSession.deleteMany({});
+  await prisma.milestone.updateMany({
+    data: {
+      blockedReason: null,
+      blockedNote: null,
+      blockedSince: null,
+      blockedMinutes: 0,
+      statusBeforeBlock: null,
+      blockingMilestoneId: null,
+    },
+  });
+
+  const now = new Date();
+  let blocks = 0;
+  let outages = 0;
+  let breaks = 0;
+
+  // --- Blocked work ---------------------------------------------------------
+  const open = await prisma.milestone.findMany({
+    where: { status: "IN_PROGRESS", assigneeId: { not: null } },
+    orderBy: { dueDate: "asc" },
+    take: 3,
+    select: { id: true, assigneeId: true },
+  });
+
+  const blockScenarios = [
+    {
+      reason: "CLIENT",
+      note: "Waiting on the client to approve ad account access — requested Monday.",
+      startedDaysAgo: 3.2,
+      close: false,
+    },
+    {
+      reason: "EXTERNAL",
+      note: "Meta review has the campaign in pending status; nothing to do until it clears.",
+      startedDaysAgo: 1.4,
+      close: false,
+    },
+    {
+      reason: "CLIENT",
+      note: "Product photography never arrived; chased twice.",
+      startedDaysAgo: 6,
+      close: true,
+    },
+  ];
+
+  for (const [index, milestone] of open.entries()) {
+    const scenario = blockScenarios[index];
+    if (!scenario || !milestone.assigneeId) continue;
+
+    const startedAt = addDays(now, -scenario.startedDaysAgo);
+
+    if (scenario.close) {
+      // A block that already ended: the time is banked and the deadline has
+      // moved, which is what makes the shifted-deadline chip visible.
+      const endedAt = addDays(startedAt, 2.1);
+      const minutes = Math.round((endedAt.getTime() - startedAt.getTime()) / 60_000);
+
+      await prisma.blockPeriod.create({
+        data: {
+          milestoneId: milestone.id,
+          reason: scenario.reason,
+          note: scenario.note,
+          startedAt,
+          endedAt,
+          minutes,
+          createdById: milestone.assigneeId,
+          releasedById: milestone.assigneeId,
+        },
+      });
+      await prisma.milestone.update({
+        where: { id: milestone.id },
+        data: { blockedMinutes: minutes },
+      });
+    } else {
+      await prisma.blockPeriod.create({
+        data: {
+          milestoneId: milestone.id,
+          reason: scenario.reason,
+          note: scenario.note,
+          startedAt,
+          createdById: milestone.assigneeId,
+        },
+      });
+      await prisma.milestone.update({
+        where: { id: milestone.id },
+        data: {
+          status: "BLOCKED",
+          statusBeforeBlock: "IN_PROGRESS",
+          blockedReason: scenario.reason,
+          blockedNote: scenario.note,
+          blockedSince: startedAt,
+        },
+      });
+    }
+    blocks += 1;
+  }
+
+  // --- Outage reports -------------------------------------------------------
+  const team = await prisma.user.findMany({
+    where: { role: "MEMBER", isActive: true },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+
+  const outageScenarios = [
+    {
+      type: "POWER",
+      note: "Load-shedding block, no backup power until the evening.",
+      status: "PENDING",
+    },
+    {
+      type: "INTERNET",
+      note: "Fibre cut in the area — confirmed with the ISP.",
+      status: "APPROVED",
+    },
+  ];
+
+  for (const [index, scenario] of outageScenarios.entries()) {
+    const member = team[index];
+    if (!member) continue;
+
+    // Built around a check that actually exists, rather than at an arbitrary
+    // hour: an outage that overlaps nothing produces an inbox row with nothing
+    // to decide, which is a fixture that agrees with the schema and with
+    // nothing else.
+    const target = await prisma.availabilityCheck.findFirst({
+      where: { status: "MISSED", day: { userId: member.id } },
+      orderBy: { scheduledAt: "desc" },
+      include: { day: { select: { userId: true } } },
+    });
+    if (!target) continue;
+
+    const startsAt = new Date(target.scheduledAt.getTime() - 20 * 60_000);
+    const endsAt = new Date(target.windowEndsAt.getTime() + 10 * 60_000);
+
+    const report = await prisma.outageReport.create({
+      data: {
+        userId: member.id,
+        type: scenario.type,
+        startsAt,
+        endsAt,
+        note: scenario.note,
+        status: scenario.status,
+        // Both were filed after the check had already expired — which is the
+        // normal case, because an outage stops you filing about it.
+        filedLate: true,
+        ...(scenario.status === "APPROVED"
+          ? { reviewedById: adminId, reviewedAt: addDays(endsAt, 0.4) }
+          : {}),
+      },
+    });
+
+    await prisma.availabilityCheck.update({
+      where: { id: target.id },
+      data: {
+        outageReportId: report.id,
+        status: scenario.status === "APPROVED" ? "EXCUSED" : "PENDING_REVIEW",
+      },
+    });
+
+    // An upheld outage reverses the charge it already produced. The original
+    // penalty stays on the ledger — the reversal sits beside it.
+    if (scenario.status === "APPROVED") {
+      const original = await prisma.scoreEvent.findUnique({
+        where: { dedupeKey: `check:${target.id}:MISS` },
+      });
+      if (original) {
+        const cycle = agencyYearMonth(original.createdAt);
+        await prisma.scoreEvent.create({
+          data: {
+            userId: original.userId,
+            milestoneId: null,
+            type: "MANUAL_ADJUST",
+            points: Math.abs(original.points),
+            reason: "Excused: missed availability check — outage reported (internet).",
+            year: cycle.year,
+            month: cycle.month,
+            dedupeKey: `excuse:${original.id}`,
+            createdById: adminId,
+          },
+        });
+      }
+    }
+    outages += 1;
+  }
+
+  // --- Break sessions -------------------------------------------------------
+  for (const [index, member] of team.entries()) {
+    for (let back = 1; back <= 5; back += 1) {
+      const day = karachiDay(addDays(now, -back));
+      if (!(await prisma.attendanceDay.findFirst({ where: { userId: member.id, date: day, clockInAt: { not: null } } }))) {
+        continue;
+      }
+
+      // Two prayer breaks and a meal — the ordinary shape of a shift here.
+      const pattern = [
+        { reason: "PRAYER", minutes: 15, atMinutes: 13 * 60 + 30 },
+        { reason: "MEAL", minutes: 30 + ((index + back) % 15), atMinutes: 16 * 60 },
+        { reason: "PRAYER", minutes: 15, atMinutes: 18 * 60 + 45 },
+      ];
+
+      for (const slot of pattern) {
+        const startedAt = karachiInstant(day, slot.atMinutes);
+        await prisma.breakSession.create({
+          data: {
+            userId: member.id,
+            date: day,
+            reason: slot.reason,
+            startedAt,
+            endedAt: new Date(startedAt.getTime() + slot.minutes * 60_000),
+            minutes: slot.minutes,
+          },
+        });
+        breaks += 1;
+      }
+    }
+  }
+
+  return { blockPeriods: blocks, outageReports: outages, breakSessions: breaks };
+}
+
+/**
  * A little conversation and history, so the drawer and the activity feed open
  * with something real in them rather than three empty states.
  */
@@ -761,27 +997,44 @@ async function seedReportsAndNotifications() {
 function sampleProgress(dueDate: Date, now: Date) {
   const deadline = dueDeadline(dueDate);
   const daysFromNow = Math.round((deadline.getTime() - now.getTime()) / 86_400_000);
+  const roll = Math.abs(hash(dueDate.toISOString()));
 
   if (daysFromNow < -6) {
     // Comfortably in the past: completed, most on time, one in three late.
-    const late = Math.abs(hash(dueDate.toISOString())) % 3 === 0;
+    //
+    // Engine v2 makes the gap between the two stamps meaningful, so the sample
+    // data deliberately includes an approval that landed days after a
+    // submission. Under v1 that member would have been charged LATE for the
+    // owner's delay; under v2 they are not, and the demo shows it.
+    const late = roll % 3 === 0;
+    const slowReview = roll % 5 === 0;
+    const submittedAt = addDays(deadline, late ? 1 : -2);
+
     return {
       status: "COMPLETED",
-      submittedAt: addDays(deadline, late ? 1 : -2),
-      completedAt: addDays(deadline, late ? 1.2 : -1.8),
+      submittedAt,
+      completedAt: addDays(submittedAt, slowReview ? 3.4 : 0.2),
+      adminReviewMinutes: Math.round((slowReview ? 3.4 : 0.2) * 24 * 60),
     };
   }
 
   if (daysFromNow < 0) {
-    // Recently past due and still open — the rows that should look alarming.
-    return { status: "SUBMITTED", submittedAt: addDays(now, -1), completedAt: null };
+    // Handed in and waiting on the owner. Ageing on purpose, so the review
+    // queue opens with green, amber and red rows in it.
+    const waitedDays = (roll % 4) * 0.9;
+    return {
+      status: "SUBMITTED",
+      submittedAt: addDays(now, -waitedDays - 0.2),
+      completedAt: null,
+      adminReviewMinutes: null,
+    };
   }
 
   if (daysFromNow <= 3) {
-    return { status: "IN_PROGRESS", submittedAt: null, completedAt: null };
+    return { status: "IN_PROGRESS", submittedAt: null, completedAt: null, adminReviewMinutes: null };
   }
 
-  return { status: "PENDING", submittedAt: null, completedAt: null };
+  return { status: "PENDING", submittedAt: null, completedAt: null, adminReviewMinutes: null };
 }
 
 /**
@@ -804,6 +1057,9 @@ async function backfillScoreEvents(adminId: string) {
       title: milestone.title,
       weight: milestone.weight,
       deadline: dueDeadline(milestone.dueDate),
+      blockedMinutes: milestone.blockedMinutes,
+      // Engine v2: lateness is judged here, on the submission.
+      submittedAt: milestone.submittedAt,
       completedAt: milestone.completedAt,
       assigneeId: milestone.assigneeId,
     };
@@ -816,7 +1072,10 @@ async function backfillScoreEvents(adminId: string) {
           : [];
 
     for (const proposal of proposals) {
-      const at = milestone.completedAt ?? milestone.module.project.endDate;
+      // Dated to the submission, not the approval — the event describes when
+      // the member delivered, so it belongs to that month's ledger.
+      const at =
+        milestone.submittedAt ?? milestone.completedAt ?? milestone.module.project.endDate;
       const cycle = agencyYearMonth(at);
       await prisma.scoreEvent.create({
         data: {
@@ -902,6 +1161,9 @@ function print(stats: {
   attendanceDays: number;
   availabilityChecks: number;
   leaveRequests: number;
+  blockPeriods: number;
+  outageReports: number;
+  breakSessions: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -926,6 +1188,10 @@ function print(stats: {
   console.log(
     `  ${stats.attendanceDays} attendance days · ${stats.availabilityChecks} checks · ` +
       `${stats.leaveRequests} leave requests`,
+  );
+  console.log(
+    `  ${stats.blockPeriods} block periods · ${stats.outageReports} outage reports · ` +
+      `${stats.breakSessions} break sessions`,
   );
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");

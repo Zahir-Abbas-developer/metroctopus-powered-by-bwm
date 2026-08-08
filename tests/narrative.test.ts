@@ -122,6 +122,34 @@ describe("narrateMemberReport", () => {
     assert.match(text, /Watch out: 1 missed deadline, 2 late deliveries and 1 rejection\./);
   });
 
+  it("names the load the score was earned against", () => {
+    const text = narrateMemberReport(
+      facts({ load: { count: 27, rank: 3, teamSize: 4 } }),
+    );
+    assert.match(text, /against 27 milestones\./);
+  });
+
+  it("says so when the load was the heaviest on the team", () => {
+    // The doctrine's example: a score is not comparable without its volume.
+    const text = narrateMemberReport(
+      facts({ score: 91, delta: null, load: { count: 31, rank: 1, teamSize: 4 } }),
+    );
+    assert.match(text, /carrying the heaviest load on the team — 31 milestones/);
+  });
+
+  it("doesn't claim a heaviest load in a team of one", () => {
+    const text = narrateMemberReport(
+      facts({ load: { count: 12, rank: 1, teamSize: 1 } }),
+    );
+    assert.match(text, /against 12 milestones/);
+    assert.doesNotMatch(text, /heaviest/);
+  });
+
+  it("says nothing about load when there was none", () => {
+    const text = narrateMemberReport(facts({ load: { count: 0, rank: null, teamSize: 4 } }));
+    assert.doesNotMatch(text, /milestones\./);
+  });
+
   it("reports availability checks in both voices", () => {
     const attendance = { checksPassed: 68, checksTotal: 72, daysAbsent: 0, daysLate: 0 };
 

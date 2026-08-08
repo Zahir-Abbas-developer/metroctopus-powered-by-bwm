@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { useToast } from "@/components/ui/Toast";
+import { BlockControl } from "@/components/board/BlockControl";
 import { CommentComposer, type MentionMember } from "@/components/board/CommentComposer";
 import {
   MILESTONE_STATUS_LABEL,
@@ -54,6 +55,11 @@ type Detail = {
     projectTitle: string;
     clientName: string;
     scoreImpact: number;
+    blockedReason: string | null;
+    blockedNote: string | null;
+    blockedSince: string | null;
+    blockedMinutes: number;
+    adminReviewMinutes: number | null;
   };
   comments: {
     id: string;
@@ -419,7 +425,35 @@ export function MilestoneDrawer({
                 {milestone.completedAt && (
                   <Row label="Approved">{formatDateTime(milestone.completedAt)}</Row>
                 )}
+                {/* The owner's own clock, shown only to the owner. */}
+                {viewerRole === "ADMIN" && milestone.adminReviewMinutes !== null && (
+                  <Row label="Your review took">
+                    {milestone.adminReviewMinutes < 60
+                      ? `${milestone.adminReviewMinutes} min`
+                      : `${Math.round((milestone.adminReviewMinutes / 60) * 10) / 10} h`}
+                  </Row>
+                )}
               </dl>
+
+              {/* Blocking lives with the facts rather than the footer: it is a
+                  statement about the work, not a workflow transition. */}
+              {milestone.status !== "COMPLETED" && milestone.status !== "MISSED" && (
+                <div className="mt-4">
+                  <BlockControl
+                    milestoneId={milestone.id}
+                    status={milestone.status}
+                    blockedReason={milestone.blockedReason}
+                    blockedNote={milestone.blockedNote}
+                    blockedMinutes={milestone.blockedMinutes}
+                    dueDate={milestone.dueDate}
+                    viewerIsAdmin={viewerRole === "ADMIN"}
+                    onChanged={() => {
+                      void load();
+                      onChanged();
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
 

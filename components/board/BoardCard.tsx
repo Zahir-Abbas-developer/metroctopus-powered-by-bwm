@@ -7,6 +7,8 @@ import { GripVertical } from "lucide-react";
 import { Avatar } from "@/components/ui/Avatar";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { dueUrgency, formatDate } from "@/lib/date";
+import { BLOCK_REASON_LABEL, type BlockReason } from "@/lib/fairness-types";
+import { effectiveDeadline } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
 import type { BoardMilestone } from "@/components/board/BoardView";
 
@@ -33,7 +35,17 @@ export function BoardCard({
     useSortable({ id: milestone.id, disabled: !draggable });
 
   const settled = milestone.status === "COMPLETED";
-  const urgency = settled ? "normal" : dueUrgency(milestone.dueDate);
+  const blocked = milestone.status === "BLOCKED";
+
+  // A blocked card must never show an urgency colour. Its deadline has moved,
+  // and a red chip on work the member cannot act on is the exact anxiety the
+  // pause exists to remove.
+  const urgency = settled || blocked ? "normal" : dueUrgency(milestone.dueDate);
+
+  const shifted =
+    milestone.blockedMinutes > 0
+      ? effectiveDeadline(new Date(milestone.dueDate), milestone.blockedMinutes)
+      : null;
 
   return (
     <div
@@ -44,7 +56,9 @@ export function BoardCard({
           : { transform: CSS.Transform.toString(transform), transition }
       }
       className={cn(
-        "group rounded-card border bg-white p-3.5 transition-colors",
+        "group rounded-card border p-3.5 transition-colors",
+        // Muted, not alarming: a block is a paused clock, not a failure.
+        blocked ? "border-dashed border-line bg-cream/50" : "bg-white",
         overlay
           ? "rotate-1 border-brand shadow-[0_14px_32px_-16px_rgba(12,12,10,0.5)]"
           : "border-line hover:border-ink/20",
@@ -83,6 +97,20 @@ export function BoardCard({
         </button>
       </div>
 
+      {blocked && milestone.blockedReason && (
+        <p className="mt-2.5 flex flex-wrap items-center gap-1.5 pl-1">
+          <span className="rounded-pill border border-line bg-white px-2 py-0.5 text-[10px] font-medium text-ink/60">
+            {BLOCK_REASON_LABEL[milestone.blockedReason as BlockReason] ??
+              milestone.blockedReason}
+          </span>
+          {milestone.blockedNote && (
+            <span className="min-w-0 flex-1 truncate text-[11px] text-ink/45">
+              {milestone.blockedNote}
+            </span>
+          )}
+        </p>
+      )}
+
       <div className="mt-3 flex items-center justify-between gap-2 pl-1">
         <div className="flex items-center gap-2">
           <WeightDots weight={milestone.weight} />
@@ -96,6 +124,15 @@ export function BoardCard({
           >
             {formatDate(milestone.dueDate)}
           </span>
+
+          {shifted && (
+            <span
+              className="whitespace-nowrap rounded-pill border border-info/25 bg-info-tint px-2 py-0.5 text-[11px] tabular-nums text-info"
+              title={`Deadline extended by blocked time to ${formatDate(shifted)}`}
+            >
+              → {formatDate(shifted)}
+            </span>
+          )}
         </div>
 
         {milestone.assignee ? (

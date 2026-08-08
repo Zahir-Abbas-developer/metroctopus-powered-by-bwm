@@ -27,6 +27,10 @@ type SettingsShape = {
   penaltyAbsentDay: number;
   penaltyMissedCheck: number;
   workdays: string;
+  breakAllowanceMinutes: number;
+  outageReportsPerMonth: number;
+  outageMaxHours: number;
+  reviewSlaHours: number;
 };
 
 const DAYS = [
@@ -302,6 +306,54 @@ export function SettingsPanel() {
             value={draft.penaltyAbsentDay}
             error={errors.penaltyAbsentDay}
             onChange={(event) => set("penaltyAbsentDay", Number(event.target.value))}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Fairness
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          The allowances that keep the scoring honest. None of these deduct
+          points — they set what counts as protected time, and how long work may
+          sit in your review queue before you&rsquo;re chased about it.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Daily break allowance (minutes)"
+            type="number"
+            min={0}
+            value={draft.breakAllowanceMinutes}
+            error={errors.breakAllowanceMinutes}
+            onChange={(event) => set("breakAllowanceMinutes", Number(event.target.value))}
+            hint="Prayer and meals. Never penalized, inside or outside the allowance."
+          />
+          <Input
+            label="Your review SLA (hours)"
+            type="number"
+            min={1}
+            value={draft.reviewSlaHours}
+            error={errors.reviewSlaHours}
+            onChange={(event) => set("reviewSlaHours", Number(event.target.value))}
+            hint="Submitted work older than this notifies you daily until cleared."
+          />
+          <Input
+            label="Outage reports per member, per month"
+            type="number"
+            min={0}
+            value={draft.outageReportsPerMonth}
+            error={errors.outageReportsPerMonth}
+            onChange={(event) => set("outageReportsPerMonth", Number(event.target.value))}
+          />
+          <Input
+            label="Longest single outage (hours)"
+            type="number"
+            min={1}
+            value={draft.outageMaxHours}
+            error={errors.outageMaxHours}
+            onChange={(event) => set("outageMaxHours", Number(event.target.value))}
           />
         </div>
       </Card>

@@ -25,6 +25,11 @@ export type AgencySettings = {
   penaltyAbsentDay: number;
   penaltyMissedCheck: number;
   workdays: number[];
+  // Phase 8 — fairness settings.
+  breakAllowanceMinutes: number;
+  outageReportsPerMonth: number;
+  outageMaxHours: number;
+  reviewSlaHours: number;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -42,6 +47,10 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   penaltyAbsentDay: 3,
   penaltyMissedCheck: 1,
   workdays: [1, 2, 3, 4, 5, 6],
+  breakAllowanceMinutes: 90,
+  outageReportsPerMonth: 4,
+  outageMaxHours: 4,
+  reviewSlaHours: 48,
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -66,6 +75,10 @@ export async function getSettings(): Promise<AgencySettings> {
     penaltyAbsentDay: row.penaltyAbsentDay,
     penaltyMissedCheck: row.penaltyMissedCheck,
     workdays: parseWorkdays(row.workdays),
+    breakAllowanceMinutes: row.breakAllowanceMinutes,
+    outageReportsPerMonth: row.outageReportsPerMonth,
+    outageMaxHours: row.outageMaxHours,
+    reviewSlaHours: row.reviewSlaHours,
   };
 }
 

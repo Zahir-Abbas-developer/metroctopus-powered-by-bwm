@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { progressForProjects } from "@/lib/planner";
+import { clientBlockedDays } from "@/lib/blocking";
 import { ClientDetail } from "@/components/clients/ClientDetail";
 import type { ClientStatus, ProjectStatus } from "@/lib/constants";
 
@@ -46,11 +47,23 @@ export default async function ClientDetailPage({
 
   if (!client) notFound();
 
-  const progress = await progressForProjects(client.projects.map((project) => project.id));
+  const [progress, waiting] = await Promise.all([
+    progressForProjects(client.projects.map((project) => project.id)),
+    // Delay this client caused, so a conversation about a late deliverable
+    // starts from data rather than from recollection.
+    clientBlockedDays(client.id),
+  ]);
 
   return (
     <ClientDetail
       services={services}
+      waiting={{
+        totalDays: waiting.totalDays,
+        openItems: waiting.openItems.map((item) => ({
+          ...item,
+          since: item.since.toISOString(),
+        })),
+      }}
       client={{
         id: client.id,
         businessName: client.businessName,

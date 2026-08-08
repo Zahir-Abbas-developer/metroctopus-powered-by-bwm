@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
+import { liveBlockedMinutes } from "@/lib/blocking";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import type { ActivityType } from "@/lib/activity";
@@ -80,6 +81,11 @@ export async function GET(
       projectTitle: milestone.module.project.title,
       clientName: milestone.module.project.client.businessName,
       scoreImpact: milestone.scoreEvents.reduce((sum, event) => sum + event.points, 0),
+      blockedReason: milestone.blockedReason,
+      blockedNote: milestone.blockedNote,
+      blockedSince: milestone.blockedSince,
+      blockedMinutes: liveBlockedMinutes(milestone),
+      adminReviewMinutes: milestone.adminReviewMinutes,
     },
     comments: milestone.comments.map((comment) => ({
       id: comment.id,

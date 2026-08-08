@@ -1,4 +1,4 @@
-import { CalendarClock, CheckCircle2, TriangleAlert } from "lucide-react";
+import { CalendarClock, CheckCircle2, Hourglass, TriangleAlert } from "lucide-react";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatDate, formatDateTime } from "@/lib/date";
@@ -86,6 +86,31 @@ export function ClientReportDocument({
           />
         ))}
       </Section>
+
+      {payload.awaitingInput && payload.awaitingInput.items.length > 0 && (
+        <Section
+          icon={Hourglass}
+          title="Items awaiting your input"
+          empty=""
+          count={payload.awaitingInput.items.length}
+        >
+          <p className="px-6 pb-1 pt-1 text-[13px] leading-relaxed text-ink/55">
+            These are paused on our side until we hear back —{" "}
+            {payload.awaitingInput.totalDays}{" "}
+            {payload.awaitingInput.totalDays === 1 ? "day" : "days"} in total so
+            far. Their deadlines move out by the same amount, so nothing is lost
+            by taking the time you need.
+          </p>
+          {payload.awaitingInput.items.map((item, index) => (
+            <Row
+              key={`${item.title}-${index}`}
+              module="Waiting"
+              title={item.title}
+              meta={`${item.note} · since ${formatDate(item.since)} (${item.days} day${item.days === 1 ? "" : "s"})`}
+            />
+          ))}
+        </Section>
+      )}
 
       {payload.overdue.length > 0 && (
         <Section

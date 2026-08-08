@@ -8,6 +8,7 @@ import {
   CalendarX,
   Clock3,
   Gauge,
+  Layers,
   Minus,
   ScrollText,
   SlidersHorizontal,
@@ -58,6 +59,7 @@ export function PerformanceProfile({
   ledger,
   cycle,
   onTime,
+  load,
   viewerIsAdmin,
   isSelf,
 }: {
@@ -66,6 +68,8 @@ export function PerformanceProfile({
   ledger: ScoreLedgerEntry[];
   cycle: Cycle;
   onTime: { onTime: number; total: number; rate: number };
+  /** Volume the score was earned against — never shown without it. */
+  load: { count: number; weight: number };
   viewerIsAdmin: boolean;
   isSelf: boolean;
 }) {
@@ -134,7 +138,7 @@ export function PerformanceProfile({
       </Card>
 
       {/* Supporting numbers */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-4">
         {/* No approvals yet is not the same as a 0% record — showing a red
             zero would read as failure when there is simply nothing to rate. */}
         <StatCard
@@ -153,8 +157,21 @@ export function PerformanceProfile({
           }
           hint={
             onTime.total === 0
-              ? "Nothing approved this month yet"
-              : `${onTime.onTime} of ${onTime.total} approved by their deadline`
+              ? "Nothing has come due this month yet"
+              : `${onTime.onTime} of ${onTime.total} submitted by their deadline`
+          }
+        />
+        {/* The volume the score was earned against — without it the number
+            above is not comparable to anyone else's. */}
+        <StatCard
+          label="Workload"
+          value={load.count}
+          icon={Layers}
+          tone="neutral"
+          hint={
+            load.count === 0
+              ? "Nothing due this month"
+              : `${load.count} due this month · total weight ${load.weight}`
           }
         />
         <StatCard

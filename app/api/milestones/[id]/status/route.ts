@@ -10,21 +10,29 @@ import { applyEvents } from "@/lib/score-service";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "@/lib/scoring";
 import { notifyApproved, notifyRejected } from "@/lib/notifications";
 import { recordScoreEvent, recordStatusChange } from "@/lib/activity";
+import { releaseDependents } from "@/lib/blocking";
 
 /**
  * The one place a milestone's status can change, because every scoring
  * consequence hangs off these transitions:
  *
- *   -> SUBMITTED              stamps submittedAt
- *   -> COMPLETED (admin)      stamps completedAt, then charges LATE or pays
- *                             EARLY_BONUS
- *   SUBMITTED -> IN_PROGRESS  a rejection: requires a written reason and
- *                (admin)      charges weight x 0.5
- *   -> MISSED (admin)         charges weight x 4
+ *   -> SUBMITTED              stamps submittedAt — the moment lateness is
+ *                             judged on, from Phase 8 onwards
+ *   -> COMPLETED (admin)      stamps completedAt and the review time, then
+ *                             charges LATE or pays EARLY_BONUS against the
+ *                             *submission*
+ *   SUBMITTED -> IN_PROGRESS  a rejection: requires a written reason, charges
+ *                (admin)      weight x 0.5, and clears submittedAt so the
+ *                             resubmission is what gets timed
+ *   -> MISSED (admin)         charges weight x 4, but only if nothing was ever
+ *                             submitted
  *
- * Members drive their own work forward but can never approve it. Completion is
- * what the score pays out on, so self-approval would make the whole measure
- * self-reported.
+ * Members drive their own work forward but can never approve it. Approval is
+ * what releases the work to the client, so self-approval would make delivery
+ * self-reported — but approval no longer times anything, so an owner sitting on
+ * a review can no longer cost a member points.
+ *
+ * BLOCKED is not reachable from here; see lib/blocking.ts and the /block route.
  */
 export async function POST(
   request: Request,
@@ -80,22 +88,50 @@ export async function POST(
   }
 
   const now = new Date();
+
+  // An owner approving work that was never submitted has no delivery moment to
+  // time. Stamping the approval as the submission is the honest reading — the
+  // record then says "delivered now" — and it keeps every scored milestone on
+  // one basis rather than quietly falling back to approval time.
+  const submittedAt =
+    to === "SUBMITTED"
+      ? now
+      : to === "COMPLETED"
+        ? (milestone.submittedAt ?? now)
+        : isRejection
+          ? null
+          : milestone.submittedAt;
+
   const facts = {
     id: milestone.id,
     title: milestone.title,
     weight: milestone.weight,
     deadline: dueDeadline(milestone.dueDate),
+    blockedMinutes: milestone.blockedMinutes,
+    submittedAt,
     completedAt: to === "COMPLETED" ? now : milestone.completedAt,
     assigneeId: milestone.assigneeId,
   };
+
+  // The owner's own clock: submission to decision. Tracked on approvals and
+  // rejections alike, because both are decisions the member was waiting on.
+  const decided = to === "COMPLETED" || isRejection;
+  const reviewMinutes =
+    decided && milestone.submittedAt
+      ? Math.max(0, Math.round((now.getTime() - milestone.submittedAt.getTime()) / 60_000))
+      : null;
 
   try {
     const updated = await prisma.milestone.update({
       where: { id: params.id },
       data: {
         status: to,
-        ...(to === "SUBMITTED" ? { submittedAt: now } : {}),
+        // Rejection clears the stamp so the resubmission is what gets timed.
+        // The rejection charge already covers the quality miss; timing the
+        // first attempt as well would punish one mistake twice.
+        submittedAt,
         ...(to === "COMPLETED" ? { completedAt: now } : {}),
+        ...(reviewMinutes !== null ? { adminReviewMinutes: reviewMinutes } : {}),
         // Reverting an approval clears the stamp, but the ledger entry it
         // produced stays — history is append-only. Use a manual adjustment to
         // compensate if an approval was genuinely a mistake.
@@ -137,6 +173,9 @@ export async function POST(
           points: proposals.reduce((sum, event) => sum + event.points, 0),
         });
       }
+
+      // Anything that was waiting on this milestone starts moving again.
+      await releaseDependents(milestone.id, user.id, now);
     } else if (isRejection) {
       const event = rejectionEvent(
         { id: milestone.id, title: milestone.title, weight: milestone.weight, assigneeId: milestone.assigneeId },
@@ -165,7 +204,13 @@ export async function POST(
         });
       }
     } else if (to === "MISSED") {
-      scored = await applyEvents(evaluateMissed({ ...facts, completedAt: null }), { at: now });
+      // Only work that was never handed in can be MISSED. Something sitting in
+      // the review queue was delivered; that it hasn't been signed off is the
+      // owner's backlog.
+      scored = await applyEvents(
+        evaluateMissed({ ...facts, completedAt: null, submittedAt: milestone.submittedAt }),
+        { at: now },
+      );
     }
 
     return NextResponse.json({ milestone: updated, scored });

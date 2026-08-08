@@ -10,6 +10,7 @@ import { evaluateCompletion, evaluateMissed, type MilestoneFacts } from "@/lib/s
 import { notifyDueTomorrow, notifyOverdue } from "@/lib/notifications";
 import { generateReports, type GenerationResult, type ReportType } from "@/lib/reports";
 import { runDailyAttendanceSweep, type DailySweepResult } from "@/lib/attendance";
+import { chaseStaleReviews } from "@/lib/review-sla";
 
 /**
  * The daily evaluation pass.
@@ -41,6 +42,8 @@ export type EvaluationResult = {
   milestonesMissed: number;
   missedPointsApplied: number;
   notificationsSent: number;
+  /** Nudges sent to the owner about work they've left in the queue. */
+  reviewChases: number;
   attendance: DailySweepResult;
   reports: GenerationResult | null;
 };
@@ -54,6 +57,10 @@ export async function runEvaluation(
   const attendance = await runDailyAttendanceSweep(now);
 
   const deadlines = await raiseDeadlineNotices(now);
+  // The owner's own SLA. Chased daily until the queue is clear, because the
+  // trade for members no longer being charged for review time is that the
+  // wait is visible and pursued.
+  const reviewChases = await chaseStaleReviews(now);
   const lateOrBonusApplied = await catchUpCompletions();
   const closeout = await closeOutEndedProjects(now);
 
@@ -76,6 +83,7 @@ export async function runEvaluation(
     lateOrBonusApplied,
     ...closeout,
     notificationsSent: deadlines.sent,
+    reviewChases,
     attendance,
     reports,
   };
@@ -136,6 +144,8 @@ async function catchUpCompletions(): Promise<number> {
       title: true,
       weight: true,
       dueDate: true,
+      blockedMinutes: true,
+      submittedAt: true,
       completedAt: true,
       assigneeId: true,
     },
@@ -173,7 +183,9 @@ async function closeOutEndedProjects(now: Date) {
               title: true,
               weight: true,
               dueDate: true,
+              blockedMinutes: true,
               status: true,
+              submittedAt: true,
               completedAt: true,
               assigneeId: true,
             },
@@ -191,9 +203,25 @@ async function closeOutEndedProjects(now: Date) {
     const milestones = project.modules.flatMap((module) => module.milestones);
     const unfinished = milestones.filter((milestone) => milestone.status !== "COMPLETED");
 
-    const existingKeys = await loadDedupeKeys(unfinished.map((milestone) => milestone.id));
+    /**
+     * Two kinds of unfinished work are not the member's failure, and neither
+     * may be flipped to MISSED at close-out:
+     *
+     *   SUBMITTED — delivered, and waiting on the owner to approve it. Marking
+     *   it missed would charge weight x 4 for the owner's own backlog.
+     *
+     *   BLOCKED — still waiting on a client or a third party. Its deadline has
+     *   been moving the whole time it sat there, and charging for a cycle that
+     *   ended while the assignee could not act is exactly what the blocked
+     *   clock exists to prevent.
+     */
+    const chargeable = unfinished.filter(
+      (milestone) => milestone.status !== "SUBMITTED" && milestone.status !== "BLOCKED",
+    );
 
-    for (const milestone of unfinished) {
+    const existingKeys = await loadDedupeKeys(chargeable.map((milestone) => milestone.id));
+
+    for (const milestone of chargeable) {
       if (milestone.status !== "MISSED") {
         await prisma.milestone.update({
           where: { id: milestone.id },
@@ -235,6 +263,8 @@ function toFacts(milestone: {
   title: string;
   weight: number;
   dueDate: Date;
+  blockedMinutes: number;
+  submittedAt: Date | null;
   completedAt: Date | null;
   assigneeId: string | null;
 }): MilestoneFacts {
@@ -243,6 +273,8 @@ function toFacts(milestone: {
     title: milestone.title,
     weight: milestone.weight,
     deadline: dueDeadline(milestone.dueDate),
+    blockedMinutes: milestone.blockedMinutes,
+    submittedAt: milestone.submittedAt,
     completedAt: milestone.completedAt,
     assigneeId: milestone.assigneeId,
   };

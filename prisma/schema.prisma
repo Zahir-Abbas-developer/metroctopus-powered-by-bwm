@@ -34,24 +34,33 @@ model User {
   role         String   @default("MEMBER")
   /// Delivery specialism, e.g. "Shopify Developer", "Media Buyer".
   jobTitle     String
+  /// E.164, e.g. "+923001234567". Only used for the optional WhatsApp channel;
+  /// with WHATSAPP_* unset it is never read.
+  phone        String?
   /// Hex colour used for the member's avatar chip, from AVATAR_COLORS.
   avatarColor  String   @default("#1A6B3A")
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  milestones    Milestone[]    @relation("MilestoneAssignee")
-  scoreEvents   ScoreEvent[]   @relation("ScoreEventSubject")
-  authoredScore ScoreEvent[]   @relation("ScoreEventAuthor")
+  milestones    Milestone[]        @relation("MilestoneAssignee")
+  scoreEvents   ScoreEvent[]       @relation("ScoreEventSubject")
+  authoredScore ScoreEvent[]       @relation("ScoreEventAuthor")
   reports       Report[]
   notifications Notification[]
   comments      Comment[]
   mentions      CommentMention[]
   attachments   Attachment[]
-  activity      Activity[]       @relation("ActivityActor")
+  activity      Activity[]         @relation("ActivityActor")
   attendance    AttendanceDay[]
-  leaveRequests LeaveRequest[]   @relation("LeaveSubject")
-  leaveReviews  LeaveRequest[]   @relation("LeaveReviewer")
+  leaveRequests LeaveRequest[]     @relation("LeaveSubject")
+  leaveReviews  LeaveRequest[]     @relation("LeaveReviewer")
+  outages       OutageReport[]     @relation("OutageSubject")
+  outageReviews OutageReport[]     @relation("OutageReviewer")
+  breaks        BreakSession[]
+  pushSubs      PushSubscription[]
+  blocksRaised  BlockPeriod[]      @relation("BlockAuthor")
+  blocksCleared BlockPeriod[]      @relation("BlockReleaser")
 
   @@index([role])
   @@index([isActive])
@@ -106,18 +115,18 @@ model ServiceCatalog {
 
 /// One engagement cycle for one client — normally a calendar month.
 model Project {
-  id        String   @id @default(cuid())
-  clientId  String
-  title     String
-  startDate DateTime
-  endDate   DateTime
+  id          String    @id @default(cuid())
+  clientId    String
+  title       String
+  startDate   DateTime
+  endDate     DateTime
   /// "PLANNING" | "ACTIVE" | "COMPLETED" | "OVERDUE_CLOSEOUT"
-  status    String   @default("PLANNING")
+  status      String    @default("PLANNING")
   /// Set by the evaluation job when the cycle is closed out, so close-out
   /// runs exactly once per project.
   closedOutAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   client   Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
   services ProjectService[]
@@ -160,36 +169,97 @@ model Module {
 /// A dated deliverable owned by one team member. The unit the scoring engine
 /// reacts to.
 model Milestone {
-  id          String    @id @default(cuid())
-  moduleId    String
-  title       String
-  description String?
+  id                 String    @id @default(cuid())
+  moduleId           String
+  title              String
+  description        String?
   /// 1–5. Drives every scoring deduction in lib/scoring.ts.
-  weight      Int       @default(3)
+  weight             Int       @default(3)
   /// Date-only, stored at UTC midnight. The effective deadline is the end of
   /// that day in Asia/Karachi — see dueDeadline() in lib/date.ts.
-  dueDate     DateTime
-  /// "PENDING" | "IN_PROGRESS" | "SUBMITTED" | "COMPLETED" | "MISSED"
-  status      String    @default("PENDING")
-  submittedAt DateTime?
-  /// Set when an ADMIN approves. Scoring reads this, never the member's claim.
-  completedAt DateTime?
-  assigneeId  String?
-  order       Int       @default(0)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  dueDate            DateTime
+  /// "PENDING" | "IN_PROGRESS" | "BLOCKED" | "SUBMITTED" | "COMPLETED" | "MISSED"
+  status             String    @default("PENDING")
+  /// When the member handed the work in. Phase 8: this — not completedAt — is
+  /// what LATE and EARLY_BONUS are judged against, so the owner's review speed
+  /// can never move a member's score. Cleared on rejection and stamped again
+  /// on resubmission, so lateness always reflects the latest submission.
+  submittedAt        DateTime?
+  /// Set when an ADMIN approves. No longer feeds member scoring; it marks the
+  /// work signed off and closes the review clock.
+  completedAt        DateTime?
+  /// Minutes from submission to the owner's decision on it. The owner's
+  /// metric, not the member's, and shown only to the owner.
+  adminReviewMinutes Int?
 
-  module      Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  assignee    User?        @relation("MilestoneAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  // --- Blocked clock (Phase 8) ---------------------------------------------
+  /// "CLIENT" | "INTERNAL_DEPENDENCY" | "EXTERNAL" while blocked, else null.
+  blockedReason       String?
+  blockedNote         String?
+  /// The milestone this one is waiting on; completing it auto-unblocks.
+  blockingMilestoneId String?
+  /// Start of the block currently running, null when not blocked.
+  blockedSince        DateTime?
+  /// Total minutes spent blocked. The sum of this milestone's BlockPeriod
+  /// rows, cached here because scoring reads it on every evaluation.
+  blockedMinutes      Int       @default(0)
+  /// Status to return to when the block clears.
+  statusBeforeBlock   String?
+
+  assigneeId String?
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  module      Module        @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  assignee    User?         @relation("MilestoneAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   scoreEvents ScoreEvent[]
   comments    Comment[]
   attachments Attachment[]
   activity    Activity[]
+  blocks      BlockPeriod[]
+
+  blockingMilestone Milestone?  @relation("MilestoneBlocker", fields: [blockingMilestoneId], references: [id], onDelete: SetNull)
+  blockedDependents Milestone[] @relation("MilestoneBlocker")
 
   @@index([moduleId])
   @@index([assigneeId, status])
   @@index([dueDate])
   @@index([status])
+  @@index([blockingMilestoneId])
+  @@index([status, submittedAt])
+}
+
+/// One period a milestone spent blocked.
+///
+/// The milestone carries a running total for scoring, but this is the record:
+/// it is what attributes delay to a client rather than to the member, and it
+/// survives the milestone being blocked and released repeatedly for different
+/// reasons.
+model BlockPeriod {
+  id                  String    @id @default(cuid())
+  milestoneId         String
+  /// "CLIENT" | "INTERNAL_DEPENDENCY" | "EXTERNAL"
+  reason              String
+  note                String
+  blockingMilestoneId String?
+  startedAt           DateTime  @default(now())
+  endedAt             DateTime?
+  /// Filled when the period ends; null while it is still running.
+  minutes             Int?
+  createdById         String
+  releasedById        String?
+  /// True when the owner judged the block illegitimate. A vetoed period is
+  /// kept but contributes no time to the effective deadline.
+  vetoed              Boolean   @default(false)
+  vetoNote            String?
+
+  milestone  Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("BlockAuthor", fields: [createdById], references: [id], onDelete: Cascade)
+  releasedBy User?     @relation("BlockReleaser", fields: [releasedById], references: [id], onDelete: SetNull)
+
+  @@index([milestoneId])
+  @@index([reason, startedAt])
 }
 
 // ---------------------------------------------------------------------------
@@ -359,15 +429,15 @@ model Activity {
 
 /// An in-app notification. No email yet — that's a later phase.
 model Notification {
-  id     String @id @default(cuid())
-  userId String
+  id        String    @id @default(cuid())
+  userId    String
   /// "TASK_ASSIGNED" | "DUE_TOMORROW" | "OVERDUE" | "WORK_APPROVED"
   /// | "WORK_REJECTED" | "REPORT_READY"
-  type   String
-  title  String
-  body   String
+  type      String
+  title     String
+  body      String
   /// Where clicking it should take them.
-  href   String?
+  href      String?
   readAt    DateTime?
   createdAt DateTime  @default(now())
 
@@ -430,14 +500,94 @@ model AvailabilityCheck {
   windowEndsAt    DateTime
   respondedAt     DateTime?
   /// "SCHEDULED" | "ACTIVE" | "PASSED" | "MISSED" | "CANCELLED"
+  /// | "PENDING_REVIEW" (an outage report covers it) | "EXCUSED" (upheld)
   status          String    @default("SCHEDULED")
+  /// The outage report that put this check under review.
+  outageReportId  String?
+  /// How many times a break pushed this check later in the day. Kept so the
+  /// owner can see a member whose breaks keep landing on their checks.
+  deferrals       Int       @default(0)
   createdAt       DateTime  @default(now())
 
-  day AttendanceDay @relation(fields: [attendanceDayId], references: [id], onDelete: Cascade)
+  day    AttendanceDay @relation(fields: [attendanceDayId], references: [id], onDelete: Cascade)
+  outage OutageReport? @relation(fields: [outageReportId], references: [id], onDelete: SetNull)
 
   @@index([attendanceDayId])
   @@index([status, scheduledAt])
   @@index([status, windowEndsAt])
+  @@index([outageReportId])
+}
+
+/// A member declaring time they were unreachable through no fault of theirs.
+///
+/// Load-shedding and dropped links are facts of remote work in Karachi, so a
+/// missed check that overlaps a declared outage does not charge automatically —
+/// it waits for the owner's judgement.
+model OutageReport {
+  id           String    @id @default(cuid())
+  userId       String
+  /// "POWER" | "INTERNET"
+  type         String
+  startsAt     DateTime
+  endsAt       DateTime
+  note         String
+  /// "PENDING" | "APPROVED" | "REJECTED"
+  status       String    @default("PENDING")
+  /// True when the report was filed after a covered check had already expired.
+  /// Not a judgement — an outage stops you filing too — but the owner sees it.
+  filedLate    Boolean   @default(false)
+  reviewedById String?
+  reviewedAt   DateTime?
+  adminNote    String?
+  createdAt    DateTime  @default(now())
+
+  user       User                @relation("OutageSubject", fields: [userId], references: [id], onDelete: Cascade)
+  reviewedBy User?               @relation("OutageReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  checks     AvailabilityCheck[]
+
+  @@index([userId, startsAt])
+  @@index([status, createdAt])
+}
+
+/// Protected time inside the shift: prayer, a meal, or a short personal break.
+///
+/// Never penalized within the daily allowance. While one is open no check
+/// activates and none can expire, so a break can never cost points.
+model BreakSession {
+  id         String    @id @default(cuid())
+  userId     String
+  /// Karachi day at UTC midnight, so a day's allowance is one query.
+  date       DateTime
+  /// "PRAYER" | "MEAL" | "PERSONAL"
+  reason     String
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  minutes    Int?
+  /// True when the daily job closed a break the member left running.
+  autoClosed Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, date])
+  @@index([userId, endedAt])
+}
+
+/// A browser push endpoint. One row per device, so a member on a phone and a
+/// laptop is reached on both.
+model PushSubscription {
+  id         String    @id @default(cuid())
+  userId     String
+  endpoint   String    @unique
+  p256dh     String
+  auth       String
+  userAgent  String?
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 /// A member's request to be off on a given day.
@@ -471,29 +621,39 @@ model Settings {
   id String @id @default("singleton")
 
   /// Minutes past Karachi midnight.
-  shiftStartMinutes  Int @default(720)  // 12:00
-  shiftEndMinutes    Int @default(1320) // 22:00
+  shiftStartMinutes   Int @default(720) // 12:00
+  shiftEndMinutes     Int @default(1320) // 22:00
   clockInOpensMinutes Int @default(690) // 11:30
   /// Clock-in later than shiftStart + grace counts as LATE.
-  graceMinutes       Int @default(15)
+  graceMinutes        Int @default(15)
   /// No clock-in by this time and no approved leave means ABSENT.
   absentCutoffMinutes Int @default(900) // 15:00
 
-  checksPerDay            Int @default(3)
-  checkWindowMinutes      Int @default(60)
+  checksPerDay               Int @default(3)
+  checkWindowMinutes         Int @default(60)
   /// Earliest a check may fall, measured from clock-in.
   checkEarliestOffsetMinutes Int @default(45)
   /// Latest a check may be scheduled, so its window still ends by shift end.
-  checkLatestMinutes      Int @default(1260) // 21:00
-  checkMinGapMinutes      Int @default(90)
+  checkLatestMinutes         Int @default(1260) // 21:00
+  checkMinGapMinutes         Int @default(90)
 
   /// Penalties, stored positive and applied as deductions.
-  penaltyLateClockIn   Float @default(0.5)
-  penaltyAbsentDay     Float @default(3)
-  penaltyMissedCheck   Float @default(1)
+  penaltyLateClockIn Float @default(0.5)
+  penaltyAbsentDay   Float @default(3)
+  penaltyMissedCheck Float @default(1)
 
   /// Working days as ISO weekday numbers, 1 = Monday. Sunday (7) is off.
   workdays String @default("1,2,3,4,5,6")
+
+  // --- Fairness settings (Phase 8) -----------------------------------------
+  /// Protected prayer/meal/personal minutes per day. Never penalized.
+  breakAllowanceMinutes Int @default(90)
+  /// How many outage reports a member may file per calendar month.
+  outageReportsPerMonth Int @default(4)
+  /// Longest single outage a member may declare, in hours.
+  outageMaxHours        Int @default(4)
+  /// Hours the owner has to review submitted work before it is flagged.
+  reviewSlaHours        Int @default(48)
 
   updatedAt DateTime @updatedAt
 }

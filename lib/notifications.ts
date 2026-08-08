@@ -18,6 +18,10 @@ export const NOTIFICATION_TYPES = [
   "WORK_APPROVED",
   "WORK_REJECTED",
   "REPORT_READY",
+  // Phase 8 — availability checks stop borrowing DUE_TOMORROW, and the owner
+  // gets a type of their own for review work that has gone stale.
+  "AVAILABILITY_CHECK",
+  "REVIEW_OVERDUE",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -29,6 +33,8 @@ export const NOTIFICATION_TONE: Record<NotificationType, BadgeTone> = {
   WORK_APPROVED: "success",
   WORK_REJECTED: "danger",
   REPORT_READY: "neutral",
+  AVAILABILITY_CHECK: "warning",
+  REVIEW_OVERDUE: "danger",
 };
 
 export type NotifyInput = {

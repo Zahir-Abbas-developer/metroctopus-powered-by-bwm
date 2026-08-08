@@ -1082,3 +1082,185 @@ TypeScript caught a third on its own: adding three event types made the
 - **Auto-closed days carry no penalty** in v1. The day is flagged so the owner
   can see it happened.
 - **Leave is a single day per request.** A week off is seven requests.
+
+---
+
+## Phase 8 — Fairness corrections (8 August 2026) · **scoring engine v2**
+
+Four corrections to rules that were quietly measuring the wrong thing. Three of
+them change how points are calculated, so this is the first phase to version the
+scoring engine.
+
+### Engine v2, and why nothing was recomputed
+
+Version 1 charged `LATE` and paid `EARLY_BONUS` against `completedAt` — which is
+stamped when the **owner approves**. A member could submit a day early and still
+be charged for a late delivery, because the review sat for three days. The
+score was partly a measure of the owner's inbox.
+
+Version 2 judges `submittedAt`. Approval no longer times anything.
+
+Both rules apply **from the deploy date forward**. Nothing is recomputed:
+
+- The ledger is append-only, and events already in it were correct under the
+  rules in force when they were written.
+- Reports are frozen snapshots that quote those events. Rewriting history would
+  make August's report disagree with itself.
+
+Three corollaries fell out of the change, each of them a place where the old
+basis was leaking:
+
+- **`evaluateMissed` no longer charges submitted work.** Delivered means
+  submitted. Work sitting in the review queue when a cycle closes is the owner's
+  backlog, and `weight × 4` for it is the same unfairness by another route.
+- **Close-out skips `SUBMITTED` and `BLOCKED` milestones entirely** rather than
+  flipping them to MISSED.
+- **`onTimeRate` moved too**, and onto milestones *due* in the cycle rather than
+  *approved* in it — so the figure answers "did this month's work land on time"
+  instead of "how much did the owner get round to signing off".
+
+### The blocked clock
+
+`BLOCKED` is a real status with a timed period behind it. Entering it needs a
+reason (`CLIENT` / `INTERNAL_DEPENDENCY` / `EXTERNAL`) and a written note of at
+least ten characters; leaving it closes the period and banks the minutes, which
+`effectiveDeadline()` adds to the deadline.
+
+Three decisions worth naming:
+
+- **`BlockPeriod` is the record, not a flag on the milestone.** A milestone can
+  be blocked and released repeatedly for different reasons, and attributing
+  delay to a client needs each period separately. `Milestone.blockedMinutes` is
+  a cache of their sum, maintained transactionally.
+- **BLOCKED is absent from both transition matrices in every direction.** It is
+  not a column you drag a card into — the clock has to be opened and closed
+  atomically with the status, so both go through `/api/milestones/[id]/block`.
+  Dragging a card out of BLOCKED would otherwise silently lose the pause.
+- **A veto keeps the period.** The owner can overrule a block with a written
+  reason; the period stays on the record marked `vetoed` and contributes no
+  time. Deleting it would erase the fact that someone tried.
+
+Completing a milestone releases everything waiting on it and tells each
+assignee by how much their deadline moved.
+
+**Client accountability** falls out for free: `clientBlockedDays()` aggregates
+un-vetoed `CLIENT` periods per client. It surfaces as a "Waiting on this client"
+card and as an *Items awaiting your input* section in the client weekly —
+phrased as a prompt to unblock, and incidentally the record if a deadline is
+ever disputed.
+
+### The owner is accountable too
+
+The trade for taking review time out of members' scores is that the wait became
+the owner's number:
+
+- **Awaiting your review** on the dashboard, longest wait first, with an age
+  badge — green under 24h, amber to 48h, red past that — and approve/reject in
+  place. A queue you have to leave to clear is a queue that doesn't get cleared.
+- `adminReviewMinutes` recorded on every decision, approvals and rejections
+  alike, and an average shown to the owner only.
+- Anything past the configurable SLA (default 48h) notifies daily until cleared,
+  deduped per milestone per day.
+
+No penalty attached, deliberately. The owner has no monthly score to deduct
+from, and inventing one would be theatre. What changes behaviour is the queue
+being visible with an age on every row.
+
+### Volume context, everywhere
+
+A raw score is never rendered alone. `<PerformanceBadge/>` is the only component
+that draws one, so the rule holds by construction rather than by everyone
+remembering it: **score · on-time % · load**.
+
+- The team table splits the triple into three sortable columns and **defaults to
+  on-time rate**, because the raw number is the least comparable of the three.
+- Unrated members show an em dash and sort last in both directions — a red 0%
+  for someone with nothing yet due is a false accusation.
+- The narrative carries it: *"Your score of 91 places you in the Excellent band,
+  carrying the heaviest load on the team — 31 milestones."*
+- Both member-facing lists carry a footnote saying what the number is and isn't.
+
+### Reachability, outages and protected breaks
+
+**PWA.** Installable, with a manifest, a service worker and icons generated by
+`scripts/generate-icons.mjs` — a hand-rolled PNG encoder rather than a build
+dependency, so the mark inherits the palette in CLAUDE.md instead of drifting
+from it. The worker does two things and deliberately no third: it shows pushes
+and serves an offline page. It does **not** cache app routes; every screen here
+is live data, and a stale cached dashboard is worse than no dashboard.
+
+**Push** is opt-in, asked once, and remembered. Browsers permanently block a
+site that calls `requestPermission()` on load, and a member asked every morning
+will block it out of irritation — at which point the one genuinely time-critical
+alert in the product can never reach them again.
+
+**WhatsApp** is env-gated and fires for availability checks only.
+
+**Outages.** A member declares a power cut or dropped link; any check whose
+window overlaps goes to `PENDING_REVIEW` instead of `MISSED`, and nothing is
+charged until the owner decides. Filing after a check has already expired is
+explicitly allowed and flagged rather than refused — an outage stops you filing
+about it, so refusing late reports would deny the excuse to exactly the people
+with the worst outages. Upholding one writes a compensating `MANUAL_ADJUST`;
+the original penalty is never deleted.
+
+**Breaks.** 90 protected minutes a day, configurable, never penalized. While a
+break is open, checks neither activate nor expire — protected time cannot cost
+points. On return, a check the break swallowed is shifted; one that no longer
+fits before the 9PM cutoff is **CANCELLED, not MISSED**. A check the member was
+never actually put is not one they can fail.
+
+One rule keeps that from being an escape hatch: **a break cannot be started
+while a check is ACTIVE.** Without it, "check fires → tap On break → immune"
+would make the entire availability system optional.
+
+### Verification
+
+- **171 unit tests** (25 added: 10 for the submission basis and blocked clock,
+  11 for interval and break arithmetic, 4 for the load narrative).
+- **55 walkthrough checks** through the real HTTP API: an on-time submission
+  approved two days late costs nothing while the owner's 53 hours are recorded
+  · a genuinely late submission still charges −8 · rejection clears
+  `submittedAt` so the resubmission is what gets timed · a block is refused
+  without a real note, banks 2,880 minutes on release, and a day-late submission
+  after it costs nothing · a member cannot overrule their own block, the owner
+  can, and the vetoed period is kept · completing a blocker auto-releases its
+  dependent · a member gets 403 on the review queue · a break cannot be started
+  to dodge a live check · an outage over the cap, in the future, or rejected
+  without a reason is refused, and upholding one reverses the charge without
+  deleting it.
+- **Migration verified on real Postgres** — `migrate deploy` from empty, then
+  inserts proving the `Milestone` self-relation, the check→outage FK, the unique
+  push endpoint, the Phase 8 `Settings` defaults, and `BlockPeriod` cascade.
+- `tsc`, `next lint` and the production build clean.
+
+### Two bugs found
+
+1. **Close-out was about to charge the owner's backlog.** `evaluateMissed` now
+   refuses submitted work, but `closeOutEndedProjects` was still flipping every
+   non-COMPLETED milestone to `MISSED` — so a submission awaiting approval when
+   a cycle closed would have been marked missed even though it charged nothing.
+   Blocked work had the same problem, and worse: its deadline had been moving
+   the whole time. Both are now excluded.
+2. **The build caught a layering problem, again.** `lib/review-sla.ts` reaches
+   `lib/reach.ts`, which reaches `web-push`, which reaches `node:https` — and a
+   client component was importing a colour map from it. Same shape as the
+   Phase 6 `lib/reports.ts` split. Fixed by `lib/fairness-types.ts`: block
+   reasons, review ages, labels and `describeBlocked`, with no imports at all.
+   Any `"use client"` file imports from there.
+
+### Known limits
+
+- **`adminReviewMinutes` records the most recent decision**, not a history. The
+  average is over milestones, so a milestone rejected and re-reviewed counts its
+  last review only.
+- **Break time doesn't extend the shift.** 90 minutes of protected break inside
+  a ten-hour shift is nine and a half hours of work, and that is intentional —
+  but it means a member using the full allowance has fewer hours in which checks
+  can land.
+- **Outage reports are trusted until reviewed.** A member could file one over a
+  window they were simply absent for; the monthly cap and the owner's judgement
+  are the only checks on it, which is the right trade at five people.
+- **The rejection prompt in the board drawer still uses `window.prompt`.** The
+  new review queue has a proper modal for the same action and is now the primary
+  path, so the drawer's version is a fallback rather than the main route.

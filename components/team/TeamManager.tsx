@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { VolumeFootnote } from "@/components/ui/PerformanceBadge";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -38,15 +39,21 @@ import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/types";
 
 type Status = "loading" | "ready" | "error";
-type SortKey = "name" | "score" | "joined";
+/**
+ * The doctrine's triple is sortable on all three axes, and the default is
+ * on-time rate rather than score: the raw number is the least comparable of
+ * the three, so opening the page ranked by it invites exactly the comparison
+ * the doctrine is trying to prevent.
+ */
+type SortKey = "name" | "score" | "onTime" | "load" | "joined";
 
 export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const toast = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
-    key: "name",
-    desc: false,
+    key: "onTime",
+    desc: true,
   });
 
   const [formOpen, setFormOpen] = useState(false);
@@ -89,6 +96,15 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
 
       const direction = sort.desc ? -1 : 1;
       if (sort.key === "score") return (a.score - b.score) * direction;
+      // Unrated members sort last in either direction rather than reading as
+      // the worst performers.
+      if (sort.key === "onTime") {
+        if (a.onTimeRate === null && b.onTimeRate === null) return a.name.localeCompare(b.name);
+        if (a.onTimeRate === null) return 1;
+        if (b.onTimeRate === null) return -1;
+        return (a.onTimeRate - b.onTimeRate) * direction;
+      }
+      if (sort.key === "load") return (a.load - b.load) * direction;
       if (sort.key === "joined") {
         return (Date.parse(a.createdAt) - Date.parse(b.createdAt)) * direction;
       }
@@ -101,8 +117,8 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
     setSort((current) =>
       current.key === key
         ? { key, desc: !current.desc }
-        // Scores are most useful worst-first, names best A–Z.
-        : { key, desc: key === "score" },
+        // Scores worst-first, rates and loads best-first, names A–Z.
+        : { key, desc: key === "score" ? true : key === "onTime" || key === "load" },
     );
   }
 
@@ -210,6 +226,22 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                     onClick={() => toggleSort("score")}
                   />
                 </TH>
+                <TH aria-sort={sort.key === "onTime" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                  <SortHeader
+                    label="On time"
+                    active={sort.key === "onTime"}
+                    desc={sort.desc}
+                    onClick={() => toggleSort("onTime")}
+                  />
+                </TH>
+                <TH aria-sort={sort.key === "load" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                  <SortHeader
+                    label="Load"
+                    active={sort.key === "load"}
+                    desc={sort.desc}
+                    onClick={() => toggleSort("load")}
+                  />
+                </TH>
                 <TH>Role</TH>
                 <TH>Status</TH>
                 <TH aria-sort={sort.key === "joined" ? (sort.desc ? "descending" : "ascending") : "none"}>
@@ -253,11 +285,14 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
 
                     <TD className="text-ink/70">{member.jobTitle}</TD>
 
+                    {/* Score, on-time and load are three columns rather than
+                        one cell, so the triple is legible down the page as
+                        well as across the row — and each is sortable. */}
                     <TD>
                       <Link
                         href={`/team/${member.id}`}
                         className="flex items-center gap-2.5"
-                        title={`${member.score} points · ${member.onTimeRate}% on time`}
+                        title={`${member.score} points this month`}
                       >
                         <ScoreRing score={member.score} size="xs" showValue={false} />
                         <span className="font-display text-sm font-bold tabular-nums text-ink">
@@ -275,6 +310,34 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                           </span>
                         )}
                       </Link>
+                    </TD>
+
+                    <TD>
+                      <span
+                        className={cn(
+                          "text-sm tabular-nums",
+                          member.onTimeRate === null
+                            ? "text-ink/30"
+                            : member.onTimeRate >= 90
+                              ? "text-brand"
+                              : member.onTimeRate >= 70
+                                ? "text-ink/70"
+                                : "text-danger",
+                        )}
+                      >
+                        {member.onTimeRate === null ? "—" : `${member.onTimeRate}%`}
+                      </span>
+                    </TD>
+
+                    <TD>
+                      <span className="text-sm tabular-nums text-ink/70">
+                        {member.load}
+                      </span>
+                      {member.load > 0 && (
+                        <span className="ml-1 text-[11px] text-ink/35">
+                          · w{member.totalWeight}
+                        </span>
+                      )}
                     </TD>
 
                     <TD>
@@ -332,6 +395,10 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
               })}
             </TBody>
           </Table>
+
+          <div className="border-t border-line px-5 py-3">
+            <VolumeFootnote />
+          </div>
         </TableShell>
       )}
 

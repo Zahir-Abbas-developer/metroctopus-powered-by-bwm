@@ -7,6 +7,7 @@ import {
   ArrowLeft,
   CalendarPlus,
   FileText,
+  Hourglass,
   Layers,
   Mail,
   Pencil,
@@ -58,14 +59,22 @@ export type ProjectRecord = {
 
 type Tab = "overview" | "projects" | "notes";
 
+export type ClientWaiting = {
+  totalDays: number;
+  openItems: { milestoneId: string; title: string; since: string; note: string }[];
+};
+
 export function ClientDetail({
   client,
   projects,
   services,
+  waiting,
 }: {
   client: ClientRecord;
   projects: ProjectRecord[];
   services: ServiceSummary[];
+  /** Delay attributable to this client, from blocked milestones. */
+  waiting: ClientWaiting;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
@@ -161,6 +170,55 @@ export function ClientDetail({
 
       {tab === "overview" && (
         <div className="grid gap-5 lg:grid-cols-3">
+          {/* Delay this client caused. Sits at the top of the overview because
+              it is the number that changes a "you were late" conversation. */}
+          {(waiting.totalDays > 0 || waiting.openItems.length > 0) && (
+            <Card className="lg:col-span-3">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <Hourglass className="h-4 w-4 text-warn" />
+                    <h2 className="font-display text-base font-bold tracking-tight text-ink">
+                      Waiting on this client
+                    </h2>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-relaxed text-ink/55">
+                    Time our work sat paused waiting for their input. Deadlines
+                    shift by exactly this much, and nobody here is charged for it.
+                  </p>
+                </div>
+
+                <div className="text-right">
+                  <p className="font-display text-2xl font-extrabold tabular-nums leading-none text-warn">
+                    {waiting.totalDays}
+                    <span className="ml-1 text-[13px] font-medium text-ink/40">
+                      {waiting.totalDays === 1 ? "day" : "days"}
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[12px] text-ink/45">total this engagement</p>
+                </div>
+              </div>
+
+              {waiting.openItems.length > 0 && (
+                <ul className="mt-4 space-y-2 border-t border-line pt-4">
+                  {waiting.openItems.map((item) => (
+                    <li key={item.milestoneId} className="flex items-start gap-3">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-warn" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-medium text-ink">
+                          {item.title}
+                        </p>
+                        <p className="text-[12px] text-ink/50">
+                          {item.note} · since {formatDate(item.since)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
+
           <Card className="lg:col-span-2">
             <h2 className="font-display text-base font-bold tracking-tight text-ink">
               Current engagement

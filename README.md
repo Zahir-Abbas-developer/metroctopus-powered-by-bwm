@@ -114,8 +114,43 @@ Set these in the Vercel project (all environments):
 | `NEXTAUTH_URL` | The deployed origin, exactly |
 | `CRON_SECRET` | `openssl rand -hex 32` — without it the schedule does nothing |
 | `SMTP_*`, `EMAIL_FROM` | Optional; email is skipped and logged when unset |
+| `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional; web push is skipped when unset |
+| `WHATSAPP_*` | Optional; the WhatsApp channel is skipped when unset |
 
 `.env.example` documents every one of them.
+
+#### Web push (optional)
+
+Availability checks are time-critical and the in-app banner only reaches
+someone with a tab open, so the app can push to a phone instead. Generate a
+key pair once:
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT` (a
+`mailto:you@agency.com` URL). With any of them unset, `/api/push` reports
+`configured: false`, members are never prompted, and every other part of the
+app behaves normally.
+
+#### WhatsApp (optional)
+
+If the team already lives in WhatsApp, check triggers can also go out as a
+template message through the Meta WhatsApp Cloud API. It fires for availability
+checks only — pushing reports and assignments down a channel people read at 2am
+trains them to mute it, and a muted channel reaches nobody.
+
+| Variable | Notes |
+| --- | --- |
+| `WHATSAPP_TOKEN` | A permanent system-user access token |
+| `WHATSAPP_PHONE_NUMBER_ID` | From the WhatsApp > API setup panel |
+| `WHATSAPP_TEMPLATE_NAME` | An approved template with one body variable (the deadline time) |
+| `WHATSAPP_TEMPLATE_LANG` | Defaults to `en` |
+
+Members need a `phone` in E.164 (`+923001234567`) on their user record. With
+the variables unset the call is a silent no-op — there is no degraded mode to
+worry about.
 
 ### 3. Deploy and migrate
 

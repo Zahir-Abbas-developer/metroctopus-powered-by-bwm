@@ -43,6 +43,11 @@ export type BoardMilestone = {
   projectTitle: string;
   clientName: string;
   serviceId: string | null;
+  blockedReason: string | null;
+  blockedNote: string | null;
+  blockedSince: string | null;
+  /** Total paused minutes, including any block still running. */
+  blockedMinutes: number;
 };
 
 type Filters = {
@@ -53,7 +58,20 @@ type Filters = {
 
 type Status = "loading" | "ready" | "error";
 
-const COLUMNS: MilestoneStatus[] = ["PENDING", "IN_PROGRESS", "SUBMITTED", "COMPLETED"];
+/**
+ * Blocked sits between "in progress" and "submitted" because that is where it
+ * happens: work someone started and then hit a wall on. It is deliberately not
+ * a drop target — the block clock needs a reason and a note, so entering and
+ * leaving it goes through the drawer. `canTransition` returns false for it in
+ * both directions, which is what greys the column out mid-drag.
+ */
+const COLUMNS: MilestoneStatus[] = [
+  "PENDING",
+  "IN_PROGRESS",
+  "BLOCKED",
+  "SUBMITTED",
+  "COMPLETED",
+];
 
 export function BoardView({ role, userId }: { role: Role; userId: string }) {
   const router = useRouter();
@@ -151,9 +169,13 @@ export function BoardView({ role, userId }: { role: Role; userId: string }) {
     // and snap back.
     if (!canTransition(role, milestone.status, target)) {
       toast.error(
-        role === "MEMBER" && target === "COMPLETED"
-          ? "Only the agency owner can approve work."
-          : `A milestone can't move from ${MILESTONE_STATUS_LABEL[milestone.status]} to ${MILESTONE_STATUS_LABEL[target]}.`,
+        target === "BLOCKED"
+          ? "Open the milestone to block it — a block needs a reason and a note."
+          : milestone.status === "BLOCKED"
+            ? "Open the milestone to unblock it, so the paused time is banked."
+            : role === "MEMBER" && target === "COMPLETED"
+              ? "Only the agency owner can approve work."
+              : `A milestone can't move from ${MILESTONE_STATUS_LABEL[milestone.status]} to ${MILESTONE_STATUS_LABEL[target]}.`,
       );
       return;
     }
@@ -242,7 +264,7 @@ export function BoardView({ role, userId }: { role: Role; userId: string }) {
       )}
 
       {status === "loading" && (
-        <div className="grid gap-4 lg:grid-cols-4">
+        <div className="grid gap-4 lg:grid-cols-5">
           {COLUMNS.map((column) => (
             <div key={column} className="space-y-3">
               <Skeleton className="h-9 rounded-[10px]" />
@@ -281,7 +303,7 @@ export function BoardView({ role, userId }: { role: Role; userId: string }) {
 
       {status === "ready" && milestones.length > 0 && (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="grid gap-4 lg:grid-cols-4">
+          <div className="grid gap-4 lg:grid-cols-5">
             {COLUMNS.map((column) => (
               <Column
                 key={column}

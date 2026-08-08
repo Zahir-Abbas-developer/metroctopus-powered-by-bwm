@@ -14,7 +14,12 @@ export type TeamMember = {
   score: number;
   /** Change against last month, or null with no prior cycle. */
   trend: number | null;
-  onTimeRate: number;
+  /** Null when nothing has come due yet — "not rated", not "0%". */
+  onTimeRate: number | null;
+  /** Milestones due this month, and their total weight. Shown beside every
+   *  score, because a score without its volume is not comparable. */
+  load: number;
+  totalWeight: number;
 };
 
 export type ServiceSummary = {

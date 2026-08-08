@@ -12,6 +12,8 @@ import {
   toDateOnly,
 } from "@/lib/date";
 import { monthlyScore, scoreBand, type ScoreEventType } from "@/lib/scoring";
+import { performanceContext } from "@/lib/score-service";
+import { clientBlockedDays } from "@/lib/blocking";
 import { narrateClientReport, narrateMemberReport } from "@/lib/narrative";
 import { notify } from "@/lib/notifications";
 import {
@@ -113,6 +115,24 @@ async function buildMemberPayload(
 
   const attendance = await buildAttendanceSummary(userId, periodStart, rangeEnd);
 
+  // Volume context: the doctrine forbids a score without it, and the narrative
+  // needs the team ranking to say "the heaviest load on the team".
+  const teamIds = (
+    await prisma.user.findMany({
+      where: { role: "MEMBER", isActive: true },
+      select: { id: true },
+    })
+  ).map((row) => row.id);
+
+  const teamContext = await performanceContext(
+    teamIds.includes(userId) ? teamIds : [...teamIds, userId],
+    cycle,
+    periodEnd,
+  );
+  const own = teamContext.get(userId);
+  const ranked = [...teamContext.values()].sort((a, b) => b.load - a.load);
+  const rank = own && own.load > 0 ? ranked.findIndex((row) => row.userId === userId) + 1 : null;
+
   const score = monthlyScore(cycleEvents.map((event) => event.points));
   const previousScore =
     previousEvents.length === 0 && cycleEvents.length === 0
@@ -154,6 +174,11 @@ async function buildMemberPayload(
     score,
     delta: previousScore === null ? null : round(score - previousScore),
     troubleArea,
+    load: {
+      count: own?.load ?? 0,
+      rank,
+      teamSize: teamIds.length,
+    },
     attendance: {
       checksPassed: attendance.checksPassed,
       checksTotal: attendance.checksTotal,
@@ -197,8 +222,10 @@ async function buildMemberPayload(
       missed: missed.length,
       rejected: rejectedCount,
     },
-    onTimeRate:
-      completed.length === 0 ? 0 : Math.round((onTime / completed.length) * 100),
+    // On the submission basis, and over what was due rather than what was
+    // approved — the same figure the badges and profiles show.
+    onTimeRate: own?.onTimeRate ?? 0,
+    load: { count: own?.load ?? 0, weight: own?.totalWeight ?? 0, rank },
     attendance,
     narrative: {
       second: narrateMemberReport(narrativeFacts, "second"),
@@ -296,6 +323,7 @@ async function buildClientPayload(
         label: formatPeriod(periodStart, periodEnd),
       },
       project: null,
+      awaitingInput: { totalDays: 0, items: [] },
       completedThisPeriod: [],
       plannedNextPeriod: [],
       overdue: [],
@@ -365,6 +393,11 @@ async function buildClientPayload(
       ),
     }));
 
+  // What we are waiting on them for. Stated as a fact with a number, not a
+  // complaint — the point is that "this slipped" and "we asked you on the 4th"
+  // stop being two competing recollections.
+  const waiting = await clientBlockedDays(client.id);
+
   return {
     version: PAYLOAD_VERSION,
     kind: "CLIENT",
@@ -373,6 +406,15 @@ async function buildClientPayload(
       start: periodStart.toISOString(),
       end: periodEnd.toISOString(),
       label: formatPeriod(periodStart, periodEnd),
+    },
+    awaitingInput: {
+      totalDays: waiting.totalDays,
+      items: waiting.openItems.map((item) => ({
+        title: item.title,
+        since: item.since.toISOString(),
+        note: item.note,
+        days: Math.round((item.minutes / (60 * 24)) * 10) / 10,
+      })),
     },
     project: {
       id: project.id,

@@ -5,6 +5,7 @@ import { apiError, requireAdminApi } from "@/lib/api";
 import { settleChecks, dayKind } from "@/lib/attendance";
 import { getSettings } from "@/lib/settings";
 import { adminTally } from "@/lib/attendance-visibility";
+import { breakAllowance, breakMinutesUsed } from "@/lib/fairness-windows";
 import { karachiDay, karachiMinutes, minutesBetween } from "@/lib/attendance-time";
 
 /** Today's live board: who is actually working right now. */
@@ -31,6 +32,17 @@ export async function GET() {
 
   const byUser = new Map(days.map((record) => [record.userId, record]));
 
+  // Break state for the whole team in one query — the board refreshes every
+  // minute, so a per-member round trip would be five queries a minute for a
+  // number that is almost always zero.
+  const breakSessions = await prisma.breakSession.findMany({
+    where: { date: day, userId: { in: members.map((m) => m.id) } },
+  });
+  const breaksByUser = new Map<string, typeof breakSessions>();
+  for (const session of breakSessions) {
+    breaksByUser.set(session.userId, [...(breaksByUser.get(session.userId) ?? []), session]);
+  }
+
   const rows = [];
   for (const member of members) {
     const record = byUser.get(member.id);
@@ -53,6 +65,21 @@ export async function GET() {
       // Counts and states only. The owner never sees the scheduled times
       // either — a shared screen would otherwise hand out the day's answers.
       checks: record ? adminTally(record.checks) : adminTally([]),
+      // Protected time. Shown so the owner knows why nobody is answering, and
+      // amber over allowance — never a penalty, only a fact.
+      breaks: (() => {
+        const sessions = breaksByUser.get(member.id) ?? [];
+        const open = sessions.find((session) => !session.endedAt) ?? null;
+        const used = breakMinutesUsed(sessions, now);
+        const allowance = breakAllowance(used, settings.breakAllowanceMinutes);
+        return {
+          onBreak: Boolean(open),
+          reason: open?.reason ?? null,
+          usedMinutes: used,
+          allowanceMinutes: allowance.allowance,
+          exceeded: allowance.exceeded,
+        };
+      })(),
     });
   }
 
@@ -73,6 +100,7 @@ export async function GET() {
       absent: rows.filter((row) => row.status === "ABSENT").length,
       onLeave: rows.filter((row) => row.status === "LEAVE").length,
       off: rows.filter((row) => row.status === "OFF").length,
+      onBreak: rows.filter((row) => row.breaks.onBreak).length,
     },
     rows,
   });

@@ -27,10 +27,31 @@ export const metadata: Metadata = {
   },
   description:
     "Operations platform for a remote 360° digital marketing agency — clients, milestones, tasks and team performance in one place.",
+  // Installable, so an availability check can reach a phone's notification
+  // tray rather than depending on a browser tab being open.
+  manifest: "/manifest.webmanifest",
+  applicationName: "Agency OS",
+  appleWebApp: {
+    capable: true,
+    title: "Agency OS",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    icon: [
+      { url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }],
+  },
 };
 
 export const viewport: Viewport = {
   themeColor: "#0C0C0A",
+  // The app is a real working surface on a phone; letting iOS zoom the layout
+  // on an input focus makes answering a check fiddly.
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

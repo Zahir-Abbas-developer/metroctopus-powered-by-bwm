@@ -14,6 +14,8 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { StatCard } from "@/components/ui/StatCard";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
+import { BreakControl } from "@/components/attendance/BreakControl";
+import { OutagePanel } from "@/components/attendance/OutagePanel";
 import { formatDuration, formatKarachiTime } from "@/lib/attendance-time";
 import { cn } from "@/lib/utils";
 
@@ -166,6 +168,13 @@ export function MyAttendance() {
           </Button>
         }
       />
+
+      {/* Protected time and outages sit above the calendar: they are things
+          you do today, and the calendar is a record of what already happened. */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        <BreakControl onChange={() => void load()} />
+        <OutagePanel onChange={() => void load()} />
+      </div>
 
       {state === "loading" && (
         <div className="space-y-4">

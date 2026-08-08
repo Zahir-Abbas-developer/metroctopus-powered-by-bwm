@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
+  BellRing,
+  Hourglass,
   ThumbsDown,
   TimerOff,
   UserPlus,
@@ -36,6 +38,8 @@ const ICONS: Record<NotificationType, typeof Bell> = {
   WORK_APPROVED: CheckCircle2,
   WORK_REJECTED: ThumbsDown,
   REPORT_READY: FileText,
+  AVAILABILITY_CHECK: BellRing,
+  REVIEW_OVERDUE: Hourglass,
 };
 
 const TONE_CLASSES: Record<string, string> = {

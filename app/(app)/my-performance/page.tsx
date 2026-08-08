@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { currentCycle, ledgerFor, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { currentCycle, ledgerFor, onTimeRateFor, performanceContext, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore, scoreBand } from "@/lib/scoring";
 import { PerformanceProfile } from "@/components/performance/PerformanceProfile";
 
@@ -14,7 +14,7 @@ export default async function MyPerformancePage() {
   const user = await requireUser();
   const cycle = currentCycle();
 
-  const [member, scores, ledger, onTime] = await Promise.all([
+  const [member, scores, ledger, onTime, context] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { id: true, name: true, jobTitle: true, avatarColor: true },
@@ -22,6 +22,7 @@ export default async function MyPerformancePage() {
     scoresForCycle([user.id], cycle),
     ledgerFor(user.id, cycle),
     onTimeRateFor([user.id], cycle),
+    performanceContext([user.id], cycle),
   ]);
 
   // The session always corresponds to a real row, but a deleted account mid
@@ -45,6 +46,10 @@ export default async function MyPerformancePage() {
       ledger={ledger}
       cycle={cycle}
       onTime={onTime.get(user.id) ?? { onTime: 0, total: 0, rate: 0 }}
+      load={{
+        count: context.get(user.id)?.load ?? 0,
+        weight: context.get(user.id)?.totalWeight ?? 0,
+      }}
       viewerIsAdmin={false}
       isSelf
     />

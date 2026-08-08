@@ -25,6 +25,11 @@ const settingsSchema = z
     penaltyAbsentDay: z.number().min(0).max(50),
     penaltyMissedCheck: z.number().min(0).max(50),
     workdays: z.string().min(1),
+    // Phase 8 — fairness settings.
+    breakAllowanceMinutes: z.number().int().min(0).max(480),
+    outageReportsPerMonth: z.number().int().min(0).max(31),
+    outageMaxHours: z.number().int().min(1).max(12),
+    reviewSlaHours: z.number().int().min(1).max(336),
   })
   .partial()
   // Cross-field rules, because a setting that is individually valid can still

@@ -79,6 +79,12 @@ export type MemberReportPayload = {
     rejected: number;
   };
   onTimeRate: number;
+  /**
+   * The volume the score was earned against. Absent on reports frozen before
+   * Phase 8; every report from then on carries it, because the doctrine
+   * forbids presenting a score without it.
+   */
+  load?: { count: number; weight: number; rank: number | null };
   /** Absent on reports frozen before Phase 7. */
   attendance?: ReportAttendance;
   narrative: { second: string; third: string };
@@ -98,6 +104,15 @@ export type ClientReportPayload = {
     total: number;
     done: number;
   } | null;
+  /**
+   * Work paused waiting on the client. Absent on reports frozen before Phase 8.
+   * Deliberately phrased as items awaiting input rather than as blame: it is a
+   * prompt to unblock, and incidentally the record if a deadline is disputed.
+   */
+  awaitingInput?: {
+    totalDays: number;
+    items: { title: string; since: string; note: string; days: number }[];
+  };
   completedThisPeriod: {
     module: string;
     title: string;

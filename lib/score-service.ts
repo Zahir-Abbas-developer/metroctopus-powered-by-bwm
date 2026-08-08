@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { agencyYearMonth, dueDeadline, previousYearMonth } from "@/lib/date";
 import {
   MONTHLY_BASELINE,
+  effectiveDeadline,
   monthlyScore,
   scoreBand,
   type ProposedEvent,
@@ -194,39 +195,120 @@ export async function ledgerFor(
 }
 
 /**
- * Share of a member's approved milestones that landed by their deadline.
- * Counted over completions in the cycle, not over everything assigned.
+ * Share of a member's work that was handed in by its deadline.
+ *
+ * Phase 8 moved this onto submission, for the same reason scoring moved: an
+ * approval queue is the owner's speed, not the member's. It is also scoped to
+ * the milestones **due** in the cycle rather than the ones approved in it, so
+ * the rate answers "did this month's work land on time" instead of "how much
+ * did the owner get round to signing off".
+ *
+ * The denominator counts only milestones whose deadline has passed or that
+ * have already been submitted. Counting work due in three weeks as not-yet-
+ * on-time would judge time that hasn't happened.
  */
 export async function onTimeRateFor(
   userIds: readonly string[],
   cycle: Cycle,
+  now: Date = new Date(),
 ): Promise<Map<string, { onTime: number; total: number; rate: number }>> {
-  const completed = await prisma.milestone.findMany({
-    where: {
-      assigneeId: { in: [...userIds] },
-      status: "COMPLETED",
-      completedAt: { not: null },
-    },
-    select: { assigneeId: true, dueDate: true, completedAt: true },
-  });
+  const context = await performanceContext(userIds, cycle, now);
 
   const result = new Map<string, { onTime: number; total: number; rate: number }>();
-  for (const userId of userIds) result.set(userId, { onTime: 0, total: 0, rate: 0 });
+  for (const [userId, entry] of context) {
+    result.set(userId, { onTime: entry.onTime, total: entry.judged, rate: entry.onTimeRate });
+  }
+  return result;
+}
 
-  for (const milestone of completed) {
-    if (!milestone.assigneeId || !milestone.completedAt) continue;
-    const cycleOf = agencyYearMonth(milestone.completedAt);
+export type PerformanceContext = {
+  userId: string;
+  /** Milestones due in this cycle, whatever their state — the workload. */
+  load: number;
+  /** Sum of those milestones' weights, so 12 heavy tasks read differently. */
+  totalWeight: number;
+  /** Of the judged ones, how many were submitted by the effective deadline. */
+  onTime: number;
+  /** Milestones whose deadline has passed or that have been submitted. */
+  judged: number;
+  onTimeRate: number;
+  /** How many are still blocked right now, for the "why" behind a low rate. */
+  blocked: number;
+};
+
+/**
+ * Volume context for a set of members in one cycle.
+ *
+ * The Fairness Doctrine forbids showing a raw score on its own: a 92 carrying
+ * four milestones and a 92 carrying nineteen are not the same achievement.
+ * Every surface that renders a score pairs it with this.
+ */
+export async function performanceContext(
+  userIds: readonly string[],
+  cycle: Cycle,
+  now: Date = new Date(),
+): Promise<Map<string, PerformanceContext>> {
+  const result = new Map<string, PerformanceContext>();
+  for (const userId of userIds) {
+    result.set(userId, {
+      userId,
+      load: 0,
+      totalWeight: 0,
+      onTime: 0,
+      judged: 0,
+      onTimeRate: 0,
+      blocked: 0,
+    });
+  }
+  if (userIds.length === 0) return result;
+
+  const due = await prisma.milestone.findMany({
+    where: { assigneeId: { in: [...userIds] } },
+    select: {
+      assigneeId: true,
+      dueDate: true,
+      weight: true,
+      status: true,
+      submittedAt: true,
+      blockedMinutes: true,
+      blockedSince: true,
+    },
+  });
+
+  for (const milestone of due) {
+    if (!milestone.assigneeId) continue;
+
+    const cycleOf = agencyYearMonth(milestone.dueDate);
     if (cycleOf.year !== cycle.year || cycleOf.month !== cycle.month) continue;
 
     const entry = result.get(milestone.assigneeId);
     if (!entry) continue;
 
-    entry.total += 1;
-    if (milestone.completedAt <= dueDeadline(milestone.dueDate)) entry.onTime += 1;
+    entry.load += 1;
+    entry.totalWeight += milestone.weight;
+    if (milestone.status === "BLOCKED") entry.blocked += 1;
+
+    // The deadline this milestone is actually judged against, including any
+    // block still running.
+    const blockedMinutes =
+      milestone.blockedMinutes +
+      (milestone.blockedSince
+        ? Math.max(0, Math.floor((now.getTime() - milestone.blockedSince.getTime()) / 60_000))
+        : 0);
+    const deadline = effectiveDeadline(dueDeadline(milestone.dueDate), blockedMinutes);
+
+    if (milestone.submittedAt) {
+      entry.judged += 1;
+      if (milestone.submittedAt <= deadline) entry.onTime += 1;
+    } else if (deadline < now) {
+      // Past its deadline with nothing handed in: judged, and not on time.
+      entry.judged += 1;
+    }
   }
 
   for (const entry of result.values()) {
-    entry.rate = entry.total === 0 ? 0 : Math.round((entry.onTime / entry.total) * 100);
+    entry.onTimeRate =
+      entry.judged === 0 ? 0 : Math.round((entry.onTime / entry.judged) * 100);
   }
 
   return result;

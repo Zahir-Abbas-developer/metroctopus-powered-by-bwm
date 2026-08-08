@@ -14,6 +14,7 @@ import { StatCard } from "@/components/ui/StatCard";
 import { Tabs } from "@/components/ui/Tabs";
 import { useToast } from "@/components/ui/Toast";
 import { LeaveInbox } from "@/components/attendance/LeaveInbox";
+import { OutageInbox } from "@/components/attendance/OutageInbox";
 import { AttendanceMatrix } from "@/components/attendance/AttendanceMatrix";
 import { SettingsPanel } from "@/components/attendance/SettingsPanel";
 import { useTicker } from "@/components/attendance/useAttendance";
@@ -39,6 +40,13 @@ type BoardRow = {
     pending: number;
     cancelled: number;
   };
+  breaks: {
+    onBreak: boolean;
+    reason: string | null;
+    usedMinutes: number;
+    allowanceMinutes: number;
+    exceeded: boolean;
+  };
 };
 
 type Board = {
@@ -56,7 +64,7 @@ type Board = {
   rows: BoardRow[];
 };
 
-type Tab = "today" | "month" | "leave" | "settings";
+type Tab = "today" | "month" | "leave" | "outages" | "settings";
 
 /**
  * The owner's attendance screen.
@@ -130,6 +138,7 @@ export function AdminAttendance({ testTriggersEnabled }: { testTriggersEnabled: 
           { key: "today", label: "Today" },
           { key: "month", label: "Month" },
           { key: "leave", label: "Leave" },
+          { key: "outages", label: "Outages" },
           { key: "settings", label: "Settings" },
         ]}
         active={tab}
@@ -243,6 +252,26 @@ export function AdminAttendance({ testTriggersEnabled }: { testTriggersEnabled: 
                         )}
                       </div>
 
+                      <div className="w-32">
+                        {row.breaks.onBreak ? (
+                          <Badge size="sm" tone="info" dot>
+                            on break
+                          </Badge>
+                        ) : row.breaks.usedMinutes > 0 ? (
+                          <span
+                            className={cn(
+                              "text-[12px] tabular-nums",
+                              row.breaks.exceeded ? "text-warn" : "text-ink/45",
+                            )}
+                            title={`${row.breaks.usedMinutes} of ${row.breaks.allowanceMinutes} protected minutes used`}
+                          >
+                            {row.breaks.usedMinutes}/{row.breaks.allowanceMinutes} min
+                          </span>
+                        ) : (
+                          <span className="text-[12px] text-ink/25">no breaks</span>
+                        )}
+                      </div>
+
                       <div className="w-40">
                         {row.checks.total === 0 ? (
                           <span className="text-[12px] text-ink/35">no checks</span>
@@ -313,6 +342,7 @@ export function AdminAttendance({ testTriggersEnabled }: { testTriggersEnabled: 
 
       {tab === "month" && <AttendanceMatrix />}
       {tab === "leave" && <LeaveInbox />}
+      {tab === "outages" && <OutageInbox />}
       {tab === "settings" && <SettingsPanel />}
     </div>
   );

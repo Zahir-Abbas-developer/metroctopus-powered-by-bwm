@@ -14,7 +14,7 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { currentCycle, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { currentCycle, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore } from "@/lib/scoring";
 import {
   daysUntil,
@@ -36,8 +36,12 @@ import { WeightDots } from "@/components/ui/WeightDots";
 import { RunEvaluationButton } from "@/components/dashboard/RunEvaluationButton";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { AttendanceCard } from "@/components/attendance/AttendanceCard";
+import { ReviewQueue } from "@/components/dashboard/ReviewQueue";
+import { PushSetup } from "@/components/pwa/PushSetup";
+import { PerformanceBadge, VolumeFootnote } from "@/components/ui/PerformanceBadge";
 import { recentActivity } from "@/lib/activity";
 import { karachiDay } from "@/lib/attendance-time";
+import { performanceContext } from "@/lib/score-service";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -116,23 +120,28 @@ export default async function DashboardPage({
   const stillWorking = todayDays.filter((day) => day.clockInAt && !day.clockOutAt).length;
 
   const memberIds = members.map((member) => member.id);
-  const [scores, onTimeByMember] = await Promise.all([
-    scoresForCycle(isAdmin ? memberIds : [user.id], cycle),
-    onTimeRateFor(isAdmin ? memberIds : [user.id], cycle),
+  const scopedIds = isAdmin ? memberIds : [user.id];
+  const [scores, context] = await Promise.all([
+    scoresForCycle(scopedIds, cycle),
+    performanceContext(scopedIds, cycle, now),
   ]);
 
   const leaderboard = members
     .map((member) => {
-      const rate = onTimeByMember.get(member.id);
+      const figures = context.get(member.id);
       return {
         ...member,
         score: scores.get(member.id)?.score ?? monthlyScore([]),
-        onTime: rate?.rate ?? 0,
-        // Distinguishes "0% on time" from "nothing approved yet this month".
-        onTimeTotal: rate?.total ?? 0,
+        // Null rather than 0 when nothing has come due yet — an em dash is
+        // honest, a red 0% is a false accusation.
+        onTime: figures && figures.judged > 0 ? figures.onTimeRate : null,
+        load: figures?.load ?? 0,
+        totalWeight: figures?.totalWeight ?? 0,
       };
     })
-    .sort((a, b) => b.score - a.score);
+    // Default sort is on-time rate, not score: the doctrine's whole point is
+    // that the raw number is the least comparable of the three.
+    .sort((a, b) => (b.onTime ?? -1) - (a.onTime ?? -1) || b.score - a.score);
 
   const avgScore =
     leaderboard.length === 0
@@ -142,6 +151,7 @@ export default async function DashboardPage({
         );
 
   const ownScore = scores.get(user.id)?.score ?? monthlyScore([]);
+  const ownContext = context.get(user.id);
 
   // Only rows genuinely inside 48 hours or already late belong on "At risk".
   const atRiskAll = atRisk.filter((milestone) => {
@@ -184,8 +194,15 @@ export default async function DashboardPage({
         </div>
       </PageHeader>
 
+      {/* Asked once, then never again. */}
+      <PushSetup />
+
       {/* The day itself, before anything about the month. */}
       {!isAdmin && <AttendanceCard />}
+
+      {/* The owner's queue sits above their own metrics: work waiting on a
+          decision is more urgent than a number describing last week. */}
+      {isAdmin && <ReviewQueue />}
 
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
@@ -389,22 +406,29 @@ export default async function DashboardPage({
 
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-ink">{member.name}</p>
-                        <p className="truncate text-[12px] text-ink/45">
-                          {member.jobTitle} ·{" "}
-                          {member.onTimeTotal === 0
-                            ? "no approvals yet"
-                            : `${member.onTime}% on time`}
-                        </p>
+                        <p className="truncate text-[12px] text-ink/45">{member.jobTitle}</p>
                       </div>
 
-                      <ScoreRing score={member.score} size="xs" showValue={false} />
-                      <span className="w-8 text-right font-display text-sm font-bold tabular-nums text-ink">
-                        {member.score}
-                      </span>
+                      {/* The triple, never the raw score alone. */}
+                      <PerformanceBadge
+                        align="end"
+                        size="sm"
+                        figures={{
+                          score: member.score,
+                          onTimeRate: member.onTime,
+                          load: member.load,
+                        }}
+                      />
                     </Link>
                   </li>
                 ))}
               </ul>
+            )}
+
+            {leaderboard.length > 0 && (
+              <div className="border-t border-line px-5 py-3">
+                <VolumeFootnote />
+              </div>
             )}
           </Card>
         ) : (
@@ -413,20 +437,22 @@ export default async function DashboardPage({
               Your standing
             </h3>
             <p className="mt-1 text-[13px] text-ink/50">
-              Derived from this month&rsquo;s deadlines and approvals.
+              This month&rsquo;s deadlines, judged on when you submitted.
             </p>
 
             <div className="mt-6 flex items-center gap-6">
               <ScoreRing score={ownScore} size="md" showLabel />
               <div className="min-w-0 flex-1 space-y-4">
                 <ProgressBar
-                  value={onTimeByMember.get(user.id)?.rate ?? 0}
-                  label="On-time rate"
+                  value={ownContext?.onTimeRate ?? 0}
+                  label={`On-time rate · ${ownContext?.load ?? 0} ${
+                    (ownContext?.load ?? 0) === 1 ? "task" : "tasks"
+                  } this month`}
                   showValue
                 />
                 <p className="text-[13px] leading-relaxed text-ink/55">
-                  Every month starts at 100. Deliver before the deadline and it
-                  stays there.
+                  Every month starts at 100, and the clock stops when you hand
+                  work in — not when it&rsquo;s approved.
                 </p>
                 <Link href="/my-performance" className={buttonClasses("secondary", "sm")}>
                   See what changed it

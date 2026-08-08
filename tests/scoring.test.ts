@@ -7,6 +7,7 @@ import {
   clampScore,
   dedupeKeyFor,
   earlyBonus,
+  effectiveDeadline,
   evaluateCompletion,
   evaluateMissed,
   formatPoints,
@@ -32,9 +33,22 @@ function facts(overrides: Partial<MilestoneFacts> = {}): MilestoneFacts {
     title: "Campaign structure & launch",
     weight: 4,
     deadline: DEADLINE,
+    submittedAt: null,
     completedAt: null,
     assigneeId: "u1",
     ...overrides,
+  };
+}
+
+/**
+ * Approved work: submitted at one moment, signed off at another. Engine v2
+ * judges the first and ignores the second, so every completion fixture has to
+ * carry both or the test isn't exercising the rule.
+ */
+function approved(submittedAt: Date, approvedAt?: Date): Partial<MilestoneFacts> {
+  return {
+    submittedAt,
+    completedAt: approvedAt ?? new Date(submittedAt.getTime() + 2 * HOUR),
   };
 }
 
@@ -194,7 +208,7 @@ describe("clampScore", () => {
 describe("evaluateCompletion", () => {
   it("proposes a LATE event for a late delivery", () => {
     const [event] = evaluateCompletion(
-      facts({ completedAt: new Date(DEADLINE.getTime() + 25 * HOUR) }),
+      facts(approved(new Date(DEADLINE.getTime() + 25 * HOUR))),
     );
     assert.equal(event.type, "LATE");
     assert.equal(event.points, -6);
@@ -205,7 +219,7 @@ describe("evaluateCompletion", () => {
 
   it("proposes an EARLY_BONUS for an early delivery", () => {
     const [event] = evaluateCompletion(
-      facts({ completedAt: new Date(DEADLINE.getTime() - 2 * DAY) }),
+      facts(approved(new Date(DEADLINE.getTime() - 2 * DAY))),
     );
     assert.equal(event.type, "EARLY_BONUS");
     assert.equal(event.points, 1);
@@ -214,24 +228,24 @@ describe("evaluateCompletion", () => {
 
   it("proposes nothing for an on-time delivery inside the final day", () => {
     const events = evaluateCompletion(
-      facts({ completedAt: new Date(DEADLINE.getTime() - 2 * HOUR) }),
+      facts(approved(new Date(DEADLINE.getTime() - 2 * HOUR))),
     );
     assert.deepEqual(events, []);
   });
 
   it("proposes nothing when the milestone is unassigned", () => {
     const events = evaluateCompletion(
-      facts({ assigneeId: null, completedAt: new Date(DEADLINE.getTime() + DAY) }),
+      facts({ assigneeId: null, ...approved(new Date(DEADLINE.getTime() + DAY)) }),
     );
     assert.deepEqual(events, []);
   });
 
   it("proposes nothing when the milestone is not actually complete", () => {
-    assert.deepEqual(evaluateCompletion(facts({ completedAt: null })), []);
+    assert.deepEqual(evaluateCompletion(facts({ submittedAt: null, completedAt: null })), []);
   });
 
   it("is idempotent: re-evaluating an already-charged milestone proposes nothing", () => {
-    const milestone = facts({ completedAt: new Date(DEADLINE.getTime() + 25 * HOUR) });
+    const milestone = facts(approved(new Date(DEADLINE.getTime() + 25 * HOUR)));
 
     const first = evaluateCompletion(milestone);
     assert.equal(first.length, 1);
@@ -245,7 +259,7 @@ describe("evaluateCompletion", () => {
   });
 
   it("is idempotent for bonuses too", () => {
-    const milestone = facts({ completedAt: new Date(DEADLINE.getTime() - 3 * DAY) });
+    const milestone = facts(approved(new Date(DEADLINE.getTime() - 3 * DAY)));
     const first = evaluateCompletion(milestone);
     const applied = new Set(first.map((event) => event.dedupeKey!));
     assert.deepEqual(evaluateCompletion(milestone, applied), []);
@@ -262,7 +276,7 @@ describe("evaluateMissed", () => {
 
   it("does not charge a milestone that was completed, however late", () => {
     const events = evaluateMissed(
-      facts({ completedAt: new Date(DEADLINE.getTime() + 10 * DAY) }),
+      facts(approved(new Date(DEADLINE.getTime() + 10 * DAY))),
     );
     assert.deepEqual(events, []);
   });
@@ -301,6 +315,121 @@ describe("rejectionEvent", () => {
       rejectionEvent({ id: "m1", title: "x", weight: 4, assigneeId: null }, "why"),
       null,
     );
+  });
+});
+
+describe("engine v2: lateness is judged on submission, never approval", () => {
+  it("charges nothing when the member submitted on time and the owner sat on it", () => {
+    // The case the whole correction exists for: handed in two hours before the
+    // deadline, approved five days later. Under engine v1 this was -12.
+    const events = evaluateCompletion(
+      facts(
+        approved(
+          new Date(DEADLINE.getTime() - 2 * HOUR),
+          new Date(DEADLINE.getTime() + 5 * DAY),
+        ),
+      ),
+    );
+    assert.deepEqual(events, [], "an owner's review speed moved a member's score");
+  });
+
+  it("still pays the early bonus however slow the approval was", () => {
+    const [event] = evaluateCompletion(
+      facts(
+        approved(
+          new Date(DEADLINE.getTime() - 3 * DAY),
+          new Date(DEADLINE.getTime() + 9 * DAY),
+        ),
+      ),
+    );
+    assert.equal(event.type, "EARLY_BONUS");
+  });
+
+  it("charges the member when they were genuinely late, approved instantly", () => {
+    const submitted = new Date(DEADLINE.getTime() + 25 * HOUR);
+    const [event] = evaluateCompletion(
+      facts(approved(submitted, new Date(submitted.getTime() + 60_000))),
+    );
+    assert.equal(event.type, "LATE");
+    assert.equal(event.points, -6);
+    assert.match(event.reason, /submitted/);
+  });
+
+  it("proposes nothing for work approved that was never submitted", () => {
+    // No delivery moment to time. Falling back to the approval would be
+    // exactly the unfairness this version removes.
+    const events = evaluateCompletion(
+      facts({ submittedAt: null, completedAt: new Date(DEADLINE.getTime() + 3 * DAY) }),
+    );
+    assert.deepEqual(events, []);
+  });
+
+  it("does not charge MISSED for work sitting in the review queue", () => {
+    // Delivered means submitted. An unapproved submission at cycle close is
+    // the owner's backlog, not the member's failure.
+    const events = evaluateMissed(
+      facts({ submittedAt: new Date(DEADLINE.getTime() - HOUR), completedAt: null }),
+    );
+    assert.deepEqual(events, []);
+  });
+
+  it("still charges MISSED when nothing was ever handed in", () => {
+    const [event] = evaluateMissed(facts({ submittedAt: null, completedAt: null }));
+    assert.equal(event.type, "MISSED");
+  });
+});
+
+describe("engine v2: the clock pauses while work is blocked", () => {
+  it("adds blocked minutes to the deadline", () => {
+    const twoDays = 2 * 24 * 60;
+    assert.equal(
+      effectiveDeadline(DEADLINE, twoDays).getTime(),
+      DEADLINE.getTime() + 2 * DAY,
+    );
+  });
+
+  it("leaves the deadline alone when nothing was blocked", () => {
+    assert.equal(effectiveDeadline(DEADLINE, 0).getTime(), DEADLINE.getTime());
+    assert.equal(effectiveDeadline(DEADLINE).getTime(), DEADLINE.getTime());
+    // Defensive: a negative total must never pull a deadline forward.
+    assert.equal(effectiveDeadline(DEADLINE, -500).getTime(), DEADLINE.getTime());
+  });
+
+  it("forgives a submission that is late only by the time it spent blocked", () => {
+    // Submitted 30 hours late, but blocked for two days waiting on the client.
+    const events = evaluateCompletion(
+      facts({
+        blockedMinutes: 2 * 24 * 60,
+        ...approved(new Date(DEADLINE.getTime() + 30 * HOUR)),
+      }),
+    );
+    assert.deepEqual(events, []);
+  });
+
+  it("charges only the delay beyond the block", () => {
+    // Blocked one day; submitted three days late. Two days of that are theirs.
+    const [event] = evaluateCompletion(
+      facts({
+        blockedMinutes: 24 * 60,
+        ...approved(new Date(DEADLINE.getTime() + 3 * DAY)),
+      }),
+    );
+    assert.equal(event.type, "LATE");
+    // weight 4: base 4 + 2 extra days x 2 = 8.
+    assert.equal(event.points, -8);
+    assert.match(event.reason, /extended by 1 day of blocked time/);
+  });
+
+  it("can earn the early bonus once the deadline shifts", () => {
+    // Submitted 12h after the original deadline, but the block moved it 3 days
+    // out — so this is more than a day early against the deadline that counts.
+    const [event] = evaluateCompletion(
+      facts({
+        blockedMinutes: 3 * 24 * 60,
+        ...approved(new Date(DEADLINE.getTime() + 12 * HOUR)),
+      }),
+    );
+    assert.equal(event.type, "EARLY_BONUS");
   });
 });
 

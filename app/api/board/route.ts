@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
+import { liveBlockedMinutes } from "@/lib/blocking";
 
 /**
  * Every milestone the viewer is allowed to see, shaped for the board.
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
   const serviceId = searchParams.get("serviceId");
 
   const isAdmin = user.role === "ADMIN";
+  const now = new Date();
 
   try {
     const milestones = await prisma.milestone.findMany({
@@ -89,6 +91,12 @@ export async function GET(request: Request) {
         projectTitle: milestone.module.project.title,
         clientName: milestone.module.project.client.businessName,
         serviceId: milestone.module.serviceId,
+        // Block facts, so a card can show "due Nov 14 → shifted to Nov 16"
+        // without a second round trip.
+        blockedReason: milestone.blockedReason,
+        blockedNote: milestone.blockedNote,
+        blockedSince: milestone.blockedSince?.toISOString() ?? null,
+        blockedMinutes: liveBlockedMinutes(milestone, now),
       })),
       filters: {
         projects: [...projects].map(([id, label]) => ({ id, label })),

@@ -5,7 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { createUserSchema, fieldErrors } from "@/lib/validation";
 import { avatarColorFor } from "@/lib/constants";
-import { currentCycle, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { currentCycle, performanceContext, scoresForCycle } from "@/lib/score-service";
 import { MONTHLY_BASELINE } from "@/lib/scoring";
 import { sendWelcome } from "@/lib/email/dispatch";
 
@@ -36,9 +36,9 @@ export async function GET() {
     // without a second round trip per row.
     const cycle = currentCycle();
     const ids = members.map((member) => member.id);
-    const [scores, onTime] = await Promise.all([
+    const [scores, context] = await Promise.all([
       scoresForCycle(ids, cycle),
-      onTimeRateFor(ids, cycle),
+      performanceContext(ids, cycle),
     ]);
 
     return NextResponse.json({
@@ -48,7 +48,14 @@ export async function GET() {
           ...member,
           score: score?.score ?? MONTHLY_BASELINE,
           trend: score?.trend ?? null,
-          onTimeRate: onTime.get(member.id)?.rate ?? 0,
+          // Null, not 0, when nothing has come due — the doctrine's triple has
+          // to be able to say "not yet rated" without implying failure.
+          onTimeRate:
+            (context.get(member.id)?.judged ?? 0) > 0
+              ? (context.get(member.id)?.onTimeRate ?? 0)
+              : null,
+          load: context.get(member.id)?.load ?? 0,
+          totalWeight: context.get(member.id)?.totalWeight ?? 0,
         };
       }),
     });

@@ -1,0 +1,50 @@
+{
+  "name": "Agency OS",
+  "short_name": "Agency OS",
+  "description": "Delivery, deadlines and availability for a remote marketing agency.",
+  "start_url": "/dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#FAFAF7",
+  "theme_color": "#0C0C0A",
+  "categories": ["business", "productivity"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icons/maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "My attendance",
+      "url": "/my-attendance",
+      "description": "Clock in, answer a check, take a break"
+    },
+    {
+      "name": "My tasks",
+      "url": "/my-tasks",
+      "description": "What's assigned to you"
+    }
+  ]
+}

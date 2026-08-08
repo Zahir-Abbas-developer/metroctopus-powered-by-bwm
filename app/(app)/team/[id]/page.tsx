@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { currentCycle, ledgerFor, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { currentCycle, ledgerFor, onTimeRateFor, performanceContext, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore, scoreBand } from "@/lib/scoring";
 import { PerformanceProfile } from "@/components/performance/PerformanceProfile";
 
@@ -31,10 +31,11 @@ export default async function TeamMemberPage({ params }: { params: { id: string 
 
   if (!member) notFound();
 
-  const [scores, ledger, onTime] = await Promise.all([
+  const [scores, ledger, onTime, context] = await Promise.all([
     scoresForCycle([member.id], cycle),
     ledgerFor(member.id, cycle),
     onTimeRateFor([member.id], cycle),
+    performanceContext([member.id], cycle),
   ]);
 
   const score = scores.get(member.id) ?? {
@@ -54,6 +55,10 @@ export default async function TeamMemberPage({ params }: { params: { id: string 
       ledger={ledger}
       cycle={cycle}
       onTime={onTime.get(member.id) ?? { onTime: 0, total: 0, rate: 0 }}
+      load={{
+        count: context.get(member.id)?.load ?? 0,
+        weight: context.get(member.id)?.totalWeight ?? 0,
+      }}
       viewerIsAdmin
       isSelf={member.id === admin.id}
     />

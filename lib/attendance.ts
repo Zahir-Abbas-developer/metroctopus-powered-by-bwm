@@ -2,13 +2,21 @@ import { prisma } from "@/lib/prisma";
 import { applyEvents } from "@/lib/score-service";
 import { attendanceDeduction } from "@/lib/scoring";
 import { notify } from "@/lib/notifications";
+import { sendCheckAlert } from "@/lib/reach";
 import { getSettings, effectiveCheckLatest, type AgencySettings } from "@/lib/settings";
 import { planChecksForDay } from "@/lib/attendance-schedule";
+import {
+  breakAllowance,
+  breakMinutesUsed,
+  overlaps,
+  shiftCheckAfterBreak,
+} from "@/lib/fairness-windows";
 import {
   formatKarachiClock,
   formatKarachiRange,
   formatKarachiTime,
   karachiDay,
+  karachiInstant,
   karachiMinutes,
   karachiWeekday,
   minutesBetween,
@@ -213,6 +221,10 @@ export type SettleResult = {
   activated: number;
   missed: number;
   pointsCharged: number;
+  /** Held for the owner's judgement because a declared outage covers them. */
+  underReview: number;
+  /** Left alone because the member is on a protected break right now. */
+  heldForBreak: number;
 };
 
 /**
@@ -220,6 +232,16 @@ export type SettleResult = {
  *
  * Called on every attendance read and by the daily job. Scoped to one member
  * when a member triggers it, and to everyone when the job does.
+ *
+ * Phase 8 added two ways a check can avoid becoming a MISS, both of them
+ * fairness rules rather than escape hatches:
+ *
+ *   A **declared outage** covering the window sends the check to
+ *   PENDING_REVIEW instead of MISSED — no charge until the owner decides.
+ *
+ *   An **open break** freezes the member's checks entirely. Nothing activates
+ *   and, critically, nothing expires, so protected time can never cost points.
+ *   The checks are shifted when the break ends; see `endBreak`.
  */
 export async function settleChecks(
   options: { userId?: string; now?: Date } = {},
@@ -239,11 +261,60 @@ export async function settleChecks(
   let activated = 0;
   let missed = 0;
   let pointsCharged = 0;
+  let underReview = 0;
+  let heldForBreak = 0;
+
+  // Who is on a break right now, and which outages are live — fetched once for
+  // the whole batch rather than per check, because the daily sweep runs this
+  // across every member at once.
+  const userIds = [...new Set(due.map((check) => check.day.userId))];
+  const [openBreaks, coveringOutages] = await Promise.all([
+    userIds.length
+      ? prisma.breakSession.findMany({
+          where: { userId: { in: userIds }, endedAt: null },
+          select: { userId: true },
+        })
+      : Promise.resolve([]),
+    userIds.length
+      ? prisma.outageReport.findMany({
+          where: { userId: { in: userIds }, status: { in: ["PENDING", "APPROVED"] } },
+          select: { id: true, userId: true, startsAt: true, endsAt: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const onBreak = new Set(openBreaks.map((session) => session.userId));
 
   for (const check of due) {
+    // Protected time. Frozen in place — not activated, not expired.
+    if (onBreak.has(check.day.userId)) {
+      heldForBreak += 1;
+      continue;
+    }
+
     // Past its window and unanswered.
     if (check.windowEndsAt <= now) {
       if (check.status === "MISSED") continue;
+
+      // A declared outage over the window means the member could not have
+      // answered. The owner decides; nothing is charged in the meantime.
+      const outage = coveringOutages.find(
+        (report) =>
+          report.userId === check.day.userId &&
+          overlaps(
+            { start: check.scheduledAt, end: check.windowEndsAt },
+            { start: report.startsAt, end: report.endsAt },
+          ),
+      );
+
+      if (outage) {
+        await prisma.availabilityCheck.update({
+          where: { id: check.id },
+          data: { status: "PENDING_REVIEW", outageReportId: outage.id },
+        });
+        underReview += 1;
+        continue;
+      }
 
       await prisma.availabilityCheck.update({
         where: { id: check.id },
@@ -283,16 +354,21 @@ export async function settleChecks(
 
       await notify({
         userId: check.day.userId,
-        type: "DUE_TOMORROW",
+        type: "AVAILABILITY_CHECK",
         title: "Availability check",
         body: `Confirm you're at work — you have until ${formatKarachiTime(check.windowEndsAt)}.`,
         href: "/my-attendance",
         dedupeKey: `check:${check.id}:NOTIFY`,
       });
+
+      // Push and, if configured, WhatsApp. The banner is what a member sees
+      // with the app open; these are how someone who doesn't have it open
+      // finds out in time to answer.
+      await sendCheckAlert(check.day.userId, check.windowEndsAt);
     }
   }
 
-  return { activated, missed, pointsCharged };
+  return { activated, missed, pointsCharged, underReview, heldForBreak };
 }
 
 export type RespondResult =
@@ -347,6 +423,159 @@ export async function respondToCheck(
       0,
       Math.round((now.getTime() - check.scheduledAt.getTime()) / 1000),
     ),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Protected breaks
+// ---------------------------------------------------------------------------
+
+export type BreakResult = { ok: true; id: string } | { ok: false; reason: string };
+
+/**
+ * Starts a protected break.
+ *
+ * Refused while a check is ACTIVE. That single rule is what separates a
+ * protected break from an escape hatch: without it, the sequence "check fires
+ * → tap On break → immune" would make the whole availability system optional.
+ * Prayer and meals are protected; answering a check that is already on screen
+ * takes seconds and is not.
+ */
+export async function startBreak(
+  userId: string,
+  reason: string,
+  now = new Date(),
+): Promise<BreakResult> {
+  const day = karachiDay(now);
+
+  const open = await prisma.breakSession.findFirst({ where: { userId, endedAt: null } });
+  if (open) return { ok: false, reason: "You're already on a break." };
+
+  const record = await prisma.attendanceDay.findUnique({
+    where: { userId_date: { userId, date: day } },
+    include: { checks: true },
+  });
+
+  if (!record?.clockInAt) {
+    return { ok: false, reason: "Start your day before taking a break." };
+  }
+  if (record.clockOutAt) {
+    return { ok: false, reason: "Your day is already finished." };
+  }
+
+  const active = record.checks.find((check) => check.status === "ACTIVE");
+  if (active) {
+    return {
+      ok: false,
+      reason: "Answer the availability check on screen first — it only takes a tap.",
+    };
+  }
+
+  const session = await prisma.breakSession.create({
+    data: { userId, date: day, reason, startedAt: now },
+  });
+
+  return { ok: true, id: session.id };
+}
+
+export type EndBreakResult =
+  | { ok: true; minutes: number; checksShifted: number; checksDropped: number }
+  | { ok: false; reason: string };
+
+/**
+ * Ends the break and puts the frozen checks back into the day.
+ *
+ * A check whose window was swallowed by the break is re-scheduled for shortly
+ * after it. One that no longer fits before the day's cutoff is CANCELLED —
+ * dropped, never missed. The member was never actually put the question.
+ */
+export async function endBreak(userId: string, now = new Date()): Promise<EndBreakResult> {
+  const settings = await getSettings();
+
+  const session = await prisma.breakSession.findFirst({
+    where: { userId, endedAt: null },
+    orderBy: { startedAt: "desc" },
+  });
+  if (!session) return { ok: false, reason: "You're not on a break." };
+
+  const minutes = minutesBetween(session.startedAt, now);
+
+  await prisma.breakSession.update({
+    where: { id: session.id },
+    data: { endedAt: now, minutes },
+  });
+
+  const day = karachiDay(now);
+  const record = await prisma.attendanceDay.findUnique({
+    where: { userId_date: { userId, date: day } },
+    include: { checks: true },
+  });
+
+  let checksShifted = 0;
+  let checksDropped = 0;
+
+  if (record) {
+    const latestScheduledAt = karachiInstant(day, effectiveCheckLatest(settings));
+
+    // Anything that came due while the member was away.
+    const swallowed = record.checks.filter(
+      (check) => check.status === "SCHEDULED" && check.scheduledAt <= now,
+    );
+
+    for (const check of swallowed) {
+      const outcome = shiftCheckAfterBreak({
+        breakEndedAt: now,
+        settleMinutes: BREAK_SETTLE_MINUTES,
+        windowMinutes: settings.checkWindowMinutes,
+        latestScheduledAt,
+      });
+
+      if (outcome.action === "DROP") {
+        await prisma.availabilityCheck.update({
+          where: { id: check.id },
+          data: { status: "CANCELLED" },
+        });
+        checksDropped += 1;
+        continue;
+      }
+
+      await prisma.availabilityCheck.update({
+        where: { id: check.id },
+        data: {
+          scheduledAt: outcome.scheduledAt,
+          windowEndsAt: outcome.windowEndsAt,
+          deferrals: check.deferrals + 1,
+        },
+      });
+      checksShifted += 1;
+    }
+  }
+
+  return { ok: true, minutes, checksShifted, checksDropped };
+}
+
+/** Minutes of grace after a break before a shifted check may fire. */
+export const BREAK_SETTLE_MINUTES = 5;
+
+/** A member's break state for the day: what's open and what's left. */
+export async function breakStateFor(userId: string, now = new Date()) {
+  const settings = await getSettings();
+  const day = karachiDay(now);
+
+  const sessions = await prisma.breakSession.findMany({
+    where: { userId, date: day },
+    orderBy: { startedAt: "asc" },
+  });
+
+  const open = sessions.find((session) => !session.endedAt) ?? null;
+  const used = breakMinutesUsed(sessions, now);
+
+  return {
+    open: open
+      ? { id: open.id, reason: open.reason, startedAt: open.startedAt }
+      : null,
+    sessions,
+    allowance: breakAllowance(used, settings.breakAllowanceMinutes),
   };
 }
 

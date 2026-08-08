@@ -158,6 +158,7 @@ export const PROJECT_LENGTH_DAYS = 30;
 export const MILESTONE_STATUSES = [
   "PENDING",
   "IN_PROGRESS",
+  "BLOCKED",
   "SUBMITTED",
   "COMPLETED",
   "MISSED",
@@ -167,6 +168,7 @@ export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
 export const MILESTONE_STATUS_LABEL: Record<MilestoneStatus, string> = {
   PENDING: "Pending",
   IN_PROGRESS: "In progress",
+  BLOCKED: "Blocked",
   SUBMITTED: "Submitted",
   COMPLETED: "Completed",
   MISSED: "Missed",
@@ -175,6 +177,9 @@ export const MILESTONE_STATUS_LABEL: Record<MilestoneStatus, string> = {
 export const MILESTONE_STATUS_TONE: Record<MilestoneStatus, BadgeTone> = {
   PENDING: "neutral",
   IN_PROGRESS: "info",
+  // Deliberately muted rather than alarming: a block is a paused clock, not a
+  // failure, and colouring it like one would discourage declaring it.
+  BLOCKED: "neutral",
   SUBMITTED: "warning",
   COMPLETED: "success",
   MISSED: "danger",
@@ -202,6 +207,7 @@ export const WEIGHT_LABEL: Record<number, string> = {
 export const MEMBER_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
   PENDING: ["IN_PROGRESS"],
   IN_PROGRESS: ["SUBMITTED", "PENDING"],
+  BLOCKED: [],
   SUBMITTED: [],
   COMPLETED: [],
   MISSED: ["IN_PROGRESS"],
@@ -210,10 +216,22 @@ export const MEMBER_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
 export const ADMIN_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
   PENDING: ["IN_PROGRESS", "SUBMITTED", "COMPLETED", "MISSED"],
   IN_PROGRESS: ["PENDING", "SUBMITTED", "COMPLETED", "MISSED"],
+  BLOCKED: [],
   SUBMITTED: ["COMPLETED", "IN_PROGRESS", "MISSED"],
   COMPLETED: ["IN_PROGRESS"],
   MISSED: ["IN_PROGRESS", "COMPLETED"],
 };
+
+/**
+ * BLOCKED is deliberately absent from both matrices in every direction.
+ *
+ * It is not a status you drag a card into: entering it requires a reason and a
+ * note, and leaving it has to close the block period and bank the minutes.
+ * Both go through /api/milestones/[id]/block, which owns the clock. Routing it
+ * through the generic transition endpoint would let a card be dragged out of
+ * BLOCKED and silently lose the pause.
+ */
+export const BLOCK_ENDPOINT_ONLY = true;
 
 export function allowedTransitions(
   role: Role,

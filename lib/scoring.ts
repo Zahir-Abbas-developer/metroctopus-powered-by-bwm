@@ -10,22 +10,42 @@
  *
  *   Every member starts each calendar month at 100 points.
  *
- *   LATE         completed after the deadline
+ *   LATE         submitted after the effective deadline
  *                -> weight x 1, plus 0.5 x weight per additional full 24h,
  *                   capped at weight x 3 for that milestone
- *   MISSED       still not completed when the project ends -> weight x 4
+ *   MISSED       still not delivered when the project ends -> weight x 4
  *   REJECTED     admin sends a SUBMITTED milestone back    -> weight x 0.5,
  *                   charged again on every rejection
- *   EARLY_BONUS  completed 24h or more before the deadline -> +1
+ *   EARLY_BONUS  submitted 24h or more before the deadline -> +1
  *
  *   Monthly score = 100 + sum(that month's events), clamped to 0..100.
  *
  * Points are always multiples of 0.5. That matters: 0.5 is exactly
  * representable in binary floating point, so summing a ledger of these values
  * never accumulates drift the way 0.1 would.
+ *
+ * ## Engine version 2 (Phase 8) — two fairness corrections
+ *
+ * **Lateness is judged on submission, never approval.** Version 1 compared
+ * `completedAt`, which is stamped when the owner approves. That made a
+ * member's score a function of how fast the owner got round to reviewing —
+ * a member could submit a day early and still be charged LATE because the
+ * review sat for three days. Version 2 compares `submittedAt`. Approval time
+ * is now tracked as the owner's own metric and touches nobody's score.
+ *
+ * **The clock pauses while work is blocked.** Time a milestone spends waiting
+ * on a client, an external party or another milestone is added to its
+ * deadline, because it is time the assignee could not act in. See
+ * `effectiveDeadline`.
+ *
+ * Both apply from the deploy date forward. Nothing is recomputed retroactively:
+ * events already in the ledger were correct under the rules in force when they
+ * were written, and silently rewriting history would break the frozen report
+ * snapshots that quote them.
  */
 
 import { DAY_MS } from "@/lib/date";
+import { describeBlocked } from "@/lib/fairness-types";
 
 export const MONTHLY_BASELINE = 100;
 export const SCORE_MIN = 0;
@@ -98,15 +118,28 @@ function round(points: number): number {
 }
 
 /**
- * Points lost for delivering after the deadline. Returns 0 when on time, and
+ * The deadline a milestone is actually judged against.
+ *
+ * Blocked time is added on, because a member cannot act on work that is
+ * waiting for someone else. Blocking is what makes the pause auditable: this
+ * function only does the arithmetic, and the minutes it is handed come from
+ * BlockPeriod rows the owner can see and veto.
+ */
+export function effectiveDeadline(deadline: Date, blockedMinutes = 0): Date {
+  if (blockedMinutes <= 0) return deadline;
+  return new Date(deadline.getTime() + blockedMinutes * 60_000);
+}
+
+/**
+ * Points lost for submitting after the deadline. Returns 0 when on time, and
  * a negative number otherwise.
  */
 export function lateDeduction(
   weight: number,
   deadline: Date,
-  completedAt: Date,
+  submittedAt: Date,
 ): number {
-  const lateBy = completedAt.getTime() - deadline.getTime();
+  const lateBy = submittedAt.getTime() - deadline.getTime();
   if (lateBy <= 0) return 0;
 
   const extraFullDays = Math.floor(lateBy / DAY_MS);
@@ -139,16 +172,16 @@ export function attendanceDeduction(configuredPenalty: number): number {
   return round(-Math.abs(configuredPenalty));
 }
 
-/** True when the delivery landed a full day or more before the deadline. */
+/** True when the submission landed a full day or more before the deadline. */
 export function qualifiesForEarlyBonus(
   deadline: Date,
-  completedAt: Date,
+  submittedAt: Date,
 ): boolean {
-  return deadline.getTime() - completedAt.getTime() >= EARLY_BONUS_THRESHOLD_MS;
+  return deadline.getTime() - submittedAt.getTime() >= EARLY_BONUS_THRESHOLD_MS;
 }
 
-export function earlyBonus(deadline: Date, completedAt: Date): number {
-  return qualifiesForEarlyBonus(deadline, completedAt) ? EARLY_BONUS_POINTS : 0;
+export function earlyBonus(deadline: Date, submittedAt: Date): number {
+  return qualifiesForEarlyBonus(deadline, submittedAt) ? EARLY_BONUS_POINTS : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -226,8 +259,19 @@ export type MilestoneFacts = {
   id: string;
   title: string;
   weight: number;
-  /** Effective deadline — end of the due day in agency time. */
+  /** End of the due day in agency time, before any blocked time is added. */
   deadline: Date;
+  /**
+   * Minutes the milestone spent blocked. Added to the deadline, so waiting on
+   * a client never costs the assignee points.
+   */
+  blockedMinutes?: number;
+  /**
+   * When the member handed the work in — the only thing lateness is judged on.
+   * Null means nothing has been submitted yet.
+   */
+  submittedAt: Date | null;
+  /** When the owner approved. Marks the work delivered; never times it. */
   completedAt: Date | null;
   assigneeId: string | null;
 };
@@ -235,6 +279,13 @@ export type MilestoneFacts = {
 /**
  * What an approved (COMPLETED) milestone is worth: a late charge, an early
  * bonus, or nothing at all when it lands in the final 24h before the deadline.
+ *
+ * Judged on `submittedAt` against the blocked-adjusted deadline. A milestone
+ * approved without ever being submitted proposes nothing — there is no
+ * delivery moment to time, and falling back to the approval would reintroduce
+ * exactly the unfairness this version removes. The status route stamps
+ * `submittedAt` when the owner completes unsubmitted work, so in practice this
+ * guard only catches imported or hand-edited data.
  *
  * `existingKeys` is the set of dedupe keys already in the ledger. Passing it in
  * keeps idempotency a property of this pure function, so re-evaluation can be
@@ -244,28 +295,33 @@ export function evaluateCompletion(
   milestone: MilestoneFacts,
   existingKeys: ReadonlySet<string> = new Set(),
 ): ProposedEvent[] {
-  const { id, title, weight, deadline, completedAt, assigneeId } = milestone;
-  if (!assigneeId || !completedAt) return [];
+  const { id, title, weight, completedAt, submittedAt, assigneeId } = milestone;
+  if (!assigneeId || !completedAt || !submittedAt) return [];
 
-  const late = lateDeduction(weight, deadline, completedAt);
+  const deadline = effectiveDeadline(milestone.deadline, milestone.blockedMinutes ?? 0);
+  const shifted = (milestone.blockedMinutes ?? 0) > 0;
+
+  const late = lateDeduction(weight, deadline, submittedAt);
   if (late < 0) {
     const key = dedupeKeyFor(id, "LATE");
     if (existingKeys.has(key)) return [];
 
-    const hoursLate = Math.floor((completedAt.getTime() - deadline.getTime()) / 3_600_000);
+    const hoursLate = Math.floor((submittedAt.getTime() - deadline.getTime()) / 3_600_000);
     return [
       {
         userId: assigneeId,
         milestoneId: id,
         type: "LATE",
         points: late,
-        reason: `"${title}" delivered ${describeDelay(hoursLate)} after its deadline (weight ${weight}).`,
+        reason:
+          `"${title}" submitted ${describeDelay(hoursLate)} after its deadline (weight ${weight})` +
+          `${shifted ? `, deadline already extended by ${describeBlocked(milestone.blockedMinutes ?? 0)} of blocked time` : ""}.`,
         dedupeKey: key,
       },
     ];
   }
 
-  const bonus = earlyBonus(deadline, completedAt);
+  const bonus = earlyBonus(deadline, submittedAt);
   if (bonus > 0) {
     const key = dedupeKeyFor(id, "EARLY_BONUS");
     if (existingKeys.has(key)) return [];
@@ -276,7 +332,7 @@ export function evaluateCompletion(
         milestoneId: id,
         type: "EARLY_BONUS",
         points: bonus,
-        reason: `"${title}" delivered ahead of its deadline.`,
+        reason: `"${title}" submitted ahead of its deadline.`,
         dedupeKey: key,
       },
     ];
@@ -286,16 +342,21 @@ export function evaluateCompletion(
 }
 
 /**
- * What an unfinished milestone costs when its project closes. A milestone that
- * was already charged LATE is not also charged MISSED — it was delivered, just
- * not on time.
+ * What an undelivered milestone costs when its project closes. A milestone
+ * that was already charged LATE is not also charged MISSED — it was delivered,
+ * just not on time.
+ *
+ * "Delivered" means submitted, not approved. Work sitting in the owner's
+ * review queue when the cycle closes is the owner's backlog, not the member's
+ * failure, and charging weight x 4 for it would be the same unfairness that
+ * moved lateness onto submission in the first place.
  */
 export function evaluateMissed(
   milestone: MilestoneFacts,
   existingKeys: ReadonlySet<string> = new Set(),
 ): ProposedEvent[] {
-  const { id, title, weight, assigneeId, completedAt } = milestone;
-  if (!assigneeId || completedAt) return [];
+  const { id, title, weight, assigneeId, completedAt, submittedAt } = milestone;
+  if (!assigneeId || completedAt || submittedAt) return [];
 
   const key = dedupeKeyFor(id, "MISSED");
   if (existingKeys.has(key)) return [];
@@ -335,6 +396,9 @@ function describeDelay(hours: number): string {
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? "" : "s"}`;
 }
+
+/** Re-exported: how much the deadline moved, used in ledger reasons. */
+export { describeBlocked } from "@/lib/fairness-types";
 
 /** "-4.0" / "+1.0" — the chip shown against every ledger row. */
 export function formatPoints(points: number): string {

@@ -31,6 +31,19 @@ export type MemberNarrativeFacts = {
   delta: number | null;
   /** Where the worst slip happened, e.g. "Google Ads" — optional. */
   troubleArea?: string | null;
+  /**
+   * Volume the score was earned against, and how it compares.
+   *
+   * The Fairness Doctrine forbids a score without context, and that applies to
+   * prose as much as to a badge: "91" reads very differently from "91 while
+   * carrying the heaviest load on the team".
+   */
+  load?: {
+    count: number;
+    /** Rank by load, 1 = heaviest. Null when there is nobody to compare to. */
+    rank: number | null;
+    teamSize: number;
+  } | null;
   /** Omitted for reports frozen before attendance existed. */
   attendance?: {
     checksPassed: number;
@@ -99,10 +112,21 @@ export function narrateMemberReport(
 
   // Third person avoids naming the subject twice in one sentence — "Ayesha's
   // score places Ayesha in…" reads like a form letter. No pronoun is guessed.
+  //
+  // The load clause is part of this sentence rather than its own, because a
+  // score and the volume behind it are one fact, not two.
+  const load = facts.load;
+  const carrying =
+    load && load.count > 0
+      ? load.rank === 1 && load.teamSize > 1
+        ? `, carrying the heaviest load on the team — ${pluralise(load.count, "milestone")}`
+        : `, against ${pluralise(load.count, "milestone")}`
+      : "";
+
   sentences.push(
     voice === "second"
-      ? `Your score of ${formatScore(facts.score)} places you in the ${band} band${movement}.`
-      : `${s.possessive} score of ${formatScore(facts.score)} sits in the ${band} band${movement}.`,
+      ? `Your score of ${formatScore(facts.score)} places you in the ${band} band${movement}${carrying}.`
+      : `${s.possessive} score of ${formatScore(facts.score)} sits in the ${band} band${movement}${carrying}.`,
   );
 
   // 3 — availability. Past tense, so it needs no verb agreement.

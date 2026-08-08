@@ -89,7 +89,9 @@ export function MemberReportDocument({
                 <div>
                   <p className="eyebrow text-paper/35">On-time rate</p>
                   <p className="mt-1 font-display text-lg font-bold tabular-nums text-paper/85">
-                    {milestones.completed === 0 ? "—" : `${payload.onTimeRate}%`}
+                    {payload.load && payload.load.count === 0
+                      ? "—"
+                      : `${payload.onTimeRate}%`}
                   </p>
                 </div>
               </div>
@@ -102,8 +104,20 @@ export function MemberReportDocument({
         </div>
       </header>
 
-      {/* At a glance */}
-      <section className="report-section grid gap-3 sm:grid-cols-4">
+      {/* At a glance. Workload leads, because every figure after it is only
+          meaningful against the volume it was earned on. */}
+      <section className="report-section grid gap-3 sm:grid-cols-5">
+        <Figure
+          label="Workload"
+          value={payload.load?.count ?? milestones.completed}
+          hint={
+            payload.load
+              ? payload.load.rank === 1
+                ? "Due this month · heaviest on the team"
+                : `Due this month · total weight ${payload.load.weight}`
+              : "Milestones this period"
+          }
+        />
         <Figure label="Completed" value={milestones.completed} hint="Approved this period" />
         <Figure
           label="On time"
