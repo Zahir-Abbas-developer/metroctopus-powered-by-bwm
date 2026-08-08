@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Building2, Layers, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
@@ -36,7 +37,11 @@ export function ClientsBrowser({
   const [status, setStatus] = useState<Status>("loading");
   const [filter, setFilter] = useState<Filter>("ALL");
   const [query, setQuery] = useState("");
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Set by the pipeline when a won deal is converted.
+  const convertLeadId = searchParams.get("convert");
   const [catalogOpen, setCatalogOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -204,9 +209,13 @@ export function ClientsBrowser({
       )}
 
       <ClientWizard
-        open={wizardOpen}
+        open={wizardOpen || Boolean(convertLeadId)}
         services={services}
-        onClose={() => setWizardOpen(false)}
+        convertLeadId={convertLeadId}
+        onClose={() => {
+          setWizardOpen(false);
+          if (convertLeadId) router.replace("/clients");
+        }}
       />
 
       <ServiceCatalogModal

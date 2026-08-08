@@ -88,6 +88,8 @@ export default async function ProjectPage({ params }: { params: { id: string } }
           dueDate: milestone.dueDate.toISOString(),
           status: milestone.status as MilestoneStatus,
           submittedAt: milestone.submittedAt?.toISOString() ?? null,
+          estimatedHours: milestone.estimatedHours,
+          carriedOver: milestone.carriedOver,
           completedAt: milestone.completedAt?.toISOString() ?? null,
           order: milestone.order,
           assignee: milestone.assignee,

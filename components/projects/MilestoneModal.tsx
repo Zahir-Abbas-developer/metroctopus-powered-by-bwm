@@ -14,6 +14,7 @@ import { toDateInput } from "@/lib/date";
 import { createMilestoneSchema, fieldErrors, milestoneFieldsSchema } from "@/lib/validation";
 import type { MilestoneRow } from "@/lib/types";
 import type { MemberOption } from "@/components/projects/MilestoneRowItem";
+import { AssigneePicker } from "@/components/capacity/AssigneePicker";
 
 const WEIGHT_OPTIONS = Array.from({ length: WEIGHT_MAX - WEIGHT_MIN + 1 }, (_, index) => {
   const weight = WEIGHT_MIN + index;
@@ -27,6 +28,7 @@ export function MilestoneModal({
   milestone,
   members,
   defaultDueDate,
+  serviceSlug,
   onClose,
   onSaved,
 }: {
@@ -37,6 +39,8 @@ export function MilestoneModal({
   milestone: MilestoneRow | null;
   members: MemberOption[];
   defaultDueDate: string;
+  /** The module's service, so the picker knows who is qualified. */
+  serviceSlug?: string | null;
   onClose: () => void;
   onSaved: (message: string) => void;
 }) {
@@ -195,22 +199,32 @@ export function MilestoneModal({
           </div>
         </div>
 
-        <Select
-          label="Assignee"
-          placeholder="Unassigned"
-          options={[
-            { value: "", label: "Unassigned" },
-            ...members.map((member) => ({
-              value: member.id,
-              label: `${member.name} · ${member.jobTitle}`,
-            })),
-          ]}
-          value={draft.assigneeId}
-          onChange={(event) => set("assigneeId", event.target.value)}
-          error={errors.assigneeId}
+        <Input
+          label="Estimated hours"
+          type="number"
+          min={0}
+          max={200}
+          value={draft.estimatedHours}
+          onChange={(event) => set("estimatedHours", event.target.value)}
+          error={errors.estimatedHours}
           disabled={saving}
-          hint="Only the assignee's score is affected by this milestone."
+          hint="Rough effort. Drives the capacity bars below — it doesn't affect scoring."
         />
+
+        {/* Capacity is shown at the moment of assignment rather than on a page
+            somebody would have to think to open. Overload is cheaper to
+            prevent than to diagnose from the misses it causes. */}
+        <AssigneePicker
+          dueDate={draft.dueDate}
+          estimatedHours={Number(draft.estimatedHours) || 2}
+          serviceSlug={serviceSlug}
+          excludeMilestoneId={milestone?.id ?? null}
+          value={draft.assigneeId || null}
+          onChange={(userId) => set("assigneeId", userId ?? "")}
+        />
+        <p className="-mt-2 text-[12px] text-ink/45">
+          Only the assignee&rsquo;s score is affected by this milestone.
+        </p>
       </form>
     </Modal>
   );
@@ -222,6 +236,7 @@ function toDraft(milestone: MilestoneRow | null, defaultDueDate: string) {
     description: milestone?.description ?? "",
     weight: String(milestone?.weight ?? 3),
     dueDate: milestone ? toDateInput(milestone.dueDate) : defaultDueDate,
+    estimatedHours: String(milestone?.estimatedHours ?? 2),
     assigneeId: milestone?.assignee?.id ?? "",
   };
 }

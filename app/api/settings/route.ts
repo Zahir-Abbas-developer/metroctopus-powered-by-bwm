@@ -30,6 +30,13 @@ const settingsSchema = z
     outageReportsPerMonth: z.number().int().min(0).max(31),
     outageMaxHours: z.number().int().min(1).max(12),
     reviewSlaHours: z.number().int().min(1).max(336),
+    // Phase 9 — pipeline and renewal.
+    bonusDealWon: z.number().min(0).max(50),
+    bonusTargetMet: z.number().min(0).max(50),
+    penaltyTargetMissed: z.number().min(0).max(50),
+    targetMissThreshold: z.number().min(0).max(1),
+    autoRenewEnabled: z.boolean(),
+    carryOverDueDays: z.number().int().min(0).max(28),
   })
   .partial()
   // Cross-field rules, because a setting that is individually valid can still

@@ -30,6 +30,13 @@ export type AgencySettings = {
   outageReportsPerMonth: number;
   outageMaxHours: number;
   reviewSlaHours: number;
+  // Phase 9 — pipeline and renewal.
+  bonusDealWon: number;
+  bonusTargetMet: number;
+  penaltyTargetMissed: number;
+  targetMissThreshold: number;
+  autoRenewEnabled: boolean;
+  carryOverDueDays: number;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -51,6 +58,12 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   outageReportsPerMonth: 4,
   outageMaxHours: 4,
   reviewSlaHours: 48,
+  bonusDealWon: 3,
+  bonusTargetMet: 1,
+  penaltyTargetMissed: 1,
+  targetMissThreshold: 0.6,
+  autoRenewEnabled: true,
+  carryOverDueDays: 5,
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -79,6 +92,12 @@ export async function getSettings(): Promise<AgencySettings> {
     outageReportsPerMonth: row.outageReportsPerMonth,
     outageMaxHours: row.outageMaxHours,
     reviewSlaHours: row.reviewSlaHours,
+    bonusDealWon: row.bonusDealWon,
+    bonusTargetMet: row.bonusTargetMet,
+    penaltyTargetMissed: row.penaltyTargetMissed,
+    targetMissThreshold: row.targetMissThreshold,
+    autoRenewEnabled: row.autoRenewEnabled,
+    carryOverDueDays: row.carryOverDueDays,
   };
 }
 

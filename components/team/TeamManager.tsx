@@ -23,6 +23,8 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { StatCard } from "@/components/ui/StatCard";
+import { Tabs } from "@/components/ui/Tabs";
+import { UtilizationGrid } from "@/components/capacity/UtilizationGrid";
 import {
   Table,
   TableShell,
@@ -51,6 +53,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const toast = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
+  const [view, setView] = useState<"roster" | "utilization">("roster");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "onTime",
     desc: true,
@@ -135,6 +138,19 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
         }
       />
 
+      <Tabs
+        items={[
+          { key: "roster", label: "Roster" },
+          { key: "utilization", label: "Utilization" },
+        ]}
+        active={view}
+        onChange={setView}
+      />
+
+      {view === "utilization" && <UtilizationGrid />}
+
+      {view === "roster" && (
+        <>
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard
           label="Active members"
@@ -400,6 +416,8 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
             <VolumeFootnote />
           </div>
         </TableShell>
+      )}
+        </>
       )}
 
       <TeamMemberModal

@@ -36,6 +36,17 @@ export const PAYLOAD_VERSION = 1 as const;
  * Phase 7 and every report frozen before then simply doesn't have it. Making it
  * required would mean claiming reports contain a section they never did.
  */
+export type ReportBusinessDevelopment = {
+  activities: number;
+  byBucket: { bucket: string; count: number }[];
+  leadsWorked: number;
+  stageConversion: { from: string; entered: number }[];
+  dealsWon: number;
+  dealsLost: number;
+  /** Monthly recurring value of the deals closed in this period. */
+  revenueAdded: number;
+};
+
 export type ReportAttendance = {
   daysPresent: number;
   daysLate: number;
@@ -87,6 +98,17 @@ export type MemberReportPayload = {
   load?: { count: number; weight: number; rank: number | null };
   /** Absent on reports frozen before Phase 7. */
   attendance?: ReportAttendance;
+  /**
+   * Hours of work carried, for the load line. Added in Phase 9; absent on
+   * anything frozen before it.
+   */
+  capacity?: { hours: number; milestones: number; capacityHours: number; percent: number };
+  /**
+   * Business development. Present only for members with pipeline activity —
+   * sales work is scored on activity and outcomes rather than milestones, so
+   * a delivery member's report simply doesn't have this section.
+   */
+  businessDevelopment?: ReportBusinessDevelopment;
   narrative: { second: string; third: string };
 };
 

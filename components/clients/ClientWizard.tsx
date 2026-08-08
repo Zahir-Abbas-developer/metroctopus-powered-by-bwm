@@ -72,10 +72,13 @@ function emptyDraft(): Draft {
 export function ClientWizard({
   open,
   services,
+  convertLeadId,
   onClose,
 }: {
   open: boolean;
   services: ServiceSummary[];
+  /** Set when opened from a won deal — pre-fills and links back to the lead. */
+  convertLeadId?: string | null;
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -92,6 +95,68 @@ export function ClientWizard({
     setErrors({});
     setFormError(null);
   }, [open]);
+
+  /**
+   * Pre-fill from a won deal.
+   *
+   * Deliberately a draft rather than a silent conversion: the wizard is where
+   * the budget, the cycle dates and the services that will generate a month of
+   * work get confirmed, and creating all of that in the background from a
+   * lead nobody re-read would be a plan nobody looked at.
+   */
+  useEffect(() => {
+    if (!open || !convertLeadId) return;
+    let cancelled = false;
+
+    void (async () => {
+      const response = await fetch(`/api/leads/${convertLeadId}/convert`, {
+        cache: "no-store",
+      }).catch(() => null);
+      if (!response?.ok || cancelled) return;
+
+      const body = (await response.json()) as {
+        draft: {
+          businessName: string;
+          contactName: string;
+          email: string;
+          phone: string;
+          country: string;
+          monthlyBudget: number;
+          serviceIds: string[];
+          notes: string;
+        };
+        unavailableServices: string[];
+      };
+
+      if (cancelled) return;
+
+      setDraft((current) => ({
+        ...current,
+        businessName: body.draft.businessName,
+        contactName: body.draft.contactName,
+        email: body.draft.email,
+        phone: body.draft.phone,
+        country: body.draft.country,
+        monthlyBudget: body.draft.monthlyBudget ? String(body.draft.monthlyBudget) : "",
+        serviceIds: body.draft.serviceIds,
+        notes: body.draft.notes,
+      }));
+
+      // A service can be retired between a lead being logged and the deal
+      // closing. Say so rather than dropping it from the plan in silence.
+      if (body.unavailableServices.length > 0) {
+        setFormError(
+          `${body.unavailableServices.join(", ")} ${
+            body.unavailableServices.length === 1 ? "is" : "are"
+          } no longer in the catalogue — pick a replacement.`,
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, convertLeadId]);
 
   function set<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -199,6 +264,16 @@ export function ClientWizard({
 
       onClose();
       // Land on the new project's plan, per the brief.
+      // Link the lead to the client it became, so the pipeline shows the
+      // provenance and the deal can't be converted twice.
+      if (convertLeadId && body.client?.id) {
+        await fetch(`/api/leads/${convertLeadId}/convert`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientId: body.client.id }),
+        }).catch(() => {});
+      }
+
       router.push(`/projects/${body.project.id}`);
       router.refresh();
     } catch {

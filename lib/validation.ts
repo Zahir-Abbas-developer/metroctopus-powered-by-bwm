@@ -97,6 +97,8 @@ export const clientDetailsSchema = z.object({
     .max(10_000_000, "That budget looks wrong"),
   status: z.enum(CLIENT_STATUSES).default("ACTIVE"),
   notes: z.string().trim().max(5000, "Notes must be 5000 characters or fewer").optional(),
+  /** Off means the nightly job never opens a new cycle for this client. */
+  autoRenew: z.boolean().optional(),
 });
 
 /** The whole 3-step onboarding wizard arrives as one request. */
@@ -155,6 +157,8 @@ export const milestoneFieldsSchema = z.object({
     .min(WEIGHT_MIN, `Weight is ${WEIGHT_MIN}–${WEIGHT_MAX}`)
     .max(WEIGHT_MAX, `Weight is ${WEIGHT_MIN}–${WEIGHT_MAX}`),
   dueDate: dateOnly,
+  /** Rough effort, for capacity planning. Never touches scoring. */
+  estimatedHours: z.number().int().min(0).max(200).optional(),
   assigneeId: z.string().min(1).nullish(),
 });
 

@@ -75,6 +75,7 @@ export default async function ClientDetailPage({
         monthlyBudget: client.monthlyBudget,
         status: client.status as ClientStatus,
         notes: client.notes,
+        autoRenew: client.autoRenew,
         onboardedAt: client.onboardedAt.toISOString(),
       }}
       projects={client.projects.map((project) => ({

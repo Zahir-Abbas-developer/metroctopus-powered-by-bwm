@@ -4,10 +4,12 @@ import {
   ArrowUpRight,
   BellOff,
   CalendarX,
+  Crosshair,
   Clock3,
   Minus,
   ScrollText,
   SlidersHorizontal,
+  Handshake,
   ThumbsDown,
   TimerOff,
   TrendingUp,
@@ -29,6 +31,9 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   ATTENDANCE_MISS: BellOff,
   LATE_CLOCK_IN: AlarmClock,
   ABSENT_DAY: CalendarX,
+  DEAL_WON: Handshake,
+  TARGET_MET: Crosshair,
+  TARGET_MISSED: Crosshair,
 };
 
 /**
@@ -111,11 +116,13 @@ export function MemberReportDocument({
           label="Workload"
           value={payload.load?.count ?? milestones.completed}
           hint={
-            payload.load
-              ? payload.load.rank === 1
-                ? "Due this month · heaviest on the team"
-                : `Due this month · total weight ${payload.load.weight}`
-              : "Milestones this period"
+            payload.capacity
+              ? `${payload.capacity.hours}h · ${payload.capacity.percent}% of capacity`
+              : payload.load
+                ? payload.load.rank === 1
+                  ? "Due this month · heaviest on the team"
+                  : `Due this month · total weight ${payload.load.weight}`
+                : "Milestones this period"
           }
         />
         <Figure label="Completed" value={milestones.completed} hint="Approved this period" />
@@ -138,6 +145,85 @@ export function MemberReportDocument({
           tone={milestones.missed > 0 ? "bad" : undefined}
         />
       </section>
+
+      {/* Business development — present only for members who work a pipeline. */}
+      {payload.businessDevelopment && (
+        <section className="report-section space-y-3">
+          <div>
+            <h2 className="font-display text-base font-bold tracking-tight text-ink">
+              Business development
+            </h2>
+            <p className="mt-0.5 text-[13px] text-ink/50">
+              Pipeline work is scored on activity and outcomes rather than
+              milestones — into the same ledger, so the score means the same thing.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Figure
+              label="Activities"
+              value={payload.businessDevelopment.activities}
+              hint={`Across ${payload.businessDevelopment.leadsWorked} lead${
+                payload.businessDevelopment.leadsWorked === 1 ? "" : "s"
+              }`}
+            />
+            <Figure
+              label="Deals won"
+              value={payload.businessDevelopment.dealsWon}
+              hint="Closed this period"
+              tone={payload.businessDevelopment.dealsWon > 0 ? "good" : undefined}
+            />
+            <Figure
+              label="Revenue added"
+              value={`$${payload.businessDevelopment.revenueAdded.toLocaleString("en-US")}`}
+              hint="Monthly recurring, from deals won"
+              tone={payload.businessDevelopment.revenueAdded > 0 ? "good" : undefined}
+            />
+            <Figure
+              label="Deals lost"
+              value={payload.businessDevelopment.dealsLost}
+              hint="Closed without signing"
+              tone={payload.businessDevelopment.dealsLost > 0 ? "bad" : undefined}
+            />
+          </div>
+
+          {payload.businessDevelopment.byBucket.length > 0 && (
+            <div className="rounded-card border border-line bg-white px-6 py-4">
+              <p className="eyebrow mb-3 text-ink/45">Activity mix</p>
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {payload.businessDevelopment.byBucket.map((entry) => (
+                  <li
+                    key={entry.bucket}
+                    className="flex items-baseline justify-between gap-3 text-[13px]"
+                  >
+                    <span className="text-ink/60">{bucketLabel(entry.bucket)}</span>
+                    <span className="font-medium tabular-nums text-ink">{entry.count}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {payload.businessDevelopment.stageConversion.some((row) => row.entered > 0) && (
+            <div className="rounded-card border border-line bg-white px-6 py-4">
+              <p className="eyebrow mb-3 text-ink/45">Pipeline carried, by stage</p>
+              <ul className="space-y-2">
+                {payload.businessDevelopment.stageConversion
+                  .filter((row) => row.entered > 0)
+                  .map((row) => (
+                    <li
+                      key={row.from}
+                      className="flex items-baseline justify-between gap-3 text-[13px]"
+                    >
+                      <span className="text-ink/60">{stageLabel(row.from)}</span>
+                      <span className="font-medium tabular-nums text-ink">{row.entered}</span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Attendance — absent on reports frozen before Phase 7. */}
       {payload.attendance && (
@@ -352,6 +438,27 @@ function Figure({
       </p>
       <p className="mt-2 text-[12px] text-ink/45">{hint}</p>
     </div>
+  );
+}
+
+/** Bucket and stage keys are stored as constants; the report spells them out. */
+function bucketLabel(bucket: string): string {
+  return (
+    { OUTREACH: "Outreach", FOLLOW_UP: "Follow-ups", PROPOSAL: "Proposals", MEETING: "Meetings" }[
+      bucket
+    ] ?? bucket
+  );
+}
+
+function stageLabel(stage: string): string {
+  return (
+    {
+      NEW: "New",
+      CONTACTED: "Contacted",
+      MEETING_BOOKED: "Meeting booked",
+      PROPOSAL_SENT: "Proposal sent",
+      NEGOTIATION: "Negotiation",
+    }[stage] ?? stage
   );
 }
 

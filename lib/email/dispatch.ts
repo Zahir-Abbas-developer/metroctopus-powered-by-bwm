@@ -5,6 +5,7 @@ import { REPORT_TYPE_LABEL, parsePayload, type ReportType } from "@/lib/reports"
 import type { SendResult } from "@/lib/email/send";
 import {
   overdueAlertEmail,
+  renewalDigestEmail,
   reportReadyEmail,
   weeklyDigestEmail,
   welcomeEmail,
@@ -180,6 +181,52 @@ export async function sendOverdueAlert(now = new Date()): Promise<SendResult> {
   let last: SendResult = { status: "skipped", reason: "no active owner" };
   for (const owner of owners) {
     last = await sendEmail(owner.email, overdueAlertEmail({ overdue, appUrl: appUrl() }));
+  }
+
+  return last;
+}
+
+/**
+ * The renewals digest.
+ *
+ * Sent by the nightly job after auto-renewal, and only when it actually did
+ * something — an email saying "nothing happened" every night is an email
+ * nobody reads by week two.
+ */
+export async function sendRenewalDigest(run: {
+  renewed: {
+    clientName: string;
+    title: string;
+    milestones: number;
+    carriedOver: number;
+    unassigned: number;
+  }[];
+  skipped: { clientName: string; reason: string }[];
+  totalCarriedOver: number;
+}): Promise<SendResult> {
+  if (run.renewed.length === 0 && run.skipped.length === 0) {
+    return { status: "skipped", reason: "nothing renewed" };
+  }
+
+  const { sendEmail, appUrl } = await transport();
+
+  const owners = await prisma.user.findMany({
+    where: { role: "ADMIN", isActive: true },
+    select: { email: true },
+  });
+  if (owners.length === 0) return { status: "skipped", reason: "no active owner" };
+
+  let last: SendResult = { status: "skipped", reason: "no active owner" };
+  for (const owner of owners) {
+    last = await sendEmail(
+      owner.email,
+      renewalDigestEmail({
+        renewed: run.renewed,
+        skipped: run.skipped,
+        totalCarriedOver: run.totalCarriedOver,
+        appUrl: appUrl(),
+      }),
+    );
   }
 
   return last;

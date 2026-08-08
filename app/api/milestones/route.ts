@@ -56,6 +56,7 @@ export async function POST(request: Request) {
         title: parsed.data.title,
         description: parsed.data.description,
         weight: parsed.data.weight,
+        estimatedHours: parsed.data.estimatedHours ?? 2,
         dueDate,
         assigneeId: parsed.data.assigneeId ?? null,
         order: (last?.order ?? -1) + 1,

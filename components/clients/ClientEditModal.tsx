@@ -218,6 +218,30 @@ export function ClientEditModal({
           disabled={saving}
           hint="Context the team should carry into the work."
         />
+
+        {/* The escape hatch for bespoke schedules and retainers being wound
+            down. On by default, because the whole point of Phase 9 is that
+            the 1st of the month runs itself. */}
+        <label className="flex cursor-pointer items-start gap-3 rounded-card border border-line bg-white p-4">
+          <input
+            type="checkbox"
+            checked={draft.autoRenew}
+            disabled={saving}
+            onChange={(event) => set("autoRenew", event.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+          />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium text-ink">
+              Renew this retainer automatically
+            </span>
+            <span className="mt-0.5 block text-[13px] leading-relaxed text-ink/55">
+              When the cycle ends, the next month&rsquo;s plan is created
+              overnight from this one — same structure, same assignees, shifted
+              dates. Unfinished work carries over with a new deadline and no
+              second penalty.
+            </span>
+          </span>
+        </label>
       </form>
     </Modal>
   );
@@ -234,5 +258,6 @@ function toDraft(client: ClientRecord) {
     monthlyBudget: String(client.monthlyBudget),
     status: client.status as string,
     notes: client.notes ?? "",
+    autoRenew: client.autoRenew ?? true,
   };
 }

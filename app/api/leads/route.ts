@@ -1,0 +1,137 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+
+import { prisma } from "@/lib/prisma";
+import { apiError } from "@/lib/api";
+import { getCurrentUser } from "@/lib/session";
+import { fieldErrors } from "@/lib/validation";
+import { pipelineMetrics } from "@/lib/pipeline";
+import { LEAD_SOURCES } from "@/lib/pipeline-types";
+
+const leadSchema = z.object({
+  businessName: z.string().trim().min(2, "Give the business a name").max(120),
+  contactName: z.string().trim().min(2, "Who are we talking to?").max(120),
+  email: z.string().trim().email("That doesn't look like an email").or(z.literal("")).nullish(),
+  phone: z.string().trim().max(40).nullish(),
+  source: z.enum(LEAD_SOURCES).default("OUTREACH"),
+  country: z.string().trim().max(80).nullish(),
+  /** ServiceCatalog slugs. */
+  interestedServices: z.array(z.string().min(1)).max(20).default([]),
+  estimatedMonthlyValue: z.number().int().min(0).max(1_000_000).default(0),
+  ownerId: z.string().min(1).nullish(),
+  notes: z.string().trim().max(2000).nullish(),
+});
+
+/**
+ * The pipeline board.
+ *
+ * Everyone can see the pipeline — a five-person agency where only the owner
+ * knows what's coming is a five-person agency that gets surprised. Members can
+ * only *edit* leads they own; that check lives on the write paths.
+ */
+export async function GET(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return apiError("You must be signed in", 401);
+
+  const { searchParams } = new URL(request.url);
+  const ownerId = searchParams.get("ownerId");
+  const includeClosed = searchParams.get("closed") === "1";
+
+  const [leads, metrics, owners, services] = await Promise.all([
+    prisma.lead.findMany({
+      where: {
+        ...(ownerId && ownerId !== "ALL" ? { ownerId } : {}),
+        ...(includeClosed ? {} : { stage: { notIn: ["WON", "LOST"] } }),
+      },
+      orderBy: [{ stageChangedAt: "desc" }],
+      include: {
+        owner: { select: { id: true, name: true, avatarColor: true } },
+        _count: { select: { activities: true } },
+      },
+    }),
+    pipelineMetrics(),
+    prisma.user.findMany({
+      where: { isActive: true },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, avatarColor: true },
+    }),
+    prisma.serviceCatalog.findMany({
+      where: { isActive: true },
+      orderBy: { order: "asc" },
+      select: { slug: true, name: true },
+    }),
+  ]);
+
+  return NextResponse.json({
+    metrics,
+    owners,
+    services,
+    viewer: { id: user.id, isAdmin: user.role === "ADMIN" },
+    leads: leads.map((lead) => ({
+      id: lead.id,
+      businessName: lead.businessName,
+      contactName: lead.contactName,
+      email: lead.email,
+      phone: lead.phone,
+      source: lead.source,
+      country: lead.country,
+      interestedServices: splitSlugs(lead.interestedServices),
+      estimatedMonthlyValue: lead.estimatedMonthlyValue,
+      stage: lead.stage,
+      stageChangedAt: lead.stageChangedAt.toISOString(),
+      lostReason: lead.lostReason,
+      lostNote: lead.lostNote,
+      owner: lead.owner,
+      activityCount: lead._count.activities,
+      convertedClientId: lead.convertedClientId,
+      createdAt: lead.createdAt.toISOString(),
+    })),
+  });
+}
+
+export async function POST(request: Request) {
+  const user = await getCurrentUser();
+  if (!user) return apiError("You must be signed in", 401);
+
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return apiError("Invalid request body", 400);
+  }
+
+  const parsed = leadSchema.safeParse(body);
+  if (!parsed.success) {
+    return apiError("Please fix the highlighted fields", 422, fieldErrors(parsed.error));
+  }
+
+  const data = parsed.data;
+
+  const lead = await prisma.lead.create({
+    data: {
+      businessName: data.businessName,
+      contactName: data.contactName,
+      email: data.email || null,
+      phone: data.phone || null,
+      source: data.source,
+      country: data.country || null,
+      interestedServices: data.interestedServices.join(","),
+      estimatedMonthlyValue: data.estimatedMonthlyValue,
+      // Unowned leads are invisible work. Whoever adds one owns it unless the
+      // owner says otherwise.
+      ownerId: data.ownerId ?? user.id,
+      notes: data.notes || null,
+      stage: "NEW",
+    },
+  });
+
+  return NextResponse.json({ lead }, { status: 201 });
+}
+
+/** Comma-separated slugs, as stored. Local — a route may only export handlers. */
+function splitSlugs(value: string): string[] {
+  return value
+    .split(",")
+    .map((slug) => slug.trim())
+    .filter(Boolean);
+}

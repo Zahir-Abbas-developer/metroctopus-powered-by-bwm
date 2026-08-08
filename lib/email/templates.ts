@@ -289,3 +289,89 @@ export function overdueAlertEmail(input: {
     ].join("\n"),
   };
 }
+
+export function renewalDigestEmail(input: {
+  renewed: {
+    clientName: string;
+    title: string;
+    milestones: number;
+    carriedOver: number;
+    unassigned: number;
+  }[];
+  skipped: { clientName: string; reason: string }[];
+  totalCarriedOver: number;
+  appUrl: string;
+}): Email {
+  const attention =
+    input.renewed.filter((entry) => entry.unassigned > 0).length + input.skipped.length;
+
+  const body = `
+    <div style="background:${BRAND_TINT};border:1px solid rgba(26,107,58,0.2);border-radius:10px;padding:14px 16px;margin:0 0 20px;">
+      <p style="margin:0;font-size:14px;font-weight:600;color:${BRAND};">
+        ${input.renewed.length} cycle${input.renewed.length === 1 ? "" : "s"} opened${
+          input.totalCarriedOver > 0
+            ? ` · ${input.totalCarriedOver} item${input.totalCarriedOver === 1 ? "" : "s"} carried over`
+            : ""
+        }
+      </p>
+    </div>
+    ${
+      input.renewed.length > 0
+        ? table(
+            input.renewed
+              .map((entry) =>
+                listItem(
+                  `${entry.clientName} — ${entry.title}`,
+                  `${entry.milestones} milestone${entry.milestones === 1 ? "" : "s"}${
+                    entry.carriedOver > 0 ? ` · ${entry.carriedOver} carried over` : ""
+                  }${entry.unassigned > 0 ? ` · ${entry.unassigned} unassigned` : ""}`,
+                  entry.unassigned > 0 ? "warn" : undefined,
+                ),
+              )
+              .join(""),
+          )
+        : ""
+    }
+    ${
+      input.skipped.length > 0
+        ? `<p style="margin:24px 0 8px;font-size:11px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:rgba(12,12,10,0.4);">Not renewed</p>
+           ${table(
+             input.skipped
+               .map((entry) => listItem(entry.clientName, entry.reason, "warn"))
+               .join(""),
+           )}`
+        : ""
+    }`;
+
+  return {
+    subject:
+      input.renewed.length === 0
+        ? "Renewals ran — nothing to open"
+        : `${input.renewed.length} retainer cycle${input.renewed.length === 1 ? "" : "s"} renewed`,
+    html: shell({
+      eyebrow: "Overnight",
+      title: "Renewals ran",
+      intro:
+        attention > 0
+          ? "Next month's plans are live. A few need a decision from you."
+          : "Next month's plans are live. Nothing needs your attention.",
+      body,
+      cta: { label: "Open clients", href: `${input.appUrl}/clients` },
+    }),
+    text: [
+      `${input.renewed.length} cycle(s) renewed, ${input.totalCarriedOver} item(s) carried over.`,
+      "",
+      ...input.renewed.map(
+        (entry) =>
+          `  - ${entry.clientName}: ${entry.title}, ${entry.milestones} milestone(s)` +
+          `${entry.carriedOver > 0 ? `, ${entry.carriedOver} carried over` : ""}` +
+          `${entry.unassigned > 0 ? `, ${entry.unassigned} unassigned` : ""}`,
+      ),
+      ...(input.skipped.length > 0
+        ? ["", "Not renewed:", ...input.skipped.map((e) => `  - ${e.clientName}: ${e.reason}`)]
+        : []),
+      "",
+      `${input.appUrl}/clients`,
+    ].join("\n"),
+  };
+}

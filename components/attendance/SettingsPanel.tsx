@@ -31,6 +31,12 @@ type SettingsShape = {
   outageReportsPerMonth: number;
   outageMaxHours: number;
   reviewSlaHours: number;
+  bonusDealWon: number;
+  bonusTargetMet: number;
+  penaltyTargetMissed: number;
+  targetMissThreshold: number;
+  autoRenewEnabled: boolean;
+  carryOverDueDays: number;
 };
 
 const DAYS = [
@@ -354,6 +360,100 @@ export function SettingsPanel() {
             value={draft.outageMaxHours}
             error={errors.outageMaxHours}
             onChange={(event) => set("outageMaxHours", Number(event.target.value))}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Business development
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          Sales work is scored on activity and outcomes rather than milestones —
+          into the same ledger, so a score means the same thing however it was
+          earned.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Points for a deal won"
+            type="number"
+            step={0.5}
+            min={0}
+            value={draft.bonusDealWon}
+            error={errors.bonusDealWon}
+            onChange={(event) => set("bonusDealWon", Number(event.target.value))}
+          />
+          <Input
+            label="Points for a weekly target met"
+            type="number"
+            step={0.5}
+            min={0}
+            value={draft.bonusTargetMet}
+            error={errors.bonusTargetMet}
+            onChange={(event) => set("bonusTargetMet", Number(event.target.value))}
+          />
+          <Input
+            label="Points off for a target missed"
+            type="number"
+            step={0.5}
+            min={0}
+            value={draft.penaltyTargetMissed}
+            error={errors.penaltyTargetMissed}
+            onChange={(event) => set("penaltyTargetMissed", Number(event.target.value))}
+          />
+          <Input
+            label="Miss threshold (%)"
+            type="number"
+            min={0}
+            max={100}
+            value={Math.round(draft.targetMissThreshold * 100)}
+            error={errors.targetMissThreshold}
+            onChange={(event) =>
+              set("targetMissThreshold", Math.min(1, Number(event.target.value) / 100))
+            }
+            hint="A week only costs a point below this share of the target — a near miss after real work isn't a failure."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Auto-renewal
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          Overnight, every active client whose cycle has ended gets next
+          month&rsquo;s plan — same structure, same assignees, shifted dates.
+          Individual clients can still opt out.
+        </p>
+
+        <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-card border border-line p-4">
+          <input
+            type="checkbox"
+            checked={draft.autoRenewEnabled}
+            onChange={(event) => set("autoRenewEnabled", event.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+          />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium text-ink">
+              Renew retainer cycles automatically
+            </span>
+            <span className="mt-0.5 block text-[13px] leading-relaxed text-ink/55">
+              Off means every cycle is opened by hand, for every client.
+            </span>
+          </span>
+        </label>
+
+        <div className="mt-4 max-w-[280px]">
+          <Input
+            label="Carried-over work is due after (days)"
+            type="number"
+            min={0}
+            max={28}
+            value={draft.carryOverDueDays}
+            error={errors.carryOverDueDays}
+            onChange={(event) => set("carryOverDueDays", Number(event.target.value))}
+            hint="Days into the new cycle. Dating it to day one guarantees it's late again immediately."
           />
         </div>
       </Card>

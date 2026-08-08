@@ -10,6 +10,7 @@ import {
   TriangleAlert,
   Trophy,
   UserCheck,
+  Wallet,
 } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
@@ -42,6 +43,10 @@ import { PerformanceBadge, VolumeFootnote } from "@/components/ui/PerformanceBad
 import { recentActivity } from "@/lib/activity";
 import { karachiDay } from "@/lib/attendance-time";
 import { performanceContext } from "@/lib/score-service";
+import { mrrSeries, pipelineMetrics } from "@/lib/pipeline";
+import { MrrCard } from "@/components/dashboard/MrrCard";
+import { TargetBar } from "@/components/pipeline/TargetBar";
+import { formatMoney } from "@/lib/pipeline-types";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -118,6 +123,13 @@ export default async function DashboardPage({
     : [];
   const presentToday = todayDays.filter((day) => day.clockInAt).length;
   const stillWorking = todayDays.filter((day) => day.clockInAt && !day.clockOutAt).length;
+
+  // Money. The owner's dashboard leads with MRR because it is the number the
+  // whole machine exists to grow — everything else on this page is a means to
+  // moving it.
+  const [mrr, pipeline] = isAdmin
+    ? await Promise.all([mrrSeries(6, now), pipelineMetrics(now)])
+    : [null, null];
 
   const memberIds = members.map((member) => member.id);
   const scopedIds = isAdmin ? memberIds : [user.id];
@@ -200,6 +212,11 @@ export default async function DashboardPage({
       {/* The day itself, before anything about the month. */}
       {!isAdmin && <AttendanceCard />}
 
+      {/* Business development, for anyone with weekly targets. Renders
+          nothing at all for a member who has none — no targets set is not
+          this person's job, not an empty state. */}
+      <TargetBar userId={user.id} />
+
       {/* The owner's queue sits above their own metrics: work waiting on a
           decision is more urgent than a number describing last week. */}
       {isAdmin && <ReviewQueue />}
@@ -214,9 +231,31 @@ export default async function DashboardPage({
 
         <div
           className={`grid gap-4 sm:grid-cols-2 ${
-            isAdmin ? "xl:grid-cols-5" : "xl:grid-cols-4"
+            isAdmin ? "xl:grid-cols-4" : "xl:grid-cols-4"
           }`}
         >
+          {/* MRR spans two columns and carries its own trend — it is the one
+              figure where six months of shape says more than today's value. */}
+          {isAdmin && mrr && (
+            <MrrCard
+              current={mrr.current}
+              activeClients={mrr.activeClients}
+              delta={mrr.delta}
+              deltaPercent={mrr.deltaPercent}
+              series={mrr.series}
+            />
+          )}
+          {isAdmin && pipeline && (
+            <StatCard
+              label="Open pipeline"
+              value={formatMoney(pipeline.openValue, true)}
+              icon={Wallet}
+              tone="info"
+              hint={`${pipeline.openCount} live deal${pipeline.openCount === 1 ? "" : "s"}${
+                pipeline.winRate !== null ? ` · ${pipeline.winRate}% win rate` : ""
+              }`}
+            />
+          )}
           <StatCard
             label="Active clients"
             value={activeClients}

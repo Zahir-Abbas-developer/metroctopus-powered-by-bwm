@@ -323,6 +323,7 @@ async function main() {
   // After the backfill: it clears the ledger, and attendance writes into it.
   const attendance = await seedAttendance();
   const fairness = await seedFairness(admin.id);
+  const growth = await seedGrowth(admin.id, members);
   const { reports, notifications } = await seedReportsAndNotifications();
   const collab = await seedCollaboration(admin.id);
 
@@ -336,6 +337,7 @@ async function main() {
     availabilityChecks: attendance.availabilityChecks,
     leaveRequests: attendance.leaveRequests,
     ...fairness,
+    ...growth,
     ...collab,
   });
 }
@@ -561,6 +563,224 @@ async function createAttendanceEvent(event: {
       createdAt: event.at,
     },
   });
+}
+
+/**
+ * The Phase 9 growth surfaces: a live pipeline, weekly targets for the
+ * business developer, and six months of MRR history.
+ *
+ * The MRR series is invented on purpose — it is the one number whose history
+ * cannot be derived from today's data, so a demo without snapshots shows a
+ * flat line and the trend card looks broken rather than empty.
+ */
+async function seedGrowth(
+  adminId: string,
+  members: { id: string; jobTitle: string }[],
+) {
+  await prisma.salesActivity.deleteMany({});
+  await prisma.lead.deleteMany({});
+  await prisma.activityTarget.deleteMany({});
+  await prisma.mrrSnapshot.deleteMany({});
+
+  const now = new Date();
+
+  // --- Weekly targets -------------------------------------------------------
+  // Saad is the Business Developer; the owner carries a lighter closing load
+  // alongside everything else they do.
+  const bd = members.find((member) => member.jobTitle.includes("Business Developer"));
+
+  const targetPlans: { userId: string; targets: [string, number][] }[] = [
+    ...(bd
+      ? [{
+          userId: bd.id,
+          targets: [["OUTREACH", 40], ["FOLLOW_UP", 8], ["PROPOSAL", 3], ["MEETING", 5]] as [string, number][],
+        }]
+      : []),
+    {
+      userId: adminId,
+      targets: [["OUTREACH", 15], ["PROPOSAL", 2], ["MEETING", 4]] as [string, number][],
+    },
+  ];
+
+  let targets = 0;
+  for (const plan of targetPlans) {
+    for (const [bucket, weeklyTarget] of plan.targets) {
+      await prisma.activityTarget.create({
+        data: { userId: plan.userId, bucket, weeklyTarget },
+      });
+      targets += 1;
+    }
+  }
+
+  // --- Pipeline -------------------------------------------------------------
+  const LEADS = [
+    { businessName: "Harbour & Vine", contactName: "Elena Marsh", country: "United Kingdom", source: "INBOUND", stage: "NEGOTIATION", value: 6500, services: ["meta-ads-management", "creative-research-design"], days: 21, activities: 11 },
+    { businessName: "Nordwell Supply", contactName: "Anders Holm", country: "Sweden", source: "OUTREACH", stage: "PROPOSAL_SENT", value: 4800, services: ["google-ads-management"], days: 9, activities: 7 },
+    { businessName: "Saffron & Sage", contactName: "Priya Raman", country: "United Arab Emirates", source: "REFERRAL", stage: "MEETING_BOOKED", value: 3200, services: ["full-funnel"], days: 4, activities: 4 },
+    { businessName: "Coastline Denim", contactName: "Marco Bellini", country: "Italy", source: "SOCIAL", stage: "CONTACTED", value: 2800, services: ["shopify-design-development"], days: 6, activities: 3 },
+    { businessName: "Verdigris Home", contactName: "Tom Fletcher", country: "United States", source: "OUTREACH", stage: "CONTACTED", value: 5200, services: ["meta-ads-management"], days: 2, activities: 2 },
+    { businessName: "Pinecrest Outdoors", contactName: "Sara Lindqvist", country: "Norway", source: "OUTREACH", stage: "NEW", value: 3900, services: ["google-ads-management", "meta-ads-management"], days: 1, activities: 0 },
+    { businessName: "Atlas Athletic", contactName: "Danny Okoro", country: "United Kingdom", source: "INBOUND", stage: "NEW", value: 7400, services: ["full-funnel"], days: 0, activities: 1 },
+    { businessName: "Lumière Beauté", contactName: "Camille Roux", country: "France", source: "REFERRAL", stage: "WON", value: 5600, services: ["meta-ads-management"], days: 3, activities: 9 },
+    { businessName: "Ironwood Tools", contactName: "Greg Sandoval", country: "United States", source: "OUTREACH", stage: "LOST", value: 4100, services: ["google-ads-management"], days: 5, activities: 6, lostReason: "PRICE", lostNote: "Wanted the retainer at half. Walked when we held the number." },
+    { businessName: "Meadowlark Kids", contactName: "Anne Dubois", country: "Canada", source: "SOCIAL", stage: "LOST", value: 2200, services: ["creative-research-design"], days: 6, activities: 4, lostReason: "NO_RESPONSE", lostNote: "Three follow-ups after the proposal, nothing back." },
+  ];
+
+  const ACTIVITY_SCRIPT = [
+    ["EMAIL", "Cold intro referencing their Meta ad library — three creatives, all static."],
+    ["FOLLOW_UP", "Second nudge. Opened twice, no reply yet."],
+    ["CALL", "Picked up. Running everything in-house, unhappy with ROAS since May."],
+    ["MEETING", "45 minutes on the funnel. Their AOV supports the retainer comfortably."],
+    ["PROPOSAL_SENT", "Sent the full-funnel proposal at the number we discussed."],
+    ["FOLLOW_UP", "Chased the proposal. Finance signs off Thursday."],
+    ["DM", "LinkedIn nudge to the founder while the email sat unread."],
+    ["CALL", "Talked through the onboarding timeline and who they'd work with."],
+    ["FOLLOW_UP", "Confirmed the start date and what we need from their side."],
+    ["EMAIL", "Sent the ad account access checklist."],
+    ["MEETING", "Final call before signature."],
+  ];
+
+  let leadCount = 0;
+  let activityCount = 0;
+
+  for (const [index, entry] of LEADS.entries()) {
+    const ownerId = bd && index % 3 !== 0 ? bd.id : adminId;
+    const stageChangedAt = addDays(now, -entry.days);
+
+    const lead = await prisma.lead.create({
+      data: {
+        businessName: entry.businessName,
+        contactName: entry.contactName,
+        email: `${entry.contactName.split(" ")[0].toLowerCase()}@${entry.businessName
+          .toLowerCase()
+          .replace(/[^a-z]/g, "")}.com`,
+        country: entry.country,
+        source: entry.source,
+        stage: entry.stage,
+        stageChangedAt,
+        estimatedMonthlyValue: entry.value,
+        interestedServices: entry.services.join(","),
+        ownerId,
+        lostReason: entry.lostReason ?? null,
+        lostNote: entry.lostNote ?? null,
+        createdAt: addDays(stageChangedAt, -(entry.activities + 3)),
+      },
+    });
+    leadCount += 1;
+
+    // Activity spread backwards from the stage change, so the timeline reads
+    // as a conversation rather than a burst.
+    for (let i = 0; i < entry.activities; i += 1) {
+      const [type, note] = ACTIVITY_SCRIPT[i % ACTIVITY_SCRIPT.length];
+      await prisma.salesActivity.create({
+        data: {
+          leadId: lead.id,
+          userId: ownerId,
+          type,
+          note,
+          occurredAt: addDays(stageChangedAt, -(entry.activities - i) * 1.4),
+        },
+      });
+      activityCount += 1;
+    }
+  }
+
+  // This week's activity, so the target bar shows a week in progress rather
+  // than a flat zero. Spread across the last few days rather than dumped on
+  // one, which is what a real week looks like.
+  if (bd) {
+    const thisWeek = await prisma.lead.findMany({
+      where: { stage: { notIn: ["WON", "LOST"] } },
+      select: { id: true },
+      take: 5,
+    });
+
+    const pattern: [string, string][] = [
+      ["EMAIL", "Opening email — referenced their Shopify theme speed score."],
+      ["EMAIL", "Second prospect from the same vertical, same angle."],
+      ["DM", "Instagram DM to the founder; they follow us back."],
+      ["CALL", "Quick discovery call, 12 minutes. Interested but slow."],
+      ["EMAIL", "Intro to the ops lead they pointed us at."],
+      ["FOLLOW_UP", "Nudged the proposal from last week."],
+      ["MEETING", "Full funnel walkthrough with their team."],
+      ["EMAIL", "Cold outreach batch — six sent, this one replied."],
+      ["DM", "LinkedIn message after the podcast mention."],
+      ["EMAIL", "Follow-on with the case study attached."],
+      ["CALL", "Answered their pricing question on the phone."],
+      ["EMAIL", "Recap of the call in writing."],
+    ];
+
+    // Monday of the current agency week, so everything lands inside it.
+    const weekday = karachiWeekday(now);
+    const monday = addDays(now, -(weekday - 1));
+
+    // Repeated so the week reaches a realistic outreach volume — a target of
+    // 40 with 12 logged would show the bar permanently in the red.
+    const week = [...pattern, ...pattern, ...pattern];
+
+    for (const [index, [type, note]] of week.entries()) {
+      const lead = thisWeek[index % Math.max(1, thisWeek.length)];
+      if (!lead) break;
+
+      // Spread across the days of the week that have already happened.
+      const dayOffset = Math.min(weekday - 1, Math.floor(index / 6));
+
+      await prisma.salesActivity.create({
+        data: {
+          leadId: lead.id,
+          userId: bd.id,
+          type,
+          note,
+          occurredAt: addDays(monday, dayOffset + (index % 2) * 0.3),
+        },
+      });
+      activityCount += 1;
+    }
+  }
+
+  // A won deal that already became a client, so the provenance link is visible.
+  const maison = await prisma.client.findFirst({ where: { businessName: "Maison Rue" } });
+  const won = await prisma.lead.findFirst({ where: { stage: "WON", convertedClientId: null } });
+  if (maison && won) {
+    await prisma.lead.update({
+      where: { id: won.id },
+      data: { convertedClientId: maison.id, convertedAt: addDays(now, -10) },
+    });
+  }
+
+  // --- Six months of MRR ----------------------------------------------------
+  const activeNow = await prisma.client.findMany({
+    where: { status: "ACTIVE" },
+    select: { monthlyBudget: true },
+  });
+  const current = activeNow.reduce((sum, client) => sum + client.monthlyBudget, 0);
+
+  // Walked backwards with a plausible growth curve rather than forwards from
+  // a guess, so the series always lands exactly on today's real figure.
+  let snapshots = 0;
+  let running = current;
+  for (let back = 1; back <= 5; back += 1) {
+    const cycle = agencyYearMonth(addDays(now, -back * 30));
+    running = Math.round(running / (1 + 0.06 + (back % 3) * 0.02));
+
+    await prisma.mrrSnapshot.create({
+      data: {
+        year: cycle.year,
+        month: cycle.month,
+        amount: running,
+        activeClients: Math.max(1, activeNow.length - Math.floor(back / 2)),
+        capturedAt: addDays(now, -back * 30),
+      },
+    });
+    snapshots += 1;
+  }
+
+  return {
+    leads: leadCount,
+    salesActivities: activityCount,
+    activityTargets: targets,
+    mrrSnapshots: snapshots,
+  };
 }
 
 /**
@@ -1164,6 +1384,10 @@ function print(stats: {
   blockPeriods: number;
   outageReports: number;
   breakSessions: number;
+  leads: number;
+  salesActivities: number;
+  activityTargets: number;
+  mrrSnapshots: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -1192,6 +1416,10 @@ function print(stats: {
   console.log(
     `  ${stats.blockPeriods} block periods · ${stats.outageReports} outage reports · ` +
       `${stats.breakSessions} break sessions`,
+  );
+  console.log(
+    `  ${stats.leads} leads · ${stats.salesActivities} sales activities · ` +
+      `${stats.activityTargets} targets · ${stats.mrrSnapshots} MRR snapshots`,
   );
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");

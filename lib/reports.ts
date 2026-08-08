@@ -14,6 +14,8 @@ import {
 import { monthlyScore, scoreBand, type ScoreEventType } from "@/lib/scoring";
 import { performanceContext } from "@/lib/score-service";
 import { clientBlockedDays } from "@/lib/blocking";
+import { businessDevelopmentSummary } from "@/lib/pipeline";
+import { monthlyLoadFor } from "@/lib/capacity-service";
 import { narrateClientReport, narrateMemberReport } from "@/lib/narrative";
 import { notify } from "@/lib/notifications";
 import {
@@ -114,6 +116,11 @@ async function buildMemberPayload(
   ]);
 
   const attendance = await buildAttendanceSummary(userId, periodStart, rangeEnd);
+
+  const [capacity, bd] = await Promise.all([
+    monthlyLoadFor(userId, periodStart, rangeEnd),
+    businessDevelopmentSummary(userId, periodStart, rangeEnd),
+  ]);
 
   // Volume context: the doctrine forbids a score without it, and the narrative
   // needs the team ranking to say "the heaviest load on the team".
@@ -226,6 +233,20 @@ async function buildMemberPayload(
     // approved — the same figure the badges and profiles show.
     onTimeRate: own?.onTimeRate ?? 0,
     load: { count: own?.load ?? 0, weight: own?.totalWeight ?? 0, rank },
+    capacity,
+    // Only for people who actually work a pipeline. A delivery member's report
+    // has no business-development section rather than an empty one.
+    businessDevelopment: bd.active
+      ? {
+          activities: bd.activities,
+          byBucket: bd.byBucket,
+          leadsWorked: bd.leadsWorked,
+          stageConversion: bd.stageConversion,
+          dealsWon: bd.dealsWon,
+          dealsLost: bd.dealsLost,
+          revenueAdded: bd.revenueAdded,
+        }
+      : undefined,
     attendance,
     narrative: {
       second: narrateMemberReport(narrativeFacts, "second"),

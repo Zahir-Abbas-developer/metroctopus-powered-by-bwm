@@ -26,22 +26,25 @@ datasource db {
 /// A person who can sign in. ADMIN is the agency owner; MEMBER is a
 /// delivery team member (designer, marketer, developer).
 model User {
-  id           String   @id @default(cuid())
-  name         String
-  email        String   @unique
-  passwordHash String
+  id                  String   @id @default(cuid())
+  name                String
+  email               String   @unique
+  passwordHash        String
   /// "ADMIN" | "MEMBER" — see Role in lib/constants.ts
-  role         String   @default("MEMBER")
+  role                String   @default("MEMBER")
   /// Delivery specialism, e.g. "Shopify Developer", "Media Buyer".
-  jobTitle     String
+  jobTitle            String
   /// E.164, e.g. "+923001234567". Only used for the optional WhatsApp channel;
   /// with WHATSAPP_* unset it is never read.
-  phone        String?
+  phone               String?
+  /// Hours of delivery work this person can absorb in a week. Drives the
+  /// capacity bars at every point where work is assigned.
+  weeklyCapacityHours Int      @default(40)
   /// Hex colour used for the member's avatar chip, from AVATAR_COLORS.
-  avatarColor  String   @default("#1A6B3A")
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  avatarColor         String   @default("#1A6B3A")
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   milestones    Milestone[]        @relation("MilestoneAssignee")
   scoreEvents   ScoreEvent[]       @relation("ScoreEventSubject")
@@ -61,6 +64,9 @@ model User {
   pushSubs      PushSubscription[]
   blocksRaised  BlockPeriod[]      @relation("BlockAuthor")
   blocksCleared BlockPeriod[]      @relation("BlockReleaser")
+  leads         Lead[]             @relation("LeadOwner")
+  salesActivity SalesActivity[]
+  targets       ActivityTarget[]
 
   @@index([role])
   @@index([isActive])
@@ -85,11 +91,15 @@ model Client {
   status        String   @default("LEAD")
   notes         String?
   onboardedAt   DateTime @default(now())
+  /// When false the nightly job never opens a new cycle for this client —
+  /// for bespoke schedules, or a retainer being wound down.
+  autoRenew     Boolean  @default(true)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   projects Project[]
   reports  Report[]
+  lead     Lead?
 
   @@index([status])
   @@index([businessName])
@@ -115,22 +125,32 @@ model ServiceCatalog {
 
 /// One engagement cycle for one client — normally a calendar month.
 model Project {
-  id          String    @id @default(cuid())
-  clientId    String
-  title       String
-  startDate   DateTime
-  endDate     DateTime
+  id            String    @id @default(cuid())
+  clientId      String
+  title         String
+  startDate     DateTime
+  endDate       DateTime
   /// "PLANNING" | "ACTIVE" | "COMPLETED" | "OVERDUE_CLOSEOUT"
-  status      String    @default("PLANNING")
+  status        String    @default("PLANNING")
   /// Set by the evaluation job when the cycle is closed out, so close-out
   /// runs exactly once per project.
-  closedOutAt DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  closedOutAt   DateTime?
+  /// The cycle this one was rolled forward from. Also the idempotency guard:
+  /// a project can only ever be renewed once, because a second attempt would
+  /// find a child already pointing at it.
+  renewedFromId String?   @unique
+  /// Set when the nightly job rolls the cycle forward. An archived project is
+  /// read-only in the UI but stays in reports and in the ledger.
+  archivedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   client   Client           @relation(fields: [clientId], references: [id], onDelete: Cascade)
   services ProjectService[]
   modules  Module[]
+
+  renewedFrom Project? @relation("ProjectRenewal", fields: [renewedFromId], references: [id], onDelete: SetNull)
+  renewedInto Project? @relation("ProjectRenewal")
 
   @@index([clientId])
   @@index([status])
@@ -191,6 +211,16 @@ model Milestone {
   /// Minutes from submission to the owner's decision on it. The owner's
   /// metric, not the member's, and shown only to the owner.
   adminReviewMinutes Int?
+  /// Rough effort, in hours. Feeds the capacity bars shown wherever work is
+  /// assigned, and the load line in the monthly report.
+  estimatedHours     Int       @default(2)
+
+  // --- Carry-over (Phase 9) ------------------------------------------------
+  /// True when the renewal job rolled this forward from a closed cycle.
+  carriedOver   Boolean @default(false)
+  /// The milestone in the previous cycle this one continues. Its MISSED
+  /// penalty was already charged there and is never charged again here.
+  carriedFromId String? @unique
 
   // --- Blocked clock (Phase 8) ---------------------------------------------
   /// "CLIENT" | "INTERNAL_DEPENDENCY" | "EXTERNAL" while blocked, else null.
@@ -221,6 +251,9 @@ model Milestone {
 
   blockingMilestone Milestone?  @relation("MilestoneBlocker", fields: [blockingMilestoneId], references: [id], onDelete: SetNull)
   blockedDependents Milestone[] @relation("MilestoneBlocker")
+
+  carriedFrom Milestone? @relation("MilestoneCarryOver", fields: [carriedFromId], references: [id], onDelete: SetNull)
+  carriedInto Milestone? @relation("MilestoneCarryOver")
 
   @@index([moduleId])
   @@index([assigneeId, status])
@@ -573,6 +606,112 @@ model BreakSession {
   @@index([userId, endedAt])
 }
 
+// ---------------------------------------------------------------------------
+// Phase 9 — Sales pipeline
+// ---------------------------------------------------------------------------
+
+/// A prospect, before they are a Client.
+///
+/// Kept separate from Client rather than modelled as another Client status:
+/// a lead has a stage, an owner, an estimated value and an activity history,
+/// none of which a signed client has, and a signed client has projects and
+/// milestones a lead must never accidentally acquire. Winning one converts.
+model Lead {
+  id                    String    @id @default(cuid())
+  businessName          String
+  contactName           String
+  email                 String?
+  phone                 String?
+  /// "OUTREACH" | "REFERRAL" | "INBOUND" | "SOCIAL"
+  source                String    @default("OUTREACH")
+  country               String?
+  /// ServiceCatalog slugs, comma-separated. Slugs rather than ids so a lead
+  /// survives the catalogue being re-seeded, and comma-separated rather than
+  /// an array column so this ports to Postgres unchanged.
+  interestedServices    String    @default("")
+  /// Whole currency units per month, matching Client.monthlyBudget.
+  estimatedMonthlyValue Int       @default(0)
+  ownerId               String?
+  /// "NEW" | "CONTACTED" | "MEETING_BOOKED" | "PROPOSAL_SENT" | "NEGOTIATION"
+  /// | "WON" | "LOST"
+  stage                 String    @default("NEW")
+  /// When the stage last changed — drives "sitting in NEGOTIATION for 3 weeks".
+  stageChangedAt        DateTime  @default(now())
+  /// Required when the stage is LOST. The reason is the point of recording it.
+  lostReason            String?
+  lostNote              String?
+  notes                 String?
+  /// Set when the lead is converted, so a won deal can't be converted twice.
+  convertedClientId     String?   @unique
+  convertedAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  owner           User?           @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  convertedClient Client?         @relation(fields: [convertedClientId], references: [id], onDelete: SetNull)
+  activities      SalesActivity[]
+
+  @@index([stage, stageChangedAt])
+  @@index([ownerId, stage])
+}
+
+/// One recorded piece of sales work. The unit activity targets count.
+model SalesActivity {
+  id         String   @id @default(cuid())
+  leadId     String
+  userId     String
+  /// "CALL" | "EMAIL" | "DM" | "MEETING" | "FOLLOW_UP" | "PROPOSAL_SENT"
+  type       String
+  note       String
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, occurredAt])
+  @@index([leadId, occurredAt])
+}
+
+/// A standing weekly activity target for one person.
+///
+/// Buckets rather than raw activity types — "40 outreach" means calls, emails
+/// and DMs together, and counting each separately would be a target nobody
+/// could reason about. See ACTIVITY_BUCKET in lib/pipeline-types.ts.
+model ActivityTarget {
+  id           String   @id @default(cuid())
+  userId       String
+  /// "OUTREACH" | "FOLLOW_UP" | "PROPOSAL" | "MEETING"
+  bucket       String
+  weeklyTarget Int
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, bucket])
+  @@index([userId, isActive])
+}
+
+/// Monthly recurring revenue, captured once a month.
+///
+/// MRR is derivable from today's clients but its history is not: a client that
+/// churns in March takes February's number with it. The nightly job snapshots
+/// the figure so the trend line is a record rather than a reconstruction.
+model MrrSnapshot {
+  id            String   @id @default(cuid())
+  year          Int
+  month         Int
+  /// Whole currency units.
+  amount        Int
+  activeClients Int
+  capturedAt    DateTime @default(now())
+
+  @@unique([year, month])
+  @@index([year, month])
+}
+
 /// A browser push endpoint. One row per device, so a member on a phone and a
 /// laptop is reached on both.
 model PushSubscription {
@@ -654,6 +793,21 @@ model Settings {
   outageMaxHours        Int @default(4)
   /// Hours the owner has to review submitted work before it is flagged.
   reviewSlaHours        Int @default(48)
+
+  // --- Pipeline scoring (Phase 9) ------------------------------------------
+  /// Points for a closed deal, and for each weekly activity target met.
+  bonusDealWon        Float @default(3)
+  bonusTargetMet      Float @default(1)
+  /// Charged when a target finishes below `targetMissThreshold` of its number.
+  penaltyTargetMissed Float @default(1)
+  /// Share of a target below which the week counts as missed. 0.6 = 60%.
+  targetMissThreshold Float @default(0.6)
+
+  // --- Auto-renewal (Phase 9) ----------------------------------------------
+  /// Master switch. Individual clients can still opt out.
+  autoRenewEnabled Boolean @default(true)
+  /// Days into the new cycle that carried-over work is re-dated to.
+  carryOverDueDays Int     @default(5)
 
   updatedAt DateTime @updatedAt
 }

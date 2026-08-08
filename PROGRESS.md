@@ -1264,3 +1264,187 @@ would make the entire availability system optional.
 - **The rejection prompt in the board drawer still uses `window.prompt`.** The
   new review queue has a proper modal for the same action and is now the primary
   path, so the drawer's version is a fallback rather than the main route.
+
+---
+
+## Phase 9 — Growth systems (8 August 2026)
+
+Three systems: one that grows revenue, one that deletes the owner's most
+reliable recurring chore, and one that stops overload before it becomes a
+penalty.
+
+### The sales pipeline
+
+`Lead` is a separate model from `Client`, not another client status. A lead has
+a stage, an owner, an estimated value and an activity history that a signed
+client has no use for; a signed client has projects and milestones a lead must
+never accidentally acquire. Winning one converts.
+
+**Stages are permissive in both directions.** A deal that goes back from
+NEGOTIATION to CONTACTED is a real thing, and a state machine that forbade it
+would get worked around by deleting and re-creating the lead — losing the
+activity history that makes the pipeline worth having. The two closed stages
+are the exceptions: LOST demands a reason, and WON pays out exactly once
+(`lead:<id>:WON`), so dragging a card out and back in cannot mint a second
+bonus.
+
+**Losing takes a fixed reason plus free text.** Free text alone is unqueryable,
+and the entire value of recording a loss is counting them: six deals lost on
+price in a quarter is a pricing decision, six paragraphs about six
+conversations is nothing at all.
+
+**Logging work advances the deal.** Sending a proposal means the deal is at
+least at PROPOSAL_SENT. The advance is forwards-only, so logging a follow-up
+call on a deal in NEGOTIATION doesn't drag it back to CONTACTED.
+
+**Converting is a read, not a write.** `GET /api/leads/[id]/convert` hands the
+existing onboarding wizard a pre-filled draft — services from
+`interestedServices`, budget from `estimatedMonthlyValue`. Converting silently
+in the background would create a client and a month of dated work nobody
+looked at.
+
+### Business development, scored
+
+Sales work doesn't decompose into dated deliverables, so it is scored on
+activity and outcomes — into the **same** ScoreEvent ledger, so a score stays
+`100 + sum(that month's events)` however it was earned. Three new types:
+`DEAL_WON` (+3), `TARGET_MET` (+1), `TARGET_MISSED` (−1).
+
+**Targets are set on buckets, not raw activity types.** "40 outreach a week" is
+a number a person can hold in their head. "14 calls, 18 emails and 8 DMs" is
+three targets that trade off against each other, and hitting the number by
+picking the cheapest channel is a worse outcome than letting them choose.
+
+**The asymmetry is deliberate.** Hitting a target is +1; missing one only costs
+a point below 60% of the number. A target you fall 5% short of after a real
+week is not a failure, and charging for it makes people pad the count with
+cheap activity — exactly the behaviour a target exists to prevent.
+
+The bar on the member's dashboard renders from the same `evaluateWeek` the
+Sunday job uses, so the number they watch all week and the points they end up
+with cannot disagree. Events are keyed
+`target:<user>:<bucket>:<weekStart>` and dated to the end of the week they
+describe, so a Monday-morning run lands them in the right month.
+
+### Money
+
+MRR leads the owner's dashboard — the number the whole machine exists to grow —
+with six months of trend as hand-drawn SVG. Six points and a fill is not worth
+40kB of charting library, and it inherits the palette instead of fighting a
+library's defaults.
+
+**The history is snapshotted, not derived.** MRR today is a sum over active
+clients, but its past is not: a client who churns in March takes February's
+number with them. `MrrSnapshot` records it monthly; the current month reads
+live so onboarding a client moves the headline immediately.
+
+**Win rate is over closed deals**, won ÷ (won + lost). Including the open
+pipeline in the denominator would make the rate fall every time somebody added
+a lead — precisely the behaviour you want to encourage.
+
+### Auto-renewal
+
+Overnight, every ACTIVE client whose cycle has ended gets the next one: same
+modules, same milestones, same assignees, dates shifted by the length of the
+cycle.
+
+**Cloned from the previous cycle, not from the service templates.** A month of
+edits, added milestones and reassignments is exactly the knowledge a template
+regeneration would throw away.
+
+**The window is preserved, not snapped to a calendar month.** A client
+onboarded on the 12th is on a 12th-to-11th cycle; snapping their renewal to the
+1st would silently give them a short month and move every deadline they had
+already agreed to.
+
+**No double punishment.** Unfinished work is copied with `carriedOver` set, a
+new deadline a few days into the cycle, and none of the original's status,
+timestamps or block history. The MISSED penalty was charged in the closed cycle
+and is never charged again. Carried work is dated a few days in rather than to
+day one, because it arrives alongside a full new month and day one guarantees
+it is late again immediately.
+
+**Idempotent by unique index.** `Project.renewedFromId` is unique, so a cycle
+can be rolled forward exactly once — a second run finds the child already there.
+
+Ordering inside the nightly job is load-bearing: **renewal runs after
+close-out**, because close-out is what charges the MISSED penalties for the
+cycle that just ended. Reversed, the carried copies would exist before the
+originals were settled and the same work could be charged in both cycles.
+
+The owner gets one digest — notification and email — rather than one notice per
+client, listing what renewed, what carried over, and what needs a decision.
+
+### Capacity planning
+
+`Milestone.estimatedHours` and `User.weeklyCapacityHours`, measured per ISO
+week because a week is the unit people plan in. A monthly figure hides that
+four of someone's five milestones are due in the same three days.
+
+**The load bars are in the assignment control**, not on a page somebody would
+have to think to open — the whole point is preventing overload rather than
+diagnosing it afterwards from the misses it caused.
+
+**The hard dialog fires at 100%, not at the amber band.** A warning that fires
+whenever somebody is merely busy gets clicked through without reading, and then
+the one that matters gets clicked through too.
+
+**The suggestion prefers a qualified member over an idle one.** It breaks ties
+inside a discipline; it must never propose reassigning Meta Ads to the Shopify
+designer because they happen to be free.
+
+`/team` gains a Utilization tab: members × eight weeks as a heat grid, because
+the failure this makes visible is *imbalance*, and that pattern only shows up
+when everybody is on the same axis.
+
+### Verification
+
+- **235 unit tests** (64 added: 24 targets, 22 capacity, 18 renewal
+  arithmetic).
+- **47 walkthrough checks** through the real API: a member can add and own a
+  lead but not reassign or edit someone else's · logging a call advances the
+  stage and a follow-up never drags it back · LOST without a reason is refused
+  · winning credits +3 and re-winning cannot mint a second · the wizard draft
+  arrives pre-filled and converting twice 409s · a converted lead can't be
+  deleted · a member can't set their own target or read another's · the Sunday
+  settlement is idempotent · the suggestion prefers a qualified member · a
+  cycle rolls forward with unfinished work flagged and delivered work simply
+  recurring, then does nothing on a second run · a client with auto-renew off
+  is skipped · MRR leads the owner's dashboard and is absent from a member's.
+- **Migration verified on real Postgres** — every unique index that carries a
+  correctness guarantee (one target per bucket, one snapshot per month, one
+  renewal per cycle), both new self-relations, and that a lead outlives its
+  owner.
+- `tsc`, `next lint`, production build and the seed all clean.
+
+### One bug, and one comment that lied
+
+The walkthrough caught an assertion of mine failing, and the failure turned out
+to be in the **comment**, not the code. `shouldCarryOver` returns false for
+SUBMITTED, and the docblock claimed that meant submitted work "stays in the
+closed cycle". It doesn't — *every* milestone is cloned into the next cycle,
+because a retainer's work recurs. What the flag actually decides is narrower:
+whether the copy is marked `carriedOver` and re-dated close to the start
+because the original was never delivered. The behaviour was right; the comment
+described a different system, which is worse than no comment. Fixed in
+`lib/renewal-plan.ts`, in the test that asserted it, and in the walkthrough.
+
+Also: the renewal digest email reaches `lib/email/send.ts`, which is
+`server-only` and throws outside a React Server environment — the same Phase 6
+trap. It was already caught and degraded gracefully, but it logged a stack
+trace on every seed and CLI run that looked like a failure. Now one quiet line.
+
+### Known limits
+
+- **Stage conversion in reports is a snapshot, not a funnel.** It reports where
+  a member's pipeline stands by stage, not how many deals passed through each —
+  that would need a stage-transition log this schema doesn't keep.
+- **Capacity counts a milestone in the week it is due**, not spread across the
+  days it will actually take. Fine at 2–8 hour granularity; wrong for a
+  40-hour milestone, which should be split anyway.
+- **Renewal clones the last cycle even if it was heavily edited mid-month.** A
+  one-off milestone added in August reappears in September and has to be
+  deleted. Cloning the previous cycle is still the better default than
+  regenerating from templates, but it isn't free.
+- **MRR counts ACTIVE clients at full monthly budget** from the day they are
+  onboarded, with no proration for a mid-month start.

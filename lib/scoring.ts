@@ -63,6 +63,13 @@ export const SCORE_EVENT_TYPES = [
   "ATTENDANCE_MISS",
   "LATE_CLOCK_IN",
   "ABSENT_DAY",
+  // Phase 9 — business development. Sales work doesn't decompose into dated
+  // deliverables, so it is scored on activity and outcomes instead — but into
+  // the same ledger, so a score stays 100 + sum(that month's events) however
+  // it was earned.
+  "DEAL_WON",
+  "TARGET_MET",
+  "TARGET_MISSED",
 ] as const;
 
 export type ScoreEventType = (typeof SCORE_EVENT_TYPES)[number];
@@ -76,6 +83,9 @@ export const SCORE_EVENT_LABEL: Record<ScoreEventType, string> = {
   ATTENDANCE_MISS: "Missed availability check",
   LATE_CLOCK_IN: "Late start",
   ABSENT_DAY: "Absent",
+  DEAL_WON: "Deal won",
+  TARGET_MET: "Weekly target met",
+  TARGET_MISSED: "Weekly target missed",
 };
 
 /** The attendance events, for anywhere that needs to treat them as a group. */
@@ -87,6 +97,13 @@ export const ATTENDANCE_EVENT_TYPES = [
 
 export function isAttendanceEvent(type: string): boolean {
   return (ATTENDANCE_EVENT_TYPES as readonly string[]).includes(type);
+}
+
+/** The business-development events, for anywhere that groups them. */
+export const PIPELINE_EVENT_TYPES = ["DEAL_WON", "TARGET_MET", "TARGET_MISSED"] as const;
+
+export function isPipelineEvent(type: string): boolean {
+  return (PIPELINE_EVENT_TYPES as readonly string[]).includes(type);
 }
 
 /** Multipliers applied to a milestone's weight. */

@@ -176,6 +176,16 @@ export function MilestoneRowItem({
           {MILESTONE_STATUS_LABEL[milestone.status]}
         </Badge>
 
+        {/* Rolled forward from a closed cycle. The old miss was charged there
+            and is never charged again — this is a fresh deadline. */}
+        {milestone.carriedOver && (
+          <span title="Rolled forward from last cycle with a new deadline">
+            <Badge tone="neutral" size="sm">
+              Carried over
+            </Badge>
+          </span>
+        )}
+
         {/* Points already charged or credited */}
         {milestone.scoreImpact !== 0 && (
           <span

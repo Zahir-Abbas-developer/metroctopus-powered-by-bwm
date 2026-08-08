@@ -16,6 +16,7 @@ import {
   LayoutDashboard,
   LogOut,
   Users2,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ import { Avatar } from "@/components/ui/Avatar";
 const ICONS: Record<NavKey, LucideIcon> = {
   dashboard: LayoutDashboard,
   board: KanbanSquare,
+  pipeline: Wallet,
   clients: Briefcase,
   projects: Layers,
   "my-tasks": CheckSquare,

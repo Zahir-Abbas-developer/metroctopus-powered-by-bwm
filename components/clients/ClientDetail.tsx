@@ -44,6 +44,8 @@ export type ClientRecord = {
   monthlyBudget: number;
   status: ClientStatus;
   notes: string | null;
+  /** Off means the nightly job never opens a new cycle for this client. */
+  autoRenew: boolean;
   onboardedAt: string;
 };
 

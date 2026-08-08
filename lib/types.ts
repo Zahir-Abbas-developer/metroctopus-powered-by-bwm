@@ -73,6 +73,10 @@ export type MilestoneRow = {
   status: MilestoneStatus;
   submittedAt: string | null;
   completedAt: string | null;
+  /** Rough effort in hours; feeds the capacity bars. */
+  estimatedHours: number;
+  /** True when the renewal job rolled this forward from a closed cycle. */
+  carriedOver: boolean;
   order: number;
   assignee: AssigneeChip | null;
   /** Points already charged or credited against this milestone. */

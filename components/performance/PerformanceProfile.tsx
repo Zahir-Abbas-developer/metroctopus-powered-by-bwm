@@ -6,12 +6,14 @@ import {
   ArrowUpRight,
   BellOff,
   CalendarX,
+  Crosshair,
   Clock3,
   Gauge,
   Layers,
   Minus,
   ScrollText,
   SlidersHorizontal,
+  Handshake,
   ThumbsDown,
   TimerOff,
   TrendingUp,
@@ -37,6 +39,9 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   ATTENDANCE_MISS: BellOff,
   LATE_CLOCK_IN: AlarmClock,
   ABSENT_DAY: CalendarX,
+  DEAL_WON: Handshake,
+  TARGET_MET: Crosshair,
+  TARGET_MISSED: Crosshair,
 };
 
 export type ProfileMember = {

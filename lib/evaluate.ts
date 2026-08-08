@@ -11,6 +11,8 @@ import { notifyDueTomorrow, notifyOverdue } from "@/lib/notifications";
 import { generateReports, type GenerationResult, type ReportType } from "@/lib/reports";
 import { runDailyAttendanceSweep, type DailySweepResult } from "@/lib/attendance";
 import { chaseStaleReviews } from "@/lib/review-sla";
+import { runAutoRenewal, type RenewalRun } from "@/lib/renewal";
+import { captureMrrSnapshot, runWeeklyTargets, type WeeklyTargetRun } from "@/lib/pipeline";
 
 /**
  * The daily evaluation pass.
@@ -45,12 +47,17 @@ export type EvaluationResult = {
   /** Nudges sent to the owner about work they've left in the queue. */
   reviewChases: number;
   attendance: DailySweepResult;
+  /** Phase 9 — retainer cycles rolled forward overnight. */
+  renewal: RenewalRun;
+  /** Phase 9 — weekly activity targets settled, on Mondays. */
+  targets: WeeklyTargetRun | null;
+  mrr: { year: number; month: number; amount: number; activeClients: number };
   reports: GenerationResult | null;
 };
 
 export async function runEvaluation(
   now: Date = new Date(),
-  options: { generateReports?: boolean } = {},
+  options: { generateReports?: boolean; settleTargets?: boolean } = {},
 ): Promise<EvaluationResult> {
   // Attendance first: absences and missed checks become score events before
   // any report is frozen, so a report never omits a charge the same run made.
@@ -63,6 +70,22 @@ export async function runEvaluation(
   const reviewChases = await chaseStaleReviews(now);
   const lateOrBonusApplied = await catchUpCompletions();
   const closeout = await closeOutEndedProjects(now);
+
+  // Renewal runs *after* close-out, and that order is load-bearing: close-out
+  // is what charges the MISSED penalties for the cycle that just ended, and
+  // renewal is what copies the survivors forward. Reversed, the carried-over
+  // copies would exist before the originals were settled and the same work
+  // could be charged in both cycles.
+  const renewal = await runAutoRenewal(now);
+
+  // Weekly targets settle on Monday, for the week that just closed. Members
+  // are told on the same schedule reports arrive, so the ledger and the
+  // report they read agree.
+  const targets = options.settleTargets || isAgencyMonday(now)
+    ? await runWeeklyTargets(now)
+    : null;
+
+  const mrr = await captureMrrSnapshot(now);
 
   // Reporting cadence: weekly on Mondays, monthly on the 1st, both in agency
   // time. `generateReports: true` forces a run for a manual trigger.
@@ -85,6 +108,9 @@ export async function runEvaluation(
     notificationsSent: deadlines.sent,
     reviewChases,
     attendance,
+    renewal,
+    targets,
+    mrr,
     reports,
   };
 }
