@@ -7,6 +7,7 @@ import { createUserSchema, fieldErrors } from "@/lib/validation";
 import { avatarColorFor } from "@/lib/constants";
 import { currentCycle, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
 import { MONTHLY_BASELINE } from "@/lib/scoring";
+import { sendWelcome } from "@/lib/email/dispatch";
 
 /** Columns safe to return — never the password hash. */
 const SELECT = {
@@ -88,7 +89,16 @@ export async function POST(request: Request) {
       select: SELECT,
     });
 
-    return NextResponse.json({ member }, { status: 201 });
+    // The plaintext password exists only here, in the request that set it —
+    // it is never stored, so this is the one chance to deliver it.
+    const delivery = await sendWelcome({
+      name: member.name,
+      email: member.email,
+      password,
+      jobTitle: member.jobTitle,
+    });
+
+    return NextResponse.json({ member, welcomeEmail: delivery.status }, { status: 201 });
   } catch (error) {
     if (isUniqueViolation(error)) {
       return apiError("That email is already in use", 409, {

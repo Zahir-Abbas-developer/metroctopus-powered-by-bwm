@@ -14,7 +14,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { SCORE_EVENT_LABEL, formatPoints, type ScoreEventType } from "@/lib/scoring";
-import { REPORT_TYPE_LABEL, type MemberReportPayload, type ReportType } from "@/lib/reports";
+import { REPORT_TYPE_LABEL, type MemberReportPayload, type ReportType } from "@/lib/report-types";
 import { cn } from "@/lib/utils";
 
 const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {

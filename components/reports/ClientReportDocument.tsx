@@ -2,7 +2,7 @@ import { CalendarClock, CheckCircle2, TriangleAlert } from "lucide-react";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatDate, formatDateTime } from "@/lib/date";
-import { REPORT_TYPE_LABEL, type ClientReportPayload } from "@/lib/reports";
+import { REPORT_TYPE_LABEL, type ClientReportPayload } from "@/lib/report-types";
 
 /**
  * The client weekly as a printable document.

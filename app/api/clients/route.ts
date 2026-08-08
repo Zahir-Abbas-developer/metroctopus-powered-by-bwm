@@ -5,6 +5,7 @@ import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, onboardClientSchema } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
 import { createProjectWithPlan, progressForProjects } from "@/lib/planner";
+import { containsInsensitive } from "@/lib/db-features";
 
 export async function GET(request: Request) {
   const { response } = await requireAdminApi();
@@ -18,10 +19,10 @@ export async function GET(request: Request) {
     const clients = await prisma.client.findMany({
       where: {
         ...(status && status !== "ALL" ? { status } : {}),
-        // SQLite's LIKE is already case-insensitive for ASCII, and Prisma's
-        // `mode: "insensitive"` is Postgres-only — leaving it off keeps this
-        // query portable across both.
-        ...(query ? { businessName: { contains: query } } : {}),
+        // containsInsensitive supplies Postgres's `mode: "insensitive"`;
+        // SQLite ignores it. Without it, search behaves differently in
+        // production than it does locally.
+        ...(query ? { businessName: containsInsensitive(query) } : {}),
       },
       orderBy: [{ status: "asc" }, { businessName: "asc" }],
       include: {

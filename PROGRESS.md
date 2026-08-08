@@ -678,3 +678,207 @@ Errors linger longer than successes — you may need to read them twice.
 
 Email delivery for notifications, and a client-facing portal reusing the client
 weekly document.
+
+---
+
+## Phase 6 — Production readiness (8 August 2026) · **v1.0.0**
+
+Postgres, email, scheduled jobs, hardening, and a full walkthrough of the loop
+against a real database.
+
+### Postgres, and the thing the brief asked for that Prisma forbids
+
+The brief asked for an env-driven datasource provider. Prisma refuses:
+
+```
+error: A datasource must not use the env() function in the provider argument.
+```
+
+That was confirmed against Prisma 5.22 before designing around it, not assumed.
+So the provider stays a literal, and `scripts/sync-db-provider.mjs` derives it
+from the one variable that already differs between environments — the
+connection string:
+
+| `DATABASE_URL` | provider |
+| --- | --- |
+| `file:./dev.db` | `sqlite` |
+| `postgresql://…` | `postgresql` |
+
+It runs before `dev`, `build`, both seeds and every db command, so the schema
+always matches the database being pointed at. Committing the SQLite variant by
+accident is harmless — the next production build derives `postgresql` and
+rewrites it. The outcome the brief wanted (one env var, both databases) without
+pretending Prisma supports something it doesn't.
+
+**Verified on a real Postgres**, not asserted: an embedded Postgres 16 was
+booted, `prisma migrate dev` generated `20260808140428_init`, and
+`migrate deploy` then ran against a *pristine* database — created fresh, never
+touched by `db push` — followed by the seed. All 11 tables and every row landed.
+
+One portability bug was caught in the process: **`contains` is case-sensitive
+on Postgres** and case-insensitive on SQLite. Search would have worked in
+development and quietly stopped matching case in production — the worst kind of
+difference, because every local test passes. `lib/db-features.ts` now supplies
+`mode: "insensitive"` when the target is Postgres.
+
+### Email
+
+SMTP through nodemailer, configured entirely by environment and **inert when it
+isn't**: with no `SMTP_HOST`, messages are logged and reported as `skipped`
+rather than thrown. Adding a member must not fail because a mail server is
+down, and local development needs no SMTP at all. Any provider works — Resend,
+Postmark, SES and Mailgun all expose SMTP.
+
+Four messages, in the product's editorial style — dark header, green accents,
+hairline rules — written as inline-styled tables, because email clients support
+neither stylesheets nor modern CSS:
+
+| | |
+| --- | --- |
+| **Welcome** | On member creation, carrying the generated password. That plaintext exists only in the request that set it, so this is the one chance to deliver it. |
+| **Weekly digest** | Monday: this month's score and what is due in seven days. |
+| **Report ready** | As each member report generates, with the narrative and a link. |
+| **Overdue alert** | Daily to the owner, and only when something is actually late — no news is not worth an email. |
+
+Every template escapes its input; a member's name is not a trusted source of
+markup. 12 unit tests cover the copy, plural agreement and the escaping.
+
+### Scheduled jobs
+
+`vercel.json` registers three crons. Vercel schedules in UTC; the agency works
+in UTC+5:
+
+| Path | UTC | Karachi | |
+| --- | --- | --- | --- |
+| `/api/cron/evaluate` | `0 19 * * *` | 00:00 daily | Deadlines, scoring catch-up, close-out, overdue alert |
+| `/api/cron/reports` | `30 19 * * *` | 00:30 daily | Generates whatever the calendar says is due |
+| `/api/cron/digest` | `0 3 * * 1` | 08:00 Monday | The weekly digest |
+
+`evaluate` runs at midnight Karachi because a deadline *is* the end of its due
+day in that timezone. `reports` runs daily and decides for itself what is due,
+so the calendar logic lives in code rather than in a cron expression.
+
+`lib/cron-auth.ts` accepts two callers: Vercel Cron presenting `CRON_SECRET` as
+a bearer token, or a signed-in owner. The comparison is length-checked and
+constant-time — a plain `===` on a secret invites a timing oracle and costs
+nothing to avoid. A wrong bearer token is refused outright rather than falling
+through to the session check, so a failed machine call gets a 401 instead of a
+redirect.
+
+### Hardening
+
+- **Every route was audited**: all 31 have server-side authorization, and every
+  mutation that accepts a body validates it with zod. The client never decides
+  a role.
+- **Login is rate limited** — 8 attempts per 10 minutes, bucketed by *both* IP
+  and account, so neither one machine grinding the roster nor a botnet grinding
+  one account gets far. A sliding window, because fixed windows let an attacker
+  fire a full quota either side of the boundary. Throttled attempts return
+  exactly what a wrong password returns.
+- **Passwords**: bcrypt, cost 10 for seeded accounts and 12 for the production
+  owner.
+- **Uploads**: 10 MB cap, type allowlist, SVG refused as script-capable,
+  server-generated storage names, containment-checked reads, and authenticated
+  serving with `nosniff` and a sandbox CSP.
+- The counters are in-process, so each serverless instance keeps its own. That
+  is stated in the README rather than left as a surprise; swapping
+  `lib/rate-limit.ts` for Redis is a drop-in change.
+
+### Deployment
+
+`README.md` covers local setup, the provider-switching mechanism, Vercel +
+Neon/Supabase deployment, the cron table, and the security posture.
+`.env.example` documents every variable.
+
+`prisma/seed-admin.ts` is the production seed: the owner and the service
+catalogue, and **nothing else**. It refuses passwords under 12 characters and
+rejects known defaults like `admin123` — shipping with the demo password
+because someone forgot a variable is the failure mode worth designing against.
+The demo seed stays available for local use.
+
+### The walkthrough
+
+The whole loop, run against real Postgres, asserting against the database
+rather than the UI — **38 checks, all passing**:
+
+onboard a client → 3 modules and 14 milestones generated from templates →
+a member starts and submits → **cannot** approve → owner rejects with a reason
+(charged) → member resubmits → owner approves (early bonus paid) → cycle end
+moved into the past → evaluation marks the abandoned milestone MISSED, charges
+it, and closes the cycle → re-running three times charges nothing extra →
+reports generate with a written narrative → the score reads 27.5, matching
+`100 + sum(events)` exactly → cron endpoints refuse no credentials, a wrong
+secret and a member, and accept the right secret and the owner.
+
+### Verification
+
+- **86 unit tests** (39 scoring, 19 narrative, 18 mentions, 12 email — 11 added
+  this phase).
+- **419 HTTP checks**: 381 regression across phases 1–5 on SQLite, plus 38
+  walkthrough checks on Postgres.
+- `tsc`, `next lint` and the production build clean on both databases.
+
+### Three bugs found and fixed
+
+1. **`server-only` broke the seed.** The package throws outside a React Server
+   environment, and the seed reaches report generation, which now reaches
+   email. The guard stays on the transport; `dispatch.ts` imports it lazily,
+   and `generateReports` gained a `sendEmails` flag so seeding a demo agency
+   doesn't try to email six invented people.
+2. **The build then caught a real layering problem.** `lib/reports.ts` mixed
+   server generation with the labels and payload types that client components
+   import — so Prisma, and now `server-only`, were being pulled into the
+   browser bundle. Split into `lib/report-types.ts` (client-safe vocabulary)
+   and `lib/reports.ts` (server generation). The bundle is smaller for it.
+3. **Prisma logged handled collisions at error level.** Re-running evaluation
+   or regenerating a report deliberately relies on a unique constraint firing;
+   Prisma logged every one as an error before the caller caught it, so a
+   healthy production log filled with "errors" that were the idempotency
+   working. Logging is now warn-and-above, with genuine failures still logged
+   by the catch that swallows them.
+
+---
+
+## v1.0.0 — what was built
+
+Six phases, from an empty directory to a deployable product.
+
+| Phase | |
+| --- | --- |
+| **1** | Design system, auth with three guard layers, team management |
+| **2** | Clients, engagements, planning templates, the milestone planner |
+| **3** | The scoring engine — pure, ledger-backed, exhaustively tested |
+| **4** | Frozen-snapshot reports, printable to A4, and notifications |
+| **5** | Kanban board, milestone drawer, comments, files, activity, search |
+| **6** | Postgres, email, cron, hardening, deployment |
+
+**Totals:** 86 unit tests, 419 HTTP acceptance checks, 30 routes, 11 tables.
+
+The decisions that shaped it, in order of how much they mattered:
+
+1. **The score is never stored.** `ScoreEvent` is append-only and a score is
+   always `100 + sum(that month's events)`. There is no mutable score column
+   anywhere in the schema, so a score can never disagree with its own history.
+2. **Approval belongs to the owner.** Completion is what the score pays out on,
+   so letting members self-approve would make the whole measure self-reported.
+3. **Reports are frozen snapshots.** Reopening a milestone in October cannot
+   rewrite what August's report said.
+4. **Idempotency is a database guarantee**, not a convention — unique dedupe
+   keys on score events, reports and notifications.
+5. **A deadline is the end of its day in Asia/Karachi**, resolved in one place,
+   so nothing is late from 05:00 local onwards.
+6. **The pure core is pure.** Scoring, narratives and mentions have no
+   database and no clock, which is the only reason they could be tested to this
+   depth.
+
+### Known limits
+
+- **Rate limiting is per-instance.** Fine for seven people; needs Redis for a
+  global limit across serverless instances.
+- **Uploads are local files.** `save`/`read` in `lib/uploads.ts` are the only
+  two functions to replace for S3 or Vercel Blob.
+- **Migrations are Postgres-only.** Local SQLite uses `db push`.
+- **The notification bell polls** every 60 seconds rather than holding a socket.
+- **The rejection reason in the board drawer uses `window.prompt`** — validated
+  and functional, but the one control in the app that isn't designed. The
+  project planner has a proper modal for the same action.

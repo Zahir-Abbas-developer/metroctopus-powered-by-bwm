@@ -423,8 +423,8 @@ async function seedReportsAndNotifications() {
   const lastMonth = addDays(now, -30);
 
   const [weekly, monthly] = await Promise.all([
-    generateReports({ types: ["MEMBER_WEEKLY", "CLIENT_WEEKLY"], reference: lastWeek }),
-    generateReports({ types: ["MEMBER_MONTHLY"], reference: lastMonth }),
+    generateReports({ types: ["MEMBER_WEEKLY", "CLIENT_WEEKLY"], reference: lastWeek, sendEmails: false }),
+    generateReports({ types: ["MEMBER_MONTHLY"], reference: lastMonth, sendEmails: false }),
   ]);
 
   const reports =

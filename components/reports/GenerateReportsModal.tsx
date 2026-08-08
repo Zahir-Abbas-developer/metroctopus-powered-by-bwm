@@ -6,7 +6,7 @@ import { AlertCircle, Check } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
-import { REPORT_TYPES, REPORT_TYPE_LABEL, type ReportType } from "@/lib/reports";
+import { REPORT_TYPES, REPORT_TYPE_LABEL, type ReportType } from "@/lib/report-types";
 import { toDateInput } from "@/lib/date";
 import { cn } from "@/lib/utils";
 

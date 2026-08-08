@@ -15,7 +15,7 @@ import { Select } from "@/components/ui/Select";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { GenerateReportsModal } from "@/components/reports/GenerateReportsModal";
-import { REPORT_TYPES, REPORT_TYPE_LABEL, REPORT_TYPE_TONE, type ReportType } from "@/lib/reports";
+import { REPORT_TYPES, REPORT_TYPE_LABEL, REPORT_TYPE_TONE, type ReportType } from "@/lib/report-types";
 import { formatDate } from "@/lib/date";
 import { cn } from "@/lib/utils";
 

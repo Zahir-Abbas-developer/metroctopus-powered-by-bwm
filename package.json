@@ -3,16 +3,22 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "predev": "node scripts/sync-db-provider.mjs",
     "dev": "next dev",
+    "prebuild": "node scripts/sync-db-provider.mjs && prisma generate",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",
-    "db:push": "prisma db push",
-    "db:seed": "tsx prisma/seed.ts",
+    "db:provider": "node scripts/sync-db-provider.mjs",
+    "db:push": "node scripts/sync-db-provider.mjs && prisma db push",
+    "db:migrate": "node scripts/sync-db-provider.mjs && prisma migrate dev",
+    "db:deploy": "node scripts/sync-db-provider.mjs && prisma migrate deploy",
+    "db:seed": "node scripts/sync-db-provider.mjs && tsx prisma/seed.ts",
+    "db:seed:admin": "node scripts/sync-db-provider.mjs && tsx prisma/seed-admin.ts",
     "db:studio": "prisma studio",
-    "db:reset": "prisma db push --force-reset && npm run db:seed"
+    "db:reset": "node scripts/sync-db-provider.mjs && prisma db push --force-reset && npm run db:seed"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -27,6 +33,7 @@
     "lucide-react": "0.454.0",
     "next": "14.2.33",
     "next-auth": "4.24.11",
+    "nodemailer": "^6.9.16",
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "server-only": "^0.0.1",
@@ -36,6 +43,7 @@
   "devDependencies": {
     "@types/bcryptjs": "2.4.6",
     "@types/node": "20.17.6",
+    "@types/nodemailer": "^6.4.16",
     "@types/react": "18.3.12",
     "@types/react-dom": "18.3.1",
     "autoprefixer": "10.4.20",

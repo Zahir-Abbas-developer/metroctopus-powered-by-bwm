@@ -3,14 +3,16 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
+import { containsInsensitive } from "@/lib/db-features";
 
 /**
  * Command palette search across clients, projects, milestones and members.
  *
  * Scoped by role in the queries themselves: a member searches their own
- * milestones and the roster, and nothing else. `contains` without Prisma's
- * `mode: "insensitive"` keeps this portable — that option is Postgres-only,
- * and SQLite's LIKE is already case-insensitive for ASCII.
+ * milestones and the roster, and nothing else. Matching goes through
+ * containsInsensitive, which adds Postgres's `mode: "insensitive"` — without
+ * it, search would work locally on SQLite and silently stop matching case in
+ * production.
  */
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -25,14 +27,14 @@ export async function GET(request: Request) {
     const [clients, projects, milestones, members] = await Promise.all([
       isAdmin
         ? prisma.client.findMany({
-            where: { businessName: { contains: query } },
+            where: { businessName: containsInsensitive(query) },
             take: 5,
             select: { id: true, businessName: true, industry: true, status: true },
           })
         : [],
       isAdmin
         ? prisma.project.findMany({
-            where: { title: { contains: query } },
+            where: { title: containsInsensitive(query) },
             take: 5,
             select: {
               id: true,
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
         : [],
       prisma.milestone.findMany({
         where: {
-          title: { contains: query },
+          title: containsInsensitive(query),
           ...(isAdmin ? {} : { assigneeId: user.id }),
         },
         take: 6,
@@ -62,7 +64,7 @@ export async function GET(request: Request) {
         },
       }),
       prisma.user.findMany({
-        where: { name: { contains: query }, isActive: true },
+        where: { name: containsInsensitive(query), isActive: true },
         take: 5,
         select: { id: true, name: true, jobTitle: true, avatarColor: true, role: true },
       }),

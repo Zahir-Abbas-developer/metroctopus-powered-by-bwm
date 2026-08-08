@@ -5,6 +5,13 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import type { Role } from "@/lib/constants";
 import { LOGIN_ROUTE } from "@/lib/routes";
+import {
+  LOGIN_LIMIT,
+  LOGIN_WINDOW_MS,
+  clientIp,
+  consume,
+  reset,
+} from "@/lib/rate-limit";
 
 export const authOptions: NextAuthOptions = {
   session: {
@@ -22,10 +29,27 @@ export const authOptions: NextAuthOptions = {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         const email = credentials?.email?.trim().toLowerCase();
         const password = credentials?.password;
         if (!email || !password) return null;
+
+        // Two buckets: one per source address, so a single machine cannot
+        // grind through the roster, and one per account, so a botnet cannot
+        // grind through one account's passwords from many addresses.
+        const headers = new Headers(
+          (request?.headers as Record<string, string> | undefined) ?? {},
+        );
+        const ip = clientIp(headers);
+
+        for (const key of [`login:ip:${ip}`, `login:user:${email}`]) {
+          if (!consume(key, LOGIN_LIMIT, LOGIN_WINDOW_MS).allowed) {
+            // Same shape as a wrong password: telling an attacker they have
+            // been throttled is information they can use.
+            console.warn(`[auth] rate limited ${key}`);
+            return null;
+          }
+        }
 
         const user = await prisma.user.findUnique({ where: { email } });
         // Same null result for "no such user" and "wrong password" so the
@@ -34,6 +58,11 @@ export const authOptions: NextAuthOptions = {
 
         const passwordMatches = await bcrypt.compare(password, user.passwordHash);
         if (!passwordMatches) return null;
+
+        // A good password clears the account bucket, so someone who mistyped
+        // a few times isn't locked out once they get it right.
+        reset(`login:user:${email}`);
+        reset(`login:ip:${ip}`);
 
         return {
           id: user.id,
