@@ -1,0 +1,88 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    @apply bg-paper text-ink font-sans antialiased;
+  }
+
+  /* Headings are always Syne, never body type. */
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+    font-feature-settings: "ss01";
+  }
+
+  ::selection {
+    background-color: #e8f5ee;
+    color: #0c0c0a;
+  }
+
+  /* Focus rings follow the brand rather than the browser default. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand/40 ring-offset-2 ring-offset-paper;
+  }
+
+  /* Remove the number-input spinners — every numeric field here is typed. */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  /* Uppercase letter-spaced eyebrow — the signature label of the design system. */
+  .eyebrow {
+    @apply font-display text-[11px] font-bold uppercase tracking-eyebrow;
+  }
+
+  /* Hairline divider used in place of shadows. */
+  .hairline {
+    @apply border-b border-line;
+  }
+}
+
+@layer utilities {
+  /* Dark surfaces get the radial green glow described in CLAUDE.md. */
+  .surface-dark {
+    @apply relative bg-ink text-paper;
+  }
+
+  .surface-dark::before {
+    content: "";
+    @apply pointer-events-none absolute inset-0 bg-glow-brand;
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(250, 250, 247, 0.18) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: rgba(250, 250, 247, 0.18);
+    border-radius: 999px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}

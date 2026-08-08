@@ -1,0 +1,180 @@
+// Agency OS — Prisma schema
+//
+// Development runs on SQLite. The schema is deliberately kept
+// Postgres-compatible so the only change needed at deploy time is the
+// datasource block below (provider = "postgresql").
+//
+// Postgres-compatibility rules observed throughout:
+//   - String IDs generated with cuid() (no autoincrement / serial).
+//   - Enums are modelled as String + a documented union of allowed values,
+//     because SQLite has no native enum. Constants live in lib/constants.ts,
+//     which is the single source of truth for both DB writes and UI.
+//   - No SQLite-only column types, no Json columns, no array columns.
+//   - Every timestamp is DateTime, stored UTC, formatted for Asia/Karachi in
+//     the UI via lib/date.ts.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// A person who can sign in. ADMIN is the agency owner; MEMBER is a
+/// delivery team member (designer, marketer, developer).
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  /// "ADMIN" | "MEMBER" — see Role in lib/constants.ts
+  role         String   @default("MEMBER")
+  /// Delivery specialism, e.g. "Shopify Developer", "Media Buyer".
+  jobTitle     String
+  /// Hex colour used for the member's avatar chip, from AVATAR_COLORS.
+  avatarColor  String   @default("#1A6B3A")
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([role])
+  @@index([isActive])
+}
+
+// ---------------------------------------------------------------------------
+// PLANNED MODELS — implemented in later phases. Kept here as a map of where
+// the data model is heading so each phase slots in without reshaping the rest.
+// ---------------------------------------------------------------------------
+
+// Phase 2 — Clients & engagements
+//
+// model Client {
+//   id            String   @id @default(cuid())
+//   name          String
+//   contactName   String?
+//   contactEmail  String?
+//   /// Monthly retainer amount, stored in minor units (integer, no Float).
+//   retainerCents Int      @default(0)
+//   /// "ACTIVE" | "PAUSED" | "CHURNED"
+//   status        String   @default("ACTIVE")
+//   startedAt     DateTime
+//   createdAt     DateTime @default(now())
+//   updatedAt     DateTime @updatedAt
+//   services      ClientService[]
+//   projects      Project[]
+// }
+//
+// /// Which of the agency's services a client has bought. The service catalogue
+// /// ("SHOPIFY" | "GOOGLE_ADS" | "META_ADS" | "CREATIVE" | "FUNNEL") lives in
+// /// lib/constants.ts. A join model rather than an array column keeps this
+// /// portable to Postgres.
+// model ClientService {
+//   id       String  @id @default(cuid())
+//   clientId String
+//   service  String
+//   client   Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+//   @@unique([clientId, service])
+// }
+
+// Phase 3 — Monthly engagement broken into modules and milestones
+//
+// /// One client's engagement for one calendar month (the retainer cycle).
+// model Project {
+//   id         String   @id @default(cuid())
+//   clientId   String
+//   /// Retainer cycle, e.g. 2026 / 8. Unique per client.
+//   year       Int
+//   month      Int
+//   /// "PLANNED" | "ACTIVE" | "COMPLETED"
+//   status     String   @default("PLANNED")
+//   createdAt  DateTime @default(now())
+//   client     Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+//   modules    Module[]
+//   @@unique([clientId, year, month])
+// }
+//
+// /// A service workstream inside a month, e.g. "Google Ads" for August.
+// model Module {
+//   id         String      @id @default(cuid())
+//   projectId  String
+//   service    String
+//   name       String
+//   /// Team member who owns this workstream end to end.
+//   ownerId    String?
+//   project    Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+//   milestones Milestone[]
+// }
+//
+// model Milestone {
+//   id         String   @id @default(cuid())
+//   moduleId   String
+//   title      String
+//   dueAt      DateTime
+//   /// "PENDING" | "IN_PROGRESS" | "DONE" | "MISSED"
+//   status     String   @default("PENDING")
+//   completedAt DateTime?
+//   module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+//   tasks      Task[]
+// }
+
+// Phase 4 — Tasks and auto-assignment
+//
+// model Task {
+//   id          String    @id @default(cuid())
+//   milestoneId String
+//   title       String
+//   description String?
+//   assigneeId  String?
+//   dueAt       DateTime
+//   /// "TODO" | "IN_PROGRESS" | "SUBMITTED" | "DONE"
+//   status      String    @default("TODO")
+//   completedAt DateTime?
+//   createdAt   DateTime  @default(now())
+//   updatedAt   DateTime  @updatedAt
+//   milestone   Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+//   assignee    User?     @relation(fields: [assigneeId], references: [id])
+//   scoreEvents ScoreEvent[]
+// }
+
+// Phase 5 — Performance scoring engine
+//
+// /// Every member starts each month at 100 points; each ScoreEvent is a signed
+// /// delta against that month's balance (missed deadline, quality issue, bonus).
+// model ScoreEvent {
+//   id        String   @id @default(cuid())
+//   userId    String
+//   taskId    String?
+//   year      Int
+//   month     Int
+//   /// "MISSED_DEADLINE" | "QUALITY_ISSUE" | "LATE_SUBMISSION" | "BONUS"
+//   reason    String
+//   /// Negative for deductions, positive for bonuses.
+//   points    Int
+//   note      String?
+//   createdAt DateTime @default(now())
+//   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   task      Task?    @relation(fields: [taskId], references: [id], onDelete: SetNull)
+//   @@index([userId, year, month])
+// }
+
+// Phase 6 — Generated weekly / monthly reports
+//
+// model Report {
+//   id          String   @id @default(cuid())
+//   /// "WEEKLY" | "MONTHLY"
+//   period      String
+//   /// Null for the agency-wide report the owner sees.
+//   userId      String?
+//   periodStart DateTime
+//   periodEnd   DateTime
+//   score       Int
+//   tasksTotal  Int
+//   tasksOnTime Int
+//   /// Rendered markdown summary; plain text keeps this Postgres-portable.
+//   summary     String
+//   createdAt   DateTime @default(now())
+//   user        User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+//   @@index([period, periodStart])
+// }
