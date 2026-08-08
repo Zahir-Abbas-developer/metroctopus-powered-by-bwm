@@ -20,6 +20,7 @@ export type NavKey =
   | "disputes"
   | "incentives"
   | "audit"
+  | "errors"
   | "scoring"
   | "team"
   | "reports";
@@ -84,6 +85,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     roles: ["ADMIN", "MEMBER"],
   },
   { key: "audit", label: "Audit log", href: "/admin/audit", roles: ["ADMIN"] },
+  { key: "errors", label: "Error log", href: "/admin/errors", roles: ["ADMIN"] },
   {
     key: "reports",
     label: "Reports",

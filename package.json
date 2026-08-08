@@ -19,7 +19,10 @@
     "db:seed:admin": "node scripts/sync-db-provider.mjs && tsx prisma/seed-admin.ts",
     "promote": "node scripts/sync-db-provider.mjs && node scripts/promote-admin.mjs",
     "db:studio": "prisma studio",
-    "db:reset": "node scripts/sync-db-provider.mjs && prisma db push --force-reset && npm run db:seed"
+    "db:reset": "node scripts/sync-db-provider.mjs && prisma db push --force-reset && npm run db:seed",
+    "smoke": "node scripts/sync-db-provider.mjs && node --import tsx scripts/smoke.mjs",
+    "smoke:empty": "node scripts/sync-db-provider.mjs && node --import tsx scripts/smoke.mjs --empty",
+    "smoke:browser": "node --import tsx scripts/smoke-browser.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

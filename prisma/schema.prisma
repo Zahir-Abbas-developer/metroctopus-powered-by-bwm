@@ -1089,3 +1089,37 @@ model Settings {
 
   updatedAt DateTime @updatedAt
 }
+
+/// A page or route that blew up, captured where it happened.
+///
+/// Before this table existed, a broken page was discovered by a team member
+/// mentioning it in chat — by which time the stack trace was long gone and the
+/// only way back to the cause was guesswork. Writing the error down at the
+/// moment it happens is the difference between "/clients is broken" and a file
+/// and line number.
+///
+/// Writes are fire-and-forget: logging an error must never be able to cause
+/// one. Nothing here is user input, so it is safe to show the owner verbatim.
+model SystemError {
+  id String @id @default(cuid())
+
+  /// Path that failed, e.g. "/clients" or "/api/milestones/[id]/status".
+  route   String
+  message String
+  stack   String?
+  /// Next's error digest, which is the only handle the browser gets in
+  /// production — it is what ties a user's report to the row.
+  digest  String?
+
+  /// Who hit it. Denormalised on purpose: the row must survive the user being
+  /// deleted, and it is evidence, not a relation to keep in step.
+  userId   String?
+  userRole String?
+
+  /// Set when the owner has seen it, so the sidebar badge counts what is new.
+  seenAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([createdAt])
+  @@index([seenAt])
+}

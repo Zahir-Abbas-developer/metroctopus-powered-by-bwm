@@ -7,6 +7,21 @@ import { fieldErrors } from "@/lib/validation";
 import { allServiceLeads } from "@/lib/permissions-service";
 import { recordAudit } from "@/lib/audit";
 
+/**
+ * This route reads the database and authenticates nobody — the roster of who
+ * leads what is deliberately public, so members can see who approves their
+ * work. That combination is exactly what makes Next prerender a route handler
+ * at build time: with no cookie or header read, nothing marks it dynamic, and
+ * the response gets frozen into `.next/server/app/api/service-leads.body` and
+ * served for the life of the deployment. Promote someone to lead and the panel
+ * would keep showing the old roster until the next deploy.
+ *
+ * Every other GET here escapes by accident, because authenticating reads a
+ * cookie. Anything that reads the database must be dynamic on purpose, not by
+ * side effect — `npm run smoke` fails the build if an API route is prerendered.
+ */
+export const dynamic = "force-dynamic";
+
 const saveSchema = z.object({
   userId: z.string().min(1),
   /** The complete set for this person — anything absent is removed. */

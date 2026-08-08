@@ -1805,3 +1805,136 @@ The decisions that shaped it, in order of how much they mattered:
 - Uploads are local files — two functions in `lib/uploads.ts` to replace.
 - Pods, leaderboard framing and the review queue all assume a small team.
 - The ad-platform integrations are documented but unbuilt (`lib/integrations/`).
+
+---
+
+## Stabilisation — route audit and error visibility
+
+No new features. Eleven phases of schema changes had left pages that were
+reported as rendering the error boundary, and the job was to find them at the
+root and make the next one impossible to miss.
+
+### What the reported breakage turned out to be
+
+`/clients` was the confirmed example. It does not reproduce. It was exercised
+in development and against a production build, with the seeded database and
+with an empty one, as owner, as service lead and as member, and with all eleven
+interactive controls on the page clicked one at a time in a real browser. It
+renders cleanly in every one of those.
+
+That is not a claim the report was wrong. It is the finding: **a page failed
+and left no evidence.** Nothing recorded the route, the stack or the time, so
+the only way back to the cause was guesswork — which is exactly the thing the
+brief forbade. Most of this work went into making sure that cannot happen
+again, and the two genuine defects below were found by the instrumentation
+built to look for it.
+
+One false lead is worth recording. The first sweep reported every page broken,
+because the marker being searched for was the string `error-boundary` — which
+appears in Next's development chunk paths on every page, working or not. The
+suite now looks for the boundary's actual headline, and checks at startup that
+the headline still exists in `app/(app)/error.tsx`, because an assertion
+searching for text that no longer exists passes everything.
+
+### Root-cause fixes
+
+**`/api/service-leads` was frozen at build time.** The handler reads the
+database and authenticates nobody — the roster of who leads what is
+deliberately public so members can see who approves their work. With no cookie
+or header read, nothing marked the route dynamic, so Next prerendered it during
+`next build` and wrote the response into
+`.next/server/app/api/service-leads.body`, serving that same body for the life
+of the deployment. Promote someone to lead and the panel would show the old
+roster until the next deploy. Every other `GET` escapes this by accident,
+because authenticating happens to read a cookie. Fixed with an explicit
+`dynamic = "force-dynamic"`, and `npm run smoke` now fails if any API route has
+been prerendered — checked from the build output, since no request-level
+assertion can see it.
+
+**The member dashboard fired a request that could only be refused.**
+`<ReviewQueue />` was mounted for everyone and treated a 403 as "nothing to
+show". That reads as defensive, but it meant every member's dashboard made an
+admin-only request on every load and logged a console error receiving the
+refusal — noise in precisely the signal this audit depends on. The server
+already knows who leads what, so the component is now mounted only for someone
+who can hold a queue.
+
+### Error visibility
+
+A `SystemError` table, written to by the route boundary, a new global boundary
+for failures in the root layout, and `/api/system-errors`. The owner reads them
+at `/admin/errors`, grouped by route and message so one broken page appearing
+fifty times does not bury the second, rarer failure underneath. The sidebar
+badges the count of entries arriving since the owner last looked.
+
+Two rules hold the design together. Logging an error must never cause one, so
+every write is wrapped and swallowed — if the database is what broke, the
+logger failing too would turn a broken page into a broken app. And none of it
+is symptom-patching: the error still propagates, the boundary still shows, the
+page still visibly fails. The logger only writes down what happened on the way
+past.
+
+What gets captured depends on where the failure was. A client component
+crashing after hydration arrives with a real message and stack, and that class
+never reaches the server log at all. A server component failing in production
+arrives with only Next's digest, which is still the handle tying the row to the
+server log line that has the trace.
+
+### The smoke suite
+
+`npm run smoke` signs in as owner, service lead and member and requests every
+route, asserting HTTP 200 with no error boundary. `npm run smoke:empty` does
+the same against a throwaway database with no business data — the run that
+catches "this page assumes a client has a project" — building its own SQLite
+file in a temp directory and never touching `prisma/dev.db`.
+
+Two decisions matter more than the suite itself:
+
+- **Routes are discovered by walking `/app`, not listed.** A hardcoded list
+  rots: the page added next month is exactly the page nobody remembers to add
+  to the test, and it would pass green while broken.
+- **Expectations come from `lib/routes.ts`**, the same module the middleware
+  and sidebar use. A member opening an admin route is supposed to be redirected,
+  so asserting a flat 200 everywhere would either fail on correct behaviour or
+  duplicate the permission map into the test to drift out of step.
+
+`npm run smoke:browser` loads every page in headless Chrome. This exists
+because the HTTP suite has a blind spot it cannot close: every page in this app
+renders its real content in a client component, so a page can return flawless
+HTML and still break the moment React runs. An HTTP-only suite would have
+reported this entire audit green while the product was broken. It drives Chrome
+over the DevTools Protocol through about 150 lines of WebSocket framing in
+`scripts/cdp.mjs` rather than adding Playwright and a browser download, and
+skips cleanly on a machine with no browser.
+
+All three suites delete the accounts they create. A test that leaves
+`Smoke MEMBER` behind on `/team` has quietly become a data-entry step — which
+it did, once, before this was added.
+
+### Verification
+
+- `npm run smoke` — 67 checks, all pass
+- `npm run smoke:empty` — 58 checks, all pass (9 dynamic routes skipped: an
+  empty database has no client to open)
+- `npm run smoke:browser` — 61 pages hydrated across three roles, all clean
+- `npx tsc --noEmit` and `npx next lint` — clean
+- `npm test` — 356 tests (5 added)
+- `npm run build` — 59 pages, no API route prerendered
+- `npm run db:reset` — fresh database to fully usable app, verified
+
+`AUDIT.md` carries the route × role × state matrix and the known gaps: the
+browser pass clicks nothing, so modals and wizards are covered only on first
+render; and the matrix has not been run against Postgres.
+
+`CLAUDE.md` now requires the stability gate at the end of every phase, and
+states the two prohibitions this session was run under — never diagnose a
+broken page from the browser, and never wrap a failing page in `try`/`catch` to
+make it render.
+
+### Note on `prisma migrate reset`
+
+The exit criteria asked for `prisma migrate reset && seed`. That command cannot
+run locally by design: `migration_lock.toml` is `postgresql` for deployment
+while local development uses SQLite, so Prisma refuses with P3019. The
+equivalent is `npm run db:reset` (`db push --force-reset` then seed), which is
+what was verified and what the README documents.

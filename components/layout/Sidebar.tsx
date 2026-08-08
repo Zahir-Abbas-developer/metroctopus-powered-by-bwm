@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  AlertTriangle,
   BarChart3,
   Briefcase,
   CalendarCheck,
@@ -44,6 +45,7 @@ const ICONS: Record<NavKey, LucideIcon> = {
   incentives: Trophy,
   scoring: BookOpen,
   audit: ShieldCheck,
+  errors: AlertTriangle,
   team: Users2,
   reports: BarChart3,
 };
@@ -58,10 +60,17 @@ export interface SidebarUser {
 export function Sidebar({
   user,
   onNavigate,
+  errorBadge = 0,
 }: {
   user: SidebarUser;
   /** Lets the mobile drawer close itself when a link is tapped. */
   onNavigate?: () => void;
+  /**
+   * Unseen entries in the error log. Counted on the server and passed down,
+   * because the rail is a client component and a broken page is exactly the
+   * moment a client-side fetch is least trustworthy.
+   */
+  errorBadge?: number;
 }) {
   const pathname = usePathname();
   const items = navItemsForRole(user.role);
@@ -114,6 +123,14 @@ export function Sidebar({
                       )}
                     />
                     <span className="flex-1 truncate">{item.label}</span>
+                    {item.key === "errors" && errorBadge > 0 && (
+                      <span
+                        aria-label={`${errorBadge} new`}
+                        className="rounded-pill bg-danger px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-paper"
+                      >
+                        {errorBadge > 99 ? "99+" : errorBadge}
+                      </span>
+                    )}
                     {item.comingSoon && (
                       <span className="rounded-pill border border-paper/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-paper/30">
                         Soon

@@ -16,9 +16,12 @@ import { AvailabilityBanner } from "@/components/attendance/AvailabilityBanner";
 export function AppShell({
   user,
   children,
+  errorBadge = 0,
 }: {
   user: SidebarUser;
   children: ReactNode;
+  /** Unseen error-log entries, counted server-side. Owner only. */
+  errorBadge?: number;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
@@ -40,7 +43,7 @@ export function AppShell({
     <div className="min-h-screen bg-paper">
       {/* Desktop rail */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar lg:block">
-        <Sidebar user={user} />
+        <Sidebar user={user} errorBadge={errorBadge} />
       </aside>
 
       {/* Mobile top bar */}
@@ -76,7 +79,11 @@ export function AppShell({
             className="absolute inset-0 h-full w-full cursor-default bg-ink/50 animate-fade-in"
           />
           <div className="absolute inset-y-0 left-0 w-[264px] animate-fade-in">
-            <Sidebar user={user} onNavigate={() => setDrawerOpen(false)} />
+            <Sidebar
+              user={user}
+              errorBadge={errorBadge}
+              onNavigate={() => setDrawerOpen(false)}
+            />
             <button
               type="button"
               onClick={() => setDrawerOpen(false)}

@@ -54,6 +54,7 @@ import { StreakCard } from "@/components/incentives/StreakCard";
 import { monthlyScores, streakFor } from "@/lib/incentives-service";
 import { getSettings } from "@/lib/settings";
 import { clientsAtRisk } from "@/lib/client-health-service";
+import { actorFor } from "@/lib/permissions-service";
 import { TargetBar } from "@/components/pipeline/TargetBar";
 import { formatMoney } from "@/lib/pipeline-types";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
@@ -71,6 +72,8 @@ export default async function DashboardPage({
 }) {
   const user = await requireUser();
   const isAdmin = user.role === "ADMIN";
+  // Who can hold a review queue: the owner, or a lead inside their own lines.
+  const hasReviewQueue = isAdmin || (await actorFor(user)).leadServiceIds.length > 0;
   const firstName = (user.name ?? "there").split(" ")[0];
   const cycle = currentCycle();
   const now = new Date();
@@ -285,10 +288,15 @@ export default async function DashboardPage({
       <TargetBar userId={user.id} />
 
       {/* The review queue sits above everything else on the page: work waiting
-          on a decision is more urgent than a number describing last week. It
-          renders nothing for anyone without a queue, so it can be mounted
-          unconditionally and the component decides. */}
-      <ReviewQueue />
+          on a decision is more urgent than a number describing last week.
+
+          Only mounted for someone who can actually hold a queue. The component
+          treats a 403 as "nothing to show", so mounting it for everyone looked
+          harmless — but it made every member's dashboard fire a request the
+          server was always going to refuse, and log a console error doing it.
+          The server already knows who leads what; asking is cheaper than being
+          told no. */}
+      {hasReviewQueue && <ReviewQueue />}
 
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">

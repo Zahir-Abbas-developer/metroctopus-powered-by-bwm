@@ -221,3 +221,48 @@ how busy the team is but not how the business is doing.
   edited**, and an upheld dispute writes a compensating `MANUAL_ADJUST`. The
   ledger stays append-only, so the record shows both what happened and how it
   was settled.
+
+## Stability gate — run at the end of every phase
+
+Any phase that touches a page, a query, a route or the schema ends by running:
+
+```bash
+npm run smoke          # every route × every role, against the current database
+npm run smoke:empty    # the same, against a database with no business data
+npx tsc --noEmit
+npm test
+```
+
+All four must be clean before the phase is committed. `npm run smoke:browser`
+additionally loads every page in a real browser and is the only check that
+catches a client component crashing after hydration — run it when a phase
+changed anything a page renders.
+
+### Why this exists
+
+Eleven phases of schema changes produced pages that returned a healthy HTTP 200
+and then failed in the browser, and nobody found out until someone mentioned it
+in chat. Two things follow from that, and both are rules rather than
+suggestions:
+
+- **Never diagnose a broken page from the browser.** Get the server-side error
+  and stack trace, or reproduce it under `npm run smoke:browser`. A guess that
+  happens to fix the symptom leaves the cause in place.
+- **Never wrap a failing page in `try`/`catch` to make it render.** Hiding an
+  error deletes the evidence and converts a loud bug into a silent one. Fix the
+  query, add the null handling, or render an `EmptyState` — those are outcomes;
+  a swallowed exception is not.
+
+### Empty states are a feature, not a fallback
+
+Every query result must have a designed empty state. A client with no project,
+a member with no score events, a month with no KPI entries — these are normal
+states of a real agency, not edge cases. Use `EmptyState`; never render a blank
+`div`, and never let missing data reach a `.map` or a property access.
+
+### Errors are recorded, not just thrown
+
+The error boundaries report to `/api/system-errors`, and the owner reads them at
+`/admin/errors` with an unseen count badged in the sidebar. When adding a new
+boundary or a new background job, log failures there too. The owner should
+never learn about a broken page from a team member's WhatsApp message.
