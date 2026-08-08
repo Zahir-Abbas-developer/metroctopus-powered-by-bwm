@@ -14,6 +14,8 @@ import {
   ScrollText,
   SlidersHorizontal,
   Handshake,
+  Sparkles,
+  Star,
   ThumbsDown,
   TimerOff,
   TrendingUp,
@@ -42,6 +44,8 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   DEAL_WON: Handshake,
   TARGET_MET: Crosshair,
   TARGET_MISSED: Crosshair,
+  QUALITY_BONUS: Sparkles,
+  QUALITY_FLAG: Star,
 };
 
 export type ProfileMember = {
@@ -65,6 +69,7 @@ export function PerformanceProfile({
   cycle,
   onTime,
   load,
+  quality,
   viewerIsAdmin,
   isSelf,
 }: {
@@ -75,6 +80,8 @@ export function PerformanceProfile({
   onTime: { onTime: number; total: number; rate: number };
   /** Volume the score was earned against — never shown without it. */
   load: { count: number; weight: number };
+  /** Average star rating this cycle — the fourth metric beside the triple. */
+  quality: { average: number | null; rated: number };
   viewerIsAdmin: boolean;
   isSelf: boolean;
 }) {
@@ -143,7 +150,7 @@ export function PerformanceProfile({
       </Card>
 
       {/* Supporting numbers */}
-      <div className="grid gap-4 sm:grid-cols-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {/* No approvals yet is not the same as a 0% record — showing a red
             zero would read as failure when there is simply nothing to rate. */}
         <StatCard
@@ -177,6 +184,28 @@ export function PerformanceProfile({
             load.count === 0
               ? "Nothing due this month"
               : `${load.count} due this month · total weight ${load.weight}`
+          }
+        />
+        {/* Punctuality was never the whole story: work can land on time and
+            still be wrong. */}
+        <StatCard
+          label="Avg quality"
+          value={quality.average === null ? "—" : quality.average}
+          unit={quality.average === null ? undefined : "★"}
+          icon={Sparkles}
+          tone={
+            quality.average === null
+              ? "neutral"
+              : quality.average >= 4.5
+                ? "success"
+                : quality.average < 3
+                  ? "danger"
+                  : "neutral"
+          }
+          hint={
+            quality.rated === 0
+              ? "Nothing rated this month yet"
+              : `Across ${quality.rated} approval${quality.rated === 1 ? "" : "s"}`
           }
         />
         <StatCard

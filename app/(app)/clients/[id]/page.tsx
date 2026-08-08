@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
 import { progressForProjects } from "@/lib/planner";
 import { clientBlockedDays } from "@/lib/blocking";
+import { healthForClients } from "@/lib/client-health-service";
 import { ClientDetail } from "@/components/clients/ClientDetail";
 import type { ClientStatus, ProjectStatus } from "@/lib/constants";
 
@@ -47,16 +48,34 @@ export default async function ClientDetailPage({
 
   if (!client) notFound();
 
-  const [progress, waiting] = await Promise.all([
+  const [progress, waiting, healthMap] = await Promise.all([
     progressForProjects(client.projects.map((project) => project.id)),
     // Delay this client caused, so a conversation about a late deliverable
     // starts from data rather than from recollection.
     clientBlockedDays(client.id),
+    healthForClients([client.id]),
   ]);
+
+  const health = healthMap.get(client.id) ?? null;
 
   return (
     <ClientDetail
       services={services}
+      health={
+        health
+          ? {
+              score: health.score,
+              band: health.band,
+              headline: health.headline,
+              components: health.components.map((component) => ({
+                key: component.key,
+                label: component.label,
+                score: component.score,
+                detail: component.detail,
+              })),
+            }
+          : null
+      }
       waiting={{
         totalDays: waiting.totalDays,
         openItems: waiting.openItems.map((item) => ({
@@ -76,6 +95,7 @@ export default async function ClientDetailPage({
         status: client.status as ClientStatus,
         notes: client.notes,
         autoRenew: client.autoRenew,
+        targetRoas: client.targetRoas,
         onboardedAt: client.onboardedAt.toISOString(),
       }}
       projects={client.projects.map((project) => ({

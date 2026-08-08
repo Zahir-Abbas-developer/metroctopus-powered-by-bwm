@@ -8,6 +8,7 @@ import { generateReports } from "../lib/reports";
 import { notify } from "../lib/notifications";
 import { mentionedUserIds } from "../lib/mentions";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "../lib/scoring";
+import { checkRoasAlert } from "../lib/kpi-service";
 import {
   formatKarachiClock,
   karachiDay,
@@ -324,6 +325,7 @@ async function main() {
   const attendance = await seedAttendance();
   const fairness = await seedFairness(admin.id);
   const growth = await seedGrowth(admin.id, members);
+  const outcomes = await seedOutcomes();
   const { reports, notifications } = await seedReportsAndNotifications();
   const collab = await seedCollaboration(admin.id);
 
@@ -338,6 +340,7 @@ async function main() {
     leaveRequests: attendance.leaveRequests,
     ...fairness,
     ...growth,
+    ...outcomes,
     ...collab,
   });
 }
@@ -563,6 +566,147 @@ async function createAttendanceEvent(event: {
       createdAt: event.at,
     },
   });
+}
+
+/**
+ * The Phase 10 surfaces: quality ratings on approved work, twelve weeks of
+ * client commercial numbers, and a mix of payment states.
+ *
+ * The KPI series is shaped rather than random. One client is comfortably above
+ * target, one drifts below it over the last three weeks so the alert and the
+ * at-risk list have something real to show, and one has no data at all —
+ * because "no campaign data" is a state the health score has to handle and a
+ * demo where every client is fully populated never exercises it.
+ */
+async function seedOutcomes() {
+  await prisma.clientKpiEntry.deleteMany({});
+
+  const now = new Date();
+  let ratings = 0;
+  let kpiWeeks = 0;
+  let paidCycles = 0;
+
+  // --- Quality ratings on approved work -------------------------------------
+  const approved = await prisma.milestone.findMany({
+    where: { status: "COMPLETED", assigneeId: { not: null } },
+    select: { id: true, completedAt: true, dueDate: true },
+  });
+
+  for (const milestone of approved) {
+    const roll = Math.abs(hash(milestone.id));
+    // Mostly threes and fours — most work is simply fine, and a demo where
+    // everything is five stars makes the metric look decorative.
+    const rating = roll % 11 === 0 ? 2 : roll % 5 === 0 ? 5 : roll % 3 === 0 ? 3 : 4;
+
+    await prisma.milestone.update({
+      where: { id: milestone.id },
+      data: {
+        qualityRating: rating,
+        qualityComment:
+          rating <= 2
+            ? "Numbers in the report didn't reconcile with the ad account — had to be redone before it went out."
+            : rating === 5
+              ? "Best version of this we've sent. Client quoted it back to us."
+              : null,
+        qualityRatedAt: milestone.completedAt ?? milestone.dueDate,
+      },
+    });
+    ratings += 1;
+  }
+
+  // --- Twelve weeks of client numbers ---------------------------------------
+  const clients = await prisma.client.findMany({
+    where: { status: "ACTIVE" },
+    orderBy: { businessName: "asc" },
+    select: { id: true, businessName: true, monthlyBudget: true },
+  });
+
+  const owner = await prisma.user.findFirst({ where: { role: "ADMIN" }, select: { id: true } });
+
+  const PROFILES = [
+    // Performing well and steady.
+    { target: 4, base: 4.4, drift: 0, sessions: 5200, aov: 96 },
+    // Slipping: fine until three weeks ago, under target since. This is what
+    // fires the alert and puts them on the at-risk list.
+    { target: 3.5, base: 3.9, drift: -0.55, sessions: 3400, aov: 128 },
+    // No data at all — the third client is deliberately left empty.
+    null,
+  ];
+
+  for (const [index, client] of clients.entries()) {
+    const profile = PROFILES[index % PROFILES.length];
+    if (!profile) continue;
+
+    await prisma.client.update({
+      where: { id: client.id },
+      data: { targetRoas: profile.target },
+    });
+
+    for (let back = 11; back >= 0; back -= 1) {
+      const weekStart = karachiDay(addDays(now, -back * 7));
+      // Monday of that week.
+      const monday = new Date(weekStart);
+      monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() || 7) - 1));
+
+      // The drift only applies to the last three weeks, so the chart shows a
+      // healthy run and then a turn rather than a slope from day one.
+      const drifting = back < 3 ? profile.drift * (3 - back) : 0;
+      const wobble = ((Math.abs(hash(`${client.id}:${back}`)) % 24) - 12) / 100;
+      const roas = Math.max(0.6, profile.base + drifting + wobble);
+
+      const spend = Math.round((client.monthlyBudget / 4) * (0.85 + (back % 4) * 0.08));
+      const revenue = Math.round(spend * roas);
+      const orders = Math.max(1, Math.round(revenue / profile.aov));
+
+      await prisma.clientKpiEntry.create({
+        data: {
+          clientId: client.id,
+          weekStart: monday,
+          googleSpend: Math.round(spend * 0.55),
+          metaSpend: spend - Math.round(spend * 0.55),
+          revenue,
+          orders,
+          storeSessions: profile.sessions + ((Math.abs(hash(`s:${client.id}:${back}`)) % 900) - 450),
+          notes:
+            back === 2 && profile.drift < 0
+              ? "Creative fatigue on the top-performing set. Refresh queued."
+              : null,
+          enteredById: owner?.id ?? null,
+        },
+      });
+      kpiWeeks += 1;
+    }
+
+    // Rows are written directly for speed, which skips the alert the service
+    // fires on save. Run it once at the end so a seeded demo where the card
+    // shows "Performance attention" also has the notification that would have
+    // produced it — a chip with no notice behind it is an inconsistent demo.
+    await checkRoasAlert(client.id, now);
+  }
+
+  // --- Payment states -------------------------------------------------------
+  const cycles = await prisma.project.findMany({
+    orderBy: { startDate: "desc" },
+    select: { id: true, startDate: true },
+  });
+
+  for (const [index, cycle] of cycles.entries()) {
+    // Most paid, one still pending, one left to go overdue on the next cron
+    // run — so the collections card has something in it.
+    const status = index === 0 ? "PENDING" : index === 1 ? "OVERDUE" : "PAID";
+
+    await prisma.project.update({
+      where: { id: cycle.id },
+      data: {
+        paymentStatus: status,
+        paidAt: status === "PAID" ? addDays(cycle.startDate, 3) : null,
+        invoiceNote: status === "OVERDUE" ? "Second reminder sent." : null,
+      },
+    });
+    if (status === "PAID") paidCycles += 1;
+  }
+
+  return { qualityRatings: ratings, kpiWeeks, paidCycles };
 }
 
 /**
@@ -1388,6 +1532,9 @@ function print(stats: {
   salesActivities: number;
   activityTargets: number;
   mrrSnapshots: number;
+  qualityRatings: number;
+  kpiWeeks: number;
+  paidCycles: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -1420,6 +1567,10 @@ function print(stats: {
   console.log(
     `  ${stats.leads} leads · ${stats.salesActivities} sales activities · ` +
       `${stats.activityTargets} targets · ${stats.mrrSnapshots} MRR snapshots`,
+  );
+  console.log(
+    `  ${stats.qualityRatings} quality ratings · ${stats.kpiWeeks} KPI weeks · ` +
+      `${stats.paidCycles} cycles paid`,
   );
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");

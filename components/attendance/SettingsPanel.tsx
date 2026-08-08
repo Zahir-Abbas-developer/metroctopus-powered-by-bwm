@@ -37,6 +37,15 @@ type SettingsShape = {
   targetMissThreshold: number;
   autoRenewEnabled: boolean;
   carryOverDueDays: number;
+  bonusQualityHigh: number;
+  penaltyQualityLow: number;
+  defaultTargetRoas: number;
+  roasAlertWeeks: number;
+  paymentOverdueDays: number;
+  healthWeightDelivery: number;
+  healthWeightRoas: number;
+  healthWeightPayment: number;
+  healthWeightBlocked: number;
 };
 
 const DAYS = [
@@ -456,6 +465,125 @@ export function SettingsPanel() {
             hint="Days into the new cycle. Dating it to day one guarantees it's late again immediately."
           />
         </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Quality and money
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          Quality amounts are deliberately smaller than a missed deadline —
+          lateness is objective, a star rating is one person&rsquo;s judgement on
+          one afternoon. Three and four stars move nothing.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          <Input
+            label="Points for five-star work"
+            type="number"
+            step={0.5}
+            min={0}
+            value={draft.bonusQualityHigh}
+            error={errors.bonusQualityHigh}
+            onChange={(event) => set("bonusQualityHigh", Number(event.target.value))}
+          />
+          <Input
+            label="Points off for one or two stars"
+            type="number"
+            step={0.5}
+            min={0}
+            value={draft.penaltyQualityLow}
+            error={errors.penaltyQualityLow}
+            onChange={(event) => set("penaltyQualityLow", Number(event.target.value))}
+          />
+          <Input
+            label="Default ROAS target"
+            type="number"
+            step={0.1}
+            min={0}
+            value={draft.defaultTargetRoas}
+            error={errors.defaultTargetRoas}
+            onChange={(event) => set("defaultTargetRoas", Number(event.target.value))}
+            hint="Used when a client has none of their own."
+          />
+          <Input
+            label="Weeks under target before alerting"
+            type="number"
+            min={1}
+            value={draft.roasAlertWeeks}
+            error={errors.roasAlertWeeks}
+            onChange={(event) => set("roasAlertWeeks", Number(event.target.value))}
+            hint="One bad week is noise. An alert that fires on noise gets muted."
+          />
+          <Input
+            label="Days before an invoice is overdue"
+            type="number"
+            min={0}
+            value={draft.paymentOverdueDays}
+            error={errors.paymentOverdueDays}
+            onChange={(event) => set("paymentOverdueDays", Number(event.target.value))}
+            hint="Measured from the cycle's start — retainers are billed up front."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Client health weighting
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          What the health score is made of. These are relative — they don&rsquo;t
+          have to add to 100, and a dimension with no data is dropped and its
+          weight shared across the rest.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Input
+            label="Delivery"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.healthWeightDelivery}
+            error={errors.healthWeightDelivery}
+            onChange={(event) => set("healthWeightDelivery", Number(event.target.value))}
+          />
+          <Input
+            label="Performance"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.healthWeightRoas}
+            error={errors.healthWeightRoas}
+            onChange={(event) => set("healthWeightRoas", Number(event.target.value))}
+          />
+          <Input
+            label="Payment"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.healthWeightPayment}
+            error={errors.healthWeightPayment}
+            onChange={(event) => set("healthWeightPayment", Number(event.target.value))}
+          />
+          <Input
+            label="Responsiveness"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.healthWeightBlocked}
+            error={errors.healthWeightBlocked}
+            onChange={(event) => set("healthWeightBlocked", Number(event.target.value))}
+          />
+        </div>
+
+        <p className="mt-3 text-[12px] text-ink/45">
+          Currently{" "}
+          {draft.healthWeightDelivery +
+            draft.healthWeightRoas +
+            draft.healthWeightPayment +
+            draft.healthWeightBlocked}
+          {" "}across four dimensions.
+        </p>
       </Card>
 
       <div className="flex justify-end">

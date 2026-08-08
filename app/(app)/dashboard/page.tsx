@@ -45,6 +45,10 @@ import { karachiDay } from "@/lib/attendance-time";
 import { performanceContext } from "@/lib/score-service";
 import { mrrSeries, pipelineMetrics } from "@/lib/pipeline";
 import { MrrCard } from "@/components/dashboard/MrrCard";
+import { CollectionsCard } from "@/components/dashboard/CollectionsCard";
+import { AtRiskClients } from "@/components/dashboard/AtRiskClients";
+import { collections } from "@/lib/payments";
+import { clientsAtRisk } from "@/lib/client-health-service";
 import { TargetBar } from "@/components/pipeline/TargetBar";
 import { formatMoney } from "@/lib/pipeline-types";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
@@ -127,9 +131,14 @@ export default async function DashboardPage({
   // Money. The owner's dashboard leads with MRR because it is the number the
   // whole machine exists to grow — everything else on this page is a means to
   // moving it.
-  const [mrr, pipeline] = isAdmin
-    ? await Promise.all([mrrSeries(6, now), pipelineMetrics(now)])
-    : [null, null];
+  const [mrr, pipeline, money, clientsNeedingAttention] = isAdmin
+    ? await Promise.all([
+        mrrSeries(6, now),
+        pipelineMetrics(now),
+        collections(now),
+        clientsAtRisk(now, 5),
+      ])
+    : [null, null, null, null];
 
   const memberIds = members.map((member) => member.id);
   const scopedIds = isAdmin ? memberIds : [user.id];
@@ -243,6 +252,8 @@ export default async function DashboardPage({
               delta={mrr.delta}
               deltaPercent={mrr.deltaPercent}
               series={mrr.series}
+              collected={money?.collectedThisMonth ?? null}
+              outstanding={money?.outstandingThisMonth ?? null}
             />
           )}
           {isAdmin && pipeline && (
@@ -501,6 +512,23 @@ export default async function DashboardPage({
           </Card>
         )}
       </section>
+
+      {/* Money and risk, side by side: what hasn't arrived, and who might
+          stop sending it. */}
+      {isAdmin && money && clientsNeedingAttention && (
+        <section className="grid gap-5 lg:grid-cols-2">
+          <CollectionsCard collections={money} />
+          <AtRiskClients
+            rows={clientsNeedingAttention.map((row) => ({
+              clientId: row.clientId,
+              clientName: row.clientName,
+              score: row.score,
+              band: row.band,
+              headline: row.headline,
+            }))}
+          />
+        </section>
+      )}
 
       {/* Workspace activity */}
       {isAdmin && (

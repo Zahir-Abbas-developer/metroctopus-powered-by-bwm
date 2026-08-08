@@ -5,6 +5,8 @@ import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, onboardClientSchema } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
 import { createProjectWithPlan, progressForProjects } from "@/lib/planner";
+import { healthForClients } from "@/lib/client-health-service";
+import { alertsForClients } from "@/lib/kpi-service";
 import { containsInsensitive } from "@/lib/db-features";
 
 export async function GET(request: Request) {
@@ -34,9 +36,16 @@ export async function GET(request: Request) {
       },
     });
 
-    const progress = await progressForProjects(
-      clients.map((client) => client.projects[0]?.id).filter((id): id is string => Boolean(id)),
-    );
+    // Health and the performance alert are batched across every card rather
+    // than computed per card — five clients would otherwise be twenty queries.
+    const ids = clients.map((client) => client.id);
+    const [health, alerts, progress] = await Promise.all([
+      healthForClients(ids),
+      alertsForClients(ids),
+      progressForProjects(
+        clients.map((client) => client.projects[0]?.id).filter((id): id is string => Boolean(id)),
+      ),
+    ]);
 
     return NextResponse.json({
       clients: clients.map((client) => {
@@ -66,8 +75,14 @@ export async function GET(request: Request) {
                 startDate: current.startDate,
                 endDate: current.endDate,
                 progress: progress.get(current.id) ?? { total: 0, done: 0, percent: 0 },
+                paymentStatus: current.paymentStatus,
               }
             : null,
+          health: (() => {
+            const row = health.get(client.id);
+            return row ? { score: row.score, band: row.band, headline: row.headline } : null;
+          })(),
+          performanceAlert: alerts.get(client.id)?.firing ?? false,
         };
       }),
     });

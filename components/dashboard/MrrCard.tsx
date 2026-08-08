@@ -25,12 +25,17 @@ export function MrrCard({
   delta,
   deltaPercent,
   series,
+  collected,
+  outstanding,
 }: {
   current: number;
   activeClients: number;
   delta: number | null;
   deltaPercent: number | null;
   series: MrrPoint[];
+  /** This month's retainer value that has actually arrived. */
+  collected?: number | null;
+  outstanding?: number | null;
 }) {
   const up = delta !== null && delta > 0;
   const flat = delta === null || delta === 0;
@@ -47,6 +52,23 @@ export function MrrCard({
             <p className="mt-2 text-[13px] text-paper/50">
               {activeClients} active client{activeClients === 1 ? "" : "s"} on retainer
             </p>
+
+            {/* Agreed and arrived are different numbers, and only one of them
+                pays salaries. */}
+            {collected !== null && collected !== undefined && (
+              <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+                <span className="inline-flex items-center gap-1.5 text-brand-tint">
+                  <span className="h-1.5 w-1.5 rounded-full bg-brand-tint" />
+                  {formatMoney(collected, true)} collected
+                </span>
+                {(outstanding ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1.5 text-paper/55">
+                    <span className="h-1.5 w-1.5 rounded-full bg-paper/40" />
+                    {formatMoney(outstanding ?? 0, true)} outstanding
+                  </span>
+                )}
+              </p>
+            )}
           </div>
 
           <span

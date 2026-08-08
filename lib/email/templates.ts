@@ -297,6 +297,7 @@ export function renewalDigestEmail(input: {
     milestones: number;
     carriedOver: number;
     unassigned: number;
+    previousUnpaid?: boolean;
   }[];
   skipped: { clientName: string; reason: string }[];
   totalCarriedOver: number;
@@ -324,8 +325,10 @@ export function renewalDigestEmail(input: {
                   `${entry.clientName} — ${entry.title}`,
                   `${entry.milestones} milestone${entry.milestones === 1 ? "" : "s"}${
                     entry.carriedOver > 0 ? ` · ${entry.carriedOver} carried over` : ""
-                  }${entry.unassigned > 0 ? ` · ${entry.unassigned} unassigned` : ""}`,
-                  entry.unassigned > 0 ? "warn" : undefined,
+                  }${entry.unassigned > 0 ? ` · ${entry.unassigned} unassigned` : ""}${
+                    entry.previousUnpaid ? " · last cycle unpaid" : ""
+                  }`,
+                  entry.unassigned > 0 || entry.previousUnpaid ? "warn" : undefined,
                 ),
               )
               .join(""),

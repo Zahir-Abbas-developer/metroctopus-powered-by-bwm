@@ -6,6 +6,8 @@ import { ProgressBar } from "@/components/ui/ProgressBar";
 import { CLIENT_STATUS_LABEL, CLIENT_STATUS_TONE } from "@/lib/constants";
 import { formatDate } from "@/lib/date";
 import type { ClientSummary } from "@/lib/types";
+import { HEALTH_BAND_COLOR, HEALTH_BAND_LABEL } from "@/lib/clientHealth";
+import { cn } from "@/lib/utils";
 
 /** Compact money — a retainer book reads better as $4.5k than $4,500. */
 function formatBudget(amount: number): string {
@@ -26,18 +28,53 @@ export function ClientCard({ client }: { client: ClientSummary }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate font-display text-[17px] font-bold tracking-tight text-ink">
-            {client.businessName}
+          <h3 className="flex items-center gap-2 truncate font-display text-[17px] font-bold tracking-tight text-ink">
+            {/* Computed health, never entered. A dot rather than a number:
+                the card is a glance, and the number is on the client page. */}
+            {client.health && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full"
+                style={{ backgroundColor: HEALTH_BAND_COLOR[client.health.band] }}
+                title={`${HEALTH_BAND_LABEL[client.health.band]} · ${client.health.score}${
+                  client.health.headline ? ` — ${client.health.headline}` : ""
+                }`}
+              />
+            )}
+            <span className="truncate">{client.businessName}</span>
           </h3>
           <p className="mt-1 truncate text-[13px] text-ink/50">
             {client.industry ?? "Industry not set"}
           </p>
         </div>
 
-        <Badge dot tone={CLIENT_STATUS_TONE[client.status]}>
-          {CLIENT_STATUS_LABEL[client.status]}
-        </Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
+          <Badge dot tone={CLIENT_STATUS_TONE[client.status]}>
+            {CLIENT_STATUS_LABEL[client.status]}
+          </Badge>
+
+          {/* Deliberately discreet — payment is the owner's business, and a
+              loud red chip on every unpaid invoice would cry wolf by the 8th. */}
+          {project && project.paymentStatus !== "PAID" && (
+            <span
+              className={cn(
+                "rounded-pill border px-2 py-0.5 text-[10px] font-medium",
+                project.paymentStatus === "OVERDUE"
+                  ? "border-danger/25 bg-danger-tint text-danger"
+                  : "border-line bg-white text-ink/45",
+              )}
+            >
+              {project.paymentStatus === "OVERDUE" ? "Payment overdue" : "Awaiting payment"}
+            </span>
+          )}
+        </div>
       </div>
+
+      {client.performanceAlert && (
+        <p className="mt-3 inline-flex items-center gap-1.5 self-start rounded-pill border border-danger/25 bg-danger-tint px-2.5 py-1 text-[11px] font-medium text-danger">
+          <span className="h-1.5 w-1.5 rounded-full bg-danger" />
+          Performance attention
+        </p>
+      )}
 
       <div className="mt-4 flex items-center gap-4 text-[13px] text-ink/55">
         <span className="font-display text-base font-bold text-ink">

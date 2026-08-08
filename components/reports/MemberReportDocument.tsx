@@ -10,6 +10,8 @@ import {
   ScrollText,
   SlidersHorizontal,
   Handshake,
+  Sparkles,
+  Star,
   ThumbsDown,
   TimerOff,
   TrendingUp,
@@ -34,6 +36,8 @@ const EVENT_ICONS: Record<ScoreEventType, typeof Clock3> = {
   DEAL_WON: Handshake,
   TARGET_MET: Crosshair,
   TARGET_MISSED: Crosshair,
+  QUALITY_BONUS: Sparkles,
+  QUALITY_FLAG: Star,
 };
 
 /**
@@ -111,7 +115,7 @@ export function MemberReportDocument({
 
       {/* At a glance. Workload leads, because every figure after it is only
           meaningful against the volume it was earned on. */}
-      <section className="report-section grid gap-3 sm:grid-cols-5">
+      <section className="report-section grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Figure
           label="Workload"
           value={payload.load?.count ?? milestones.completed}
@@ -126,6 +130,28 @@ export function MemberReportDocument({
           }
         />
         <Figure label="Completed" value={milestones.completed} hint="Approved this period" />
+        {payload.quality && (
+          <Figure
+            label="Avg quality"
+            value={payload.quality.average === null ? "—" : `${payload.quality.average}★`}
+            hint={
+              payload.quality.rated === 0
+                ? "Nothing rated this period"
+                : `${payload.quality.rated} rated${
+                    payload.quality.fiveStar > 0 ? ` · ${payload.quality.fiveStar} at five stars` : ""
+                  }`
+            }
+            tone={
+              payload.quality.average === null
+                ? undefined
+                : payload.quality.average >= 4.5
+                  ? "good"
+                  : payload.quality.average < 3
+                    ? "bad"
+                    : undefined
+            }
+          />
+        )}
         <Figure
           label="On time"
           value={milestones.onTime}

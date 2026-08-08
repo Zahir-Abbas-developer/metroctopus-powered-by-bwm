@@ -86,6 +86,8 @@ export async function GET(
       blockedSince: milestone.blockedSince,
       blockedMinutes: liveBlockedMinutes(milestone),
       adminReviewMinutes: milestone.adminReviewMinutes,
+      qualityRating: milestone.qualityRating,
+      qualityComment: milestone.qualityComment,
     },
     comments: milestone.comments.map((comment) => ({
       id: comment.id,

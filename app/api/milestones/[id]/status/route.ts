@@ -7,7 +7,14 @@ import { canTransition, type MilestoneStatus } from "@/lib/constants";
 import { fieldErrors, transitionSchema } from "@/lib/validation";
 import { dueDeadline } from "@/lib/date";
 import { applyEvents } from "@/lib/score-service";
-import { evaluateCompletion, evaluateMissed, rejectionEvent } from "@/lib/scoring";
+import {
+  evaluateCompletion,
+  evaluateMissed,
+  qualityEvent,
+  rejectionEvent,
+  requiresQualityComment,
+} from "@/lib/scoring";
+import { getSettings } from "@/lib/settings";
 import { notifyApproved, notifyRejected } from "@/lib/notifications";
 import { recordScoreEvent, recordStatusChange } from "@/lib/activity";
 import { releaseDependents } from "@/lib/blocking";
@@ -18,9 +25,10 @@ import { releaseDependents } from "@/lib/blocking";
  *
  *   -> SUBMITTED              stamps submittedAt — the moment lateness is
  *                             judged on, from Phase 8 onwards
- *   -> COMPLETED (admin)      stamps completedAt and the review time, then
- *                             charges LATE or pays EARLY_BONUS against the
- *                             *submission*
+ *   -> COMPLETED (admin)      stamps completedAt, the review time and the
+ *                             quality rating, then charges LATE or pays
+ *                             EARLY_BONUS against the *submission*, plus a
+ *                             quality bonus or flag
  *   SUBMITTED -> IN_PROGRESS  a rejection: requires a written reason, charges
  *                (admin)      weight x 0.5, and clears submittedAt so the
  *                             resubmission is what gets timed
@@ -87,7 +95,28 @@ export async function POST(
     });
   }
 
+  // Approval carries a judgement on the work, not just a timestamp. Punctuality
+  // was never the whole story — work can land on time and still be wrong.
+  const rating = parsed.data.qualityRating ?? null;
+  const qualityComment = parsed.data.qualityComment?.trim() ?? "";
+
+  if (to === "COMPLETED" && isAdmin) {
+    if (rating === null) {
+      return apiError("Rate the work before approving it", 422, {
+        qualityRating: "Pick 1–5 stars",
+      });
+    }
+    // A low score the member cannot act on is just a number that makes them
+    // feel bad, so the comment is mandatory rather than encouraged.
+    if (requiresQualityComment(rating) && qualityComment.length < 5) {
+      return apiError("Say what fell short — a low rating without a reason isn't actionable", 422, {
+        qualityComment: "Required for 1–2 stars",
+      });
+    }
+  }
+
   const now = new Date();
+  const settings = await getSettings();
 
   // An owner approving work that was never submitted has no delivery moment to
   // time. Stamping the approval as the submission is the honest reading — the
@@ -132,6 +161,13 @@ export async function POST(
         submittedAt,
         ...(to === "COMPLETED" ? { completedAt: now } : {}),
         ...(reviewMinutes !== null ? { adminReviewMinutes: reviewMinutes } : {}),
+        ...(to === "COMPLETED" && rating !== null
+          ? {
+              qualityRating: rating,
+              qualityComment: qualityComment || null,
+              qualityRatedAt: now,
+            }
+          : {}),
         // Reverting an approval clears the stamp, but the ledger entry it
         // produced stays — history is append-only. Use a manual adjustment to
         // compensate if an approval was genuinely a mistake.
@@ -172,6 +208,28 @@ export async function POST(
           assigneeId: milestone.assigneeId,
           points: proposals.reduce((sum, event) => sum + event.points, 0),
         });
+      }
+
+      // The quality judgement, into the same ledger as everything else.
+      if (rating !== null) {
+        const event = qualityEvent(
+          { id: milestone.id, title: milestone.title, assigneeId: milestone.assigneeId },
+          rating,
+          qualityComment || null,
+          { bonusHigh: settings.bonusQualityHigh, penaltyLow: settings.penaltyQualityLow },
+        );
+
+        if (event) {
+          scored += await applyEvents([event], { at: now, createdById: user.id });
+          await recordScoreEvent({
+            milestoneId: milestone.id,
+            userName: updated.assignee?.name ?? "the assignee",
+            type: event.type,
+            points: event.points,
+            reason: event.reason,
+            actorId: user.id,
+          });
+        }
       }
 
       // Anything that was waiting on this milestone starts moving again.

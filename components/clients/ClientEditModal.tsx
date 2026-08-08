@@ -62,6 +62,9 @@ export function ClientEditModal({
       monthlyBudget: Number(draft.monthlyBudget || 0),
       status: draft.status,
       notes: draft.notes || undefined,
+      autoRenew: draft.autoRenew,
+      // Blank means "use the agency default", which is null — not zero.
+      targetRoas: draft.targetRoas === "" ? null : Number(draft.targetRoas),
     });
 
     if (!parsed.success) {
@@ -219,6 +222,18 @@ export function ClientEditModal({
           hint="Context the team should carry into the work."
         />
 
+        <Input
+          label="Target ROAS"
+          type="number"
+          step={0.1}
+          min={0}
+          value={draft.targetRoas}
+          onChange={(event) => set("targetRoas", event.target.value)}
+          error={errors.targetRoas}
+          disabled={saving}
+          hint="What their campaigns are held to. Blank uses the agency default."
+        />
+
         {/* The escape hatch for bespoke schedules and retainers being wound
             down. On by default, because the whole point of Phase 9 is that
             the 1st of the month runs itself. */}
@@ -259,5 +274,6 @@ function toDraft(client: ClientRecord) {
     status: client.status as string,
     notes: client.notes ?? "",
     autoRenew: client.autoRenew ?? true,
+    targetRoas: client.targetRoas === null || client.targetRoas === undefined ? "" : String(client.targetRoas),
   };
 }

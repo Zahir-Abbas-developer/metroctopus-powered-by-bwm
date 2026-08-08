@@ -46,6 +46,15 @@ export type RenewedClient = {
   carriedOver: number;
   /** Carried-over items that nobody is assigned to — the owner should look. */
   unassigned: number;
+  /**
+   * True when the cycle just closed was never paid.
+   *
+   * The renewal still happens — stopping the work over an unpaid invoice is a
+   * commercial decision, not one a nightly job should make at 2am. But the
+   * owner is told, because opening a second month of unpaid work is a
+   * conversation someone should have deliberately.
+   */
+  previousUnpaid: boolean;
 };
 
 export type RenewalRun = {
@@ -235,6 +244,7 @@ async function rollForward(
     milestones,
     carriedOver,
     unassigned,
+    previousUnpaid: project.paymentStatus !== "PAID",
   };
 }
 
@@ -274,8 +284,10 @@ async function sendDigest(run: RenewalRun, now: Date): Promise<void> {
     select: { id: true, name: true, email: true },
   });
 
+  const unpaid = run.renewed.filter((entry) => entry.previousUnpaid);
   const needsAttention =
-    run.renewed.filter((entry) => entry.unassigned > 0).length + run.skipped.length;
+    run.renewed.filter((entry) => entry.unassigned > 0 || entry.previousUnpaid).length +
+    run.skipped.length;
 
   const body = [
     run.renewed.length === 0
@@ -284,7 +296,12 @@ async function sendDigest(run: RenewalRun, now: Date): Promise<void> {
         (run.totalCarriedOver > 0
           ? `, ${run.totalCarriedOver} item${run.totalCarriedOver === 1 ? "" : "s"} carried over.`
           : "."),
-    needsAttention > 0
+    unpaid.length > 0
+      ? `${unpaid.length} renewed with last cycle still unpaid: ${unpaid
+          .map((entry) => entry.clientName)
+          .join(", ")}.`
+      : "",
+    needsAttention > 0 && unpaid.length === 0
       ? `${needsAttention} need${needsAttention === 1 ? "s" : ""} a look.`
       : "",
   ]

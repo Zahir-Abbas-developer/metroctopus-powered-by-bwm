@@ -99,6 +99,12 @@ export type MemberReportPayload = {
   /** Absent on reports frozen before Phase 7. */
   attendance?: ReportAttendance;
   /**
+   * Average star rating over work approved in the period. Added in Phase 10 —
+   * punctuality was never the whole story, and this is the fourth metric
+   * beside the score, on-time rate and load.
+   */
+  quality?: { average: number | null; rated: number; fiveStar: number; lowRated: number };
+  /**
    * Hours of work carried, for the load line. Added in Phase 9; absent on
    * anything frozen before it.
    */
@@ -134,6 +140,26 @@ export type ClientReportPayload = {
   awaitingInput?: {
     totalDays: number;
     items: { title: string; since: string; note: string; days: number }[];
+  };
+  /**
+   * The week's commercial numbers. Absent on reports frozen before Phase 10,
+   * and on clients with nothing logged.
+   */
+  kpis?: {
+    targetRoas: number;
+    week: {
+      weekStart: string;
+      spend: number;
+      revenue: number;
+      orders: number;
+      roas: number | null;
+      conversionRate: number | null;
+      averageOrderValue: number | null;
+    } | null;
+    trends: Record<"roas" | "revenue" | "spend" | "orders", { deltaPercent: number | null; direction: string }>;
+    /** Running totals across the engagement, for context under the week. */
+    summary: { weeks: number; spend: number; revenue: number; roas: number | null };
+    alertFiring: boolean;
   };
   completedThisPeriod: {
     module: string;

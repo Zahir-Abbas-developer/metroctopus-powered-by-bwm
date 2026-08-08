@@ -1,8 +1,17 @@
-import { CalendarClock, CheckCircle2, Hourglass, TriangleAlert } from "lucide-react";
+import {
+  ArrowDownRight,
+  ArrowUpRight,
+  CalendarClock,
+  CheckCircle2,
+  Hourglass,
+  Minus,
+  TriangleAlert,
+} from "lucide-react";
 
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { formatDate, formatDateTime } from "@/lib/date";
 import { REPORT_TYPE_LABEL, type ClientReportPayload } from "@/lib/report-types";
+import { cn } from "@/lib/utils";
 
 /**
  * The client weekly as a printable document.
@@ -87,6 +96,70 @@ export function ClientReportDocument({
         ))}
       </Section>
 
+      {payload.kpis?.week && (
+        <section className="report-section rounded-card border border-line bg-white">
+          <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line px-6 py-4">
+            <div>
+              <h2 className="font-display text-base font-bold tracking-tight text-ink">
+                What the work returned
+              </h2>
+              <p className="mt-0.5 text-[13px] text-ink/50">
+                Week of {formatDate(payload.kpis.week.weekStart)} · target ROAS{" "}
+                {payload.kpis.targetRoas}
+              </p>
+            </div>
+
+            {payload.kpis.alertFiring && (
+              <span className="rounded-pill border border-danger/25 bg-danger-tint px-2.5 py-1 text-[11px] font-medium text-danger">
+                Under target
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-px bg-line sm:grid-cols-4">
+            <KpiCell
+              label="Ad spend"
+              value={`$${payload.kpis.week.spend.toLocaleString("en-US")}`}
+              trend={payload.kpis.trends.spend}
+              invert
+            />
+            <KpiCell
+              label="Revenue"
+              value={`$${payload.kpis.week.revenue.toLocaleString("en-US")}`}
+              trend={payload.kpis.trends.revenue}
+            />
+            <KpiCell
+              label="ROAS"
+              value={payload.kpis.week.roas === null ? "—" : String(payload.kpis.week.roas)}
+              trend={payload.kpis.trends.roas}
+              tone={
+                payload.kpis.week.roas === null
+                  ? undefined
+                  : payload.kpis.week.roas >= payload.kpis.targetRoas
+                    ? "good"
+                    : "bad"
+              }
+            />
+            <KpiCell
+              label="Orders"
+              value={String(payload.kpis.week.orders)}
+              trend={payload.kpis.trends.orders}
+            />
+          </div>
+
+          {payload.kpis.summary.weeks > 1 && (
+            <p className="border-t border-line px-6 py-3 text-[13px] text-ink/50">
+              Across {payload.kpis.summary.weeks} weeks: $
+              {payload.kpis.summary.spend.toLocaleString("en-US")} spent, $
+              {payload.kpis.summary.revenue.toLocaleString("en-US")} returned
+              {payload.kpis.summary.roas !== null
+                ? ` — a blended ROAS of ${payload.kpis.summary.roas}.`
+                : "."}
+            </p>
+          )}
+        </section>
+      )}
+
       {payload.awaitingInput && payload.awaitingInput.items.length > 0 && (
         <Section
           icon={Hourglass}
@@ -139,6 +212,56 @@ export function ClientReportDocument({
         <span>Generated {formatDateTime(generatedAt)} · Asia/Karachi</span>
       </footer>
     </article>
+  );
+}
+
+/** One figure with its week-on-week arrow. */
+function KpiCell({
+  label,
+  value,
+  trend,
+  tone,
+  invert = false,
+}: {
+  label: string;
+  value: string;
+  trend: { deltaPercent: number | null; direction: string };
+  tone?: "good" | "bad";
+  /** Falling spend is good news; falling revenue isn't. */
+  invert?: boolean;
+}) {
+  const up = trend.direction === "up";
+  const good = invert ? !up : up;
+
+  return (
+    <div className="bg-white px-6 py-5">
+      <p className="eyebrow text-ink/45">{label}</p>
+      <p
+        className={cn(
+          "mt-2.5 font-display text-2xl font-extrabold tabular-nums",
+          tone === "good" ? "text-brand" : tone === "bad" ? "text-danger" : "text-ink",
+        )}
+      >
+        {value}
+      </p>
+      {trend.direction !== "unknown" && trend.deltaPercent !== null && (
+        <p
+          className={cn(
+            "mt-1.5 inline-flex items-center gap-1 text-[12px] font-medium",
+            trend.direction === "flat" ? "text-ink/40" : good ? "text-brand" : "text-danger",
+          )}
+        >
+          {trend.direction === "flat" ? (
+            <Minus className="h-3 w-3" />
+          ) : up ? (
+            <ArrowUpRight className="h-3 w-3" />
+          ) : (
+            <ArrowDownRight className="h-3 w-3" />
+          )}
+          {Math.abs(trend.deltaPercent)}% on last week
+        </p>
+      )}
+    </div>
   );
 }
 

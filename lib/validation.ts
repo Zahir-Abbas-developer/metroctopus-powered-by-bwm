@@ -99,6 +99,8 @@ export const clientDetailsSchema = z.object({
   notes: z.string().trim().max(5000, "Notes must be 5000 characters or fewer").optional(),
   /** Off means the nightly job never opens a new cycle for this client. */
   autoRenew: z.boolean().optional(),
+  /** Null means "use the agency default" rather than "no target". */
+  targetRoas: z.number().min(0).max(100).nullish(),
 });
 
 /** The whole 3-step onboarding wizard arrives as one request. */
@@ -189,6 +191,13 @@ export const transitionSchema = z.object({
    * transition and Zod would otherwise demand it on every status change.
    */
   reason: z.string().trim().max(500).optional(),
+  /**
+   * 1–5, required when an admin approves. Enforced by the route for the same
+   * reason as `reason` — it only applies to one transition, and Zod would
+   * otherwise demand it on every status change.
+   */
+  qualityRating: z.number().int().min(1).max(5).optional(),
+  qualityComment: z.string().trim().max(1000).optional(),
 });
 
 /** A rejection must say why — the member is being charged points for it. */

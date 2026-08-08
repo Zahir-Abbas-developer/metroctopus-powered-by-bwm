@@ -37,6 +37,16 @@ const settingsSchema = z
     targetMissThreshold: z.number().min(0).max(1),
     autoRenewEnabled: z.boolean(),
     carryOverDueDays: z.number().int().min(0).max(28),
+    // Phase 10 — quality, money and health.
+    bonusQualityHigh: z.number().min(0).max(50),
+    penaltyQualityLow: z.number().min(0).max(50),
+    defaultTargetRoas: z.number().min(0).max(100),
+    roasAlertWeeks: z.number().int().min(1).max(12),
+    paymentOverdueDays: z.number().int().min(0).max(90),
+    healthWeightDelivery: z.number().int().min(0).max(100),
+    healthWeightRoas: z.number().int().min(0).max(100),
+    healthWeightPayment: z.number().int().min(0).max(100),
+    healthWeightBlocked: z.number().int().min(0).max(100),
   })
   .partial()
   // Cross-field rules, because a setting that is individually valid can still

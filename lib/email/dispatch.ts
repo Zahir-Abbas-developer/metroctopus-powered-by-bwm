@@ -200,6 +200,7 @@ export async function sendRenewalDigest(run: {
     milestones: number;
     carriedOver: number;
     unassigned: number;
+    previousUnpaid?: boolean;
   }[];
   skipped: { clientName: string; reason: string }[];
   totalCarriedOver: number;

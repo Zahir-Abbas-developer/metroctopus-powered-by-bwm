@@ -1448,3 +1448,153 @@ trace on every seed and CLI run that looked like a failure. Now one quiet line.
   regenerating from templates, but it isn't free.
 - **MRR counts ACTIVE clients at full monthly budget** from the day they are
   onboarded, with no proration for a mid-month start.
+
+---
+
+## Phase 10 — Outcomes (8 August 2026)
+
+Four systems that move the product from measuring *whether we did what we said*
+to measuring *whether it was worth doing*.
+
+### Quality at approval
+
+Approving work now means judging it. A 1–5 rating is mandatory, and anything at
+two or below demands a written comment — a low score the member cannot act on
+is just a number that makes them feel bad.
+
+**Three and four stars move nothing, deliberately.** Most work is simply fine.
+A scale where every rating shifts a score pushes an owner towards rating
+everything a 4 to avoid a conversation, and the measure dies. Only the ends
+carry weight: five stars is +0.5, one or two is −1.
+
+**The amounts are smaller than a missed deadline on purpose.** Lateness is
+objective; a star rating is one person's judgement on one afternoon. It should
+nudge a score, not decide it.
+
+The dialog shows the score impact while the owner picks, because a rating with
+a hidden consequence is a trap. Average quality becomes the fourth metric
+beside the Phase 8 triple — score · on-time · load · stars.
+
+### Client KPIs
+
+`ClientKpiEntry` holds one week per client: two spend figures, revenue, orders,
+sessions. **ROAS and conversion rate are never stored** — they are ratios of the
+columns beside them, and a stored ratio is a number that can disagree with its
+own inputs the moment one is corrected.
+
+**Null, not zero, when a denominator is empty.** A week with no spend has no
+ROAS. Reporting 0.0 would put it below every target and fire an alert about a
+week nobody ran ads in — the same reason a paused week *breaks* an
+under-target streak rather than extending it.
+
+The entry form is one column with numeric keypads and defaults to last week,
+because the person with these numbers is whoever ran the campaigns and they are
+typing on a phone between other things. The derived figures update live: seeing
+ROAS appear as you type catches a fat-fingered revenue before it becomes a
+false alert.
+
+Charts are recharts, in the palette from CLAUDE.md — three separate charts
+rather than one with three axes, because a dual-axis chart lets you draw any
+two series as though they move together, which is precisely the misreading a
+client conversation doesn't need.
+
+**The alert needs two consecutive weeks, not one.** A single bad week is noise —
+a creative refresh, a stock-out, a holiday — and an alert that fires on noise
+gets muted, at which point it can never warn about the real thing. It goes to
+the owner *and* whoever runs that client's ads: an alert that only reaches the
+owner turns into the owner relaying it, which is the manual chasing this
+product exists to remove.
+
+Manual entry is v1 by design. `lib/integrations/` documents where the Google,
+Meta and Shopify APIs would attach, and names the two decisions that have to be
+made first — manual corrections must win over a sync, and a *failed* sync has
+to be visible, because a chart that quietly stops updating is worse than no
+chart.
+
+### Retainer payments
+
+Payment lives on `Project`, not `Client`: the cycle is what gets invoiced, and a
+client three months in with two paid and one outstanding cannot be described by
+a single flag.
+
+Overdue is measured from the cycle's **start**, not its end — a retainer is
+billed up front, so unpaid on the 8th is late even with three weeks to run. The
+transition only ever moves PENDING → OVERDUE, so a paid cycle stays paid.
+
+MRR now splits collected from outstanding, because agreed and arrived are
+different numbers and only one of them pays salaries. Auto-renewal still opens
+the next cycle regardless — stopping work over an invoice is a commercial
+decision, not one a 2am job should make — but the digest names the clients
+whose last cycle went unpaid, so the owner has the conversation deliberately.
+
+### Client health
+
+One number from four things that actually predict a churn: delivery, ROAS
+against target, payment, and days our work spent waiting on them. The formula
+is one documented pure function with 34 tests.
+
+Three decisions worth naming:
+
+- **No manual input, ever.** A health score somebody types is an opinion with a
+  number attached, and it decays the moment whoever maintained it gets busy.
+- **A dimension with no evidence is dropped and its weight redistributed**,
+  not counted as zero. A brand-new client with no campaign data isn't
+  performing badly — nothing is known yet, and scoring the unknown as failure
+  would mark every new retainer at risk on day one. The on-time rate is
+  likewise ignored below three delivered milestones: one late out of two is a
+  50% rate that means almost nothing.
+- **At target scores 80, not 100.** There is headroom to reward genuine
+  outperformance, and "exactly on target" shouldn't read as a perfect
+  relationship.
+
+Delivery uses the Phase 8 submission basis against the blocked-adjusted
+deadline — the same rule members' own scores use, so a client's delivery number
+and a member's cannot tell different stories.
+
+Every client card carries a coloured dot; the dashboard carries the worst five,
+each naming *why* rather than only how bad.
+
+### Verification
+
+- **290 unit tests** (55 added: 21 KPI arithmetic and the alert rule, 34 health).
+- **42 walkthrough checks** through the real API: approving without a rating is
+  refused · a low rating without a comment is refused · five stars credits +0.5,
+  two stars charges −1 with the comment in the ledger, four stars moves nothing
+  · a member can read and log KPIs but not delete a week · a correction replaces
+  rather than duplicates · a future week is refused · logging a below-target
+  week fires the alert to both ADMIN and MEMBER, and re-saving doesn't re-notify
+  · the underperforming client scores lower and the headline names why · an
+  unpaid cycle goes overdue once and a paid one is never re-marked · a member
+  sees no collections.
+- **Migration verified on real Postgres** — the one-entry-per-client-per-week
+  unique index, the upsert that makes corrections safe, Phase 10 settings
+  defaults, and that a KPI entry outlives whoever typed it.
+- `tsc`, `next lint`, production build and the seed all clean.
+
+### Two bugs found
+
+1. **The same ROAS was rounded in one path and raw in another.** `deriveWeek`
+   rounds to two places; `alertsForClients` computed `revenue / spend` straight.
+   A client reading "2.17" on screen while the health headline said
+   "2.1699471915506483" is one number pretending to be two. Both round now.
+2. **The seed wrote KPI rows directly, bypassing the alert.** The demo showed a
+   "Performance attention" chip with no notification behind it — a chip with
+   nothing to click through to. The seed now calls `checkRoasAlert` after
+   writing a client's weeks, and the walkthrough exercises the real save path
+   rather than trusting the seed.
+
+### Known limits
+
+- **Collections amounts come from `monthlyBudget`**, not from a stored invoice
+  total. There is no invoicing model here and inventing one would be a bigger
+  feature pretending to be a smaller one; `invoiceNote` carries the difference.
+- **Nothing alerts on *missing* KPI weeks.** The alert fires on low ROAS. A
+  client whose numbers simply stop being entered looks stable, and that gap
+  will matter more once a sync exists — it is called out in
+  `lib/integrations/README.md`.
+- **A changed quality rating doesn't adjust the ledger.** The event is keyed per
+  milestone, so re-approving cannot double-charge, but correcting a 2 to a 4
+  needs a manual adjustment. Correct for an append-only ledger; still a manual
+  step.
+- **Health has no memory.** It is computed fresh each time, so the dashboard can
+  say a client is at risk but not that they have been sliding for a month.

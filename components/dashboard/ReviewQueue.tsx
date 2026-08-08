@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
+import { ApproveDialog } from "@/components/quality/ApproveDialog";
 import { REVIEW_AGE_TONE, type ReviewAge } from "@/lib/fairness-types";
 import { cn } from "@/lib/utils";
 
@@ -55,6 +56,7 @@ export function ReviewQueue() {
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<QueueRow | null>(null);
+  const [approving, setApproving] = useState<QueueRow | null>(null);
   const [reason, setReason] = useState("");
 
   const load = useCallback(async () => {
@@ -72,13 +74,17 @@ export function ReviewQueue() {
     void load();
   }, [load]);
 
-  async function decide(row: QueueRow, to: "COMPLETED" | "IN_PROGRESS", note?: string) {
+  async function decide(
+    row: QueueRow,
+    to: "COMPLETED" | "IN_PROGRESS",
+    extra: { reason?: string; qualityRating?: number; qualityComment?: string } = {},
+  ) {
     setBusyId(row.id);
     try {
       const response = await fetch(`/api/milestones/${row.id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: to, ...(note ? { reason: note } : {}) }),
+        body: JSON.stringify({ status: to, ...extra }),
       });
       const body = await response.json().catch(() => ({}));
 
@@ -89,6 +95,7 @@ export function ReviewQueue() {
 
       toast.success(to === "COMPLETED" ? "Approved." : "Sent back for rework.");
       setRejecting(null);
+      setApproving(null);
       setReason("");
       await load();
     } finally {
@@ -167,7 +174,7 @@ export function ReviewQueue() {
                     size="sm"
                     disabled={busyId === row.id}
                     icon={<CheckCheck className="h-3.5 w-3.5" />}
-                    onClick={() => void decide(row, "COMPLETED")}
+                    onClick={() => setApproving(row)}
                   >
                     Approve
                   </Button>
@@ -199,6 +206,17 @@ export function ReviewQueue() {
         )}
       </Card>
 
+      <ApproveDialog
+        open={approving !== null}
+        title={approving?.title ?? ""}
+        memberName={approving?.assignee?.name ?? null}
+        busy={busyId === approving?.id}
+        onClose={() => setApproving(null)}
+        onApprove={async (qualityRating, qualityComment) => {
+          if (approving) await decide(approving, "COMPLETED", { qualityRating, qualityComment });
+        }}
+      />
+
       <Modal
         open={rejecting !== null}
         onClose={() => setRejecting(null)}
@@ -228,7 +246,9 @@ export function ReviewQueue() {
               variant="danger"
               disabled={reason.trim().length < 5}
               loading={busyId === rejecting?.id}
-              onClick={() => rejecting && void decide(rejecting, "IN_PROGRESS", reason.trim())}
+              onClick={() =>
+                rejecting && void decide(rejecting, "IN_PROGRESS", { reason: reason.trim() })
+              }
             >
               Send back
             </Button>

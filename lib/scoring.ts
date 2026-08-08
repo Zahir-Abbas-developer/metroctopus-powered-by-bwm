@@ -70,6 +70,10 @@ export const SCORE_EVENT_TYPES = [
   "DEAL_WON",
   "TARGET_MET",
   "TARGET_MISSED",
+  // Phase 10 — outcomes, not just punctuality. Work can land on time and
+  // still be wrong.
+  "QUALITY_BONUS",
+  "QUALITY_FLAG",
 ] as const;
 
 export type ScoreEventType = (typeof SCORE_EVENT_TYPES)[number];
@@ -86,6 +90,8 @@ export const SCORE_EVENT_LABEL: Record<ScoreEventType, string> = {
   DEAL_WON: "Deal won",
   TARGET_MET: "Weekly target met",
   TARGET_MISSED: "Weekly target missed",
+  QUALITY_BONUS: "Outstanding work",
+  QUALITY_FLAG: "Quality below standard",
 };
 
 /** The attendance events, for anywhere that needs to treat them as a group. */
@@ -388,6 +394,81 @@ export function evaluateMissed(
       dedupeKey: key,
     },
   ];
+}
+
+// ---------------------------------------------------------------------------
+// Quality
+// ---------------------------------------------------------------------------
+
+export const QUALITY_MIN = 1;
+export const QUALITY_MAX = 5;
+
+/** Ratings at or below this need a written comment. */
+export const QUALITY_COMMENT_THRESHOLD = 2;
+
+export type QualityConfig = {
+  bonusHigh: number;
+  penaltyLow: number;
+};
+
+export const DEFAULT_QUALITY_CONFIG: QualityConfig = { bonusHigh: 0.5, penaltyLow: 1 };
+
+/**
+ * What a star rating is worth.
+ *
+ * Five is a small bonus, one or two a small charge, and three or four nothing
+ * at all. The neutral band is the important part: most work is simply fine,
+ * and a scale where every rating moves the score would push an owner towards
+ * rating everything a 4 to avoid a conversation — which would make the whole
+ * measure meaningless.
+ *
+ * The amounts are deliberately smaller than a missed deadline. Lateness is
+ * objective; a star rating is one person's judgement on one afternoon, and it
+ * should nudge a score rather than decide it.
+ */
+export function qualityPoints(
+  rating: number,
+  config: QualityConfig = DEFAULT_QUALITY_CONFIG,
+): number {
+  if (rating >= QUALITY_MAX) return round(Math.abs(config.bonusHigh));
+  if (rating <= QUALITY_COMMENT_THRESHOLD) return round(-Math.abs(config.penaltyLow));
+  return 0;
+}
+
+export function requiresQualityComment(rating: number): boolean {
+  return rating <= QUALITY_COMMENT_THRESHOLD;
+}
+
+/**
+ * The score event for a rating, or null when the rating is neutral.
+ *
+ * Keyed per milestone, so re-approving after a correction cannot charge twice.
+ * A rating that is *changed* needs a compensating adjustment rather than a
+ * second event — the ledger is append-only.
+ */
+export function qualityEvent(
+  milestone: Pick<MilestoneFacts, "id" | "title" | "assigneeId">,
+  rating: number,
+  comment: string | null,
+  config: QualityConfig = DEFAULT_QUALITY_CONFIG,
+): ProposedEvent | null {
+  if (!milestone.assigneeId) return null;
+
+  const points = qualityPoints(rating, config);
+  if (points === 0) return null;
+
+  const high = points > 0;
+
+  return {
+    userId: milestone.assigneeId,
+    milestoneId: milestone.id,
+    type: high ? "QUALITY_BONUS" : "QUALITY_FLAG",
+    points,
+    reason: high
+      ? `"${milestone.title}" rated ${rating}/5 — outstanding.`
+      : `"${milestone.title}" rated ${rating}/5${comment ? `: ${comment}` : ""}`,
+    dedupeKey: dedupeKeyFor(milestone.id, high ? "QUALITY_BONUS" : "QUALITY_FLAG"),
+  };
 }
 
 /** A rejection charge. Repeatable by design, so it carries no dedupe key. */

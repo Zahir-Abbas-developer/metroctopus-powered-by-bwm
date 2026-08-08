@@ -67,6 +67,7 @@ model User {
   leads         Lead[]             @relation("LeadOwner")
   salesActivity SalesActivity[]
   targets       ActivityTarget[]
+  kpiEntries    ClientKpiEntry[]   @relation("KpiAuthor")
 
   @@index([role])
   @@index([isActive])
@@ -94,12 +95,16 @@ model Client {
   /// When false the nightly job never opens a new cycle for this client —
   /// for bespoke schedules, or a retainer being wound down.
   autoRenew     Boolean  @default(true)
+  /// Return on ad spend this client's campaigns are held to. Null falls back
+  /// to the agency default in Settings.
+  targetRoas    Float?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   projects Project[]
   reports  Report[]
   lead     Lead?
+  kpis     ClientKpiEntry[]
 
   @@index([status])
   @@index([businessName])
@@ -142,6 +147,13 @@ model Project {
   /// Set when the nightly job rolls the cycle forward. An archived project is
   /// read-only in the UI but stays in reports and in the ledger.
   archivedAt    DateTime?
+
+  // --- Retainer payment (Phase 10) -----------------------------------------
+  /// "PENDING" | "PAID" | "OVERDUE". A cycle is the unit that gets invoiced,
+  /// so payment lives here rather than on the client.
+  paymentStatus String    @default("PENDING")
+  paidAt        DateTime?
+  invoiceNote   String?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
@@ -155,6 +167,7 @@ model Project {
   @@index([clientId])
   @@index([status])
   @@index([endDate])
+  @@index([paymentStatus])
 }
 
 /// Which services a given engagement cycle covers. A join model rather than
@@ -214,6 +227,15 @@ model Milestone {
   /// Rough effort, in hours. Feeds the capacity bars shown wherever work is
   /// assigned, and the load line in the monthly report.
   estimatedHours     Int       @default(2)
+
+  // --- Quality (Phase 10) --------------------------------------------------
+  /// 1–5, set by the owner at approval. Punctuality was never the whole story:
+  /// work can land on time and still be wrong.
+  qualityRating  Int?
+  /// Required when the rating is 2 or below — a low score the member cannot
+  /// act on is just a number that makes them feel bad.
+  qualityComment String?
+  qualityRatedAt DateTime?
 
   // --- Carry-over (Phase 9) ------------------------------------------------
   /// True when the renewal job rolled this forward from a closed cycle.
@@ -694,6 +716,37 @@ model ActivityTarget {
   @@index([userId, isActive])
 }
 
+/// One week of a client's commercial numbers.
+///
+/// Entered by hand in v1, by whoever runs the ads — see lib/integrations/ for
+/// how the Google and Meta APIs would replace the typing later.
+///
+/// ROAS and conversion rate are deliberately **not stored**. They are ratios
+/// of the columns beside them, and a stored ratio is a number that can
+/// disagree with its own inputs the moment one is corrected.
+model ClientKpiEntry {
+  id            String   @id @default(cuid())
+  clientId      String
+  /// Monday of the week, at UTC midnight. One entry per client per week.
+  weekStart     DateTime
+  /// Whole currency units, like every other money column here.
+  googleSpend   Int      @default(0)
+  metaSpend     Int      @default(0)
+  revenue       Int      @default(0)
+  orders        Int      @default(0)
+  storeSessions Int      @default(0)
+  notes         String?
+  enteredById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  client    Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  enteredBy User?  @relation("KpiAuthor", fields: [enteredById], references: [id], onDelete: SetNull)
+
+  @@unique([clientId, weekStart])
+  @@index([clientId, weekStart])
+}
+
 /// Monthly recurring revenue, captured once a month.
 ///
 /// MRR is derivable from today's clients but its history is not: a client that
@@ -808,6 +861,24 @@ model Settings {
   autoRenewEnabled Boolean @default(true)
   /// Days into the new cycle that carried-over work is re-dated to.
   carryOverDueDays Int     @default(5)
+
+  // --- Quality, money and health (Phase 10) --------------------------------
+  /// Points for five-star work, and off for two stars or below.
+  bonusQualityHigh   Float @default(0.5)
+  penaltyQualityLow  Float @default(1)
+  /// Agency-wide ROAS target, used when a client has none of their own.
+  defaultTargetRoas  Float @default(3)
+  /// Consecutive weeks under target before the alert fires.
+  roasAlertWeeks     Int   @default(2)
+  /// Days after a cycle starts before an unpaid invoice is called overdue.
+  paymentOverdueDays Int   @default(7)
+
+  /// Client health weights, as whole percentages that should sum to 100.
+  /// lib/clientHealth.ts normalises defensively either way.
+  healthWeightDelivery Int @default(35)
+  healthWeightRoas     Int @default(30)
+  healthWeightPayment  Int @default(20)
+  healthWeightBlocked  Int @default(15)
 
   updatedAt DateTime @updatedAt
 }

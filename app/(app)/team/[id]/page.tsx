@@ -6,6 +6,7 @@ import { requireAdmin } from "@/lib/session";
 import { currentCycle, ledgerFor, onTimeRateFor, performanceContext, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore, scoreBand } from "@/lib/scoring";
 import { PerformanceProfile } from "@/components/performance/PerformanceProfile";
+import { qualityForCycle } from "@/lib/quality-service";
 
 export async function generateMetadata({
   params,
@@ -31,11 +32,12 @@ export default async function TeamMemberPage({ params }: { params: { id: string 
 
   if (!member) notFound();
 
-  const [scores, ledger, onTime, context] = await Promise.all([
+  const [scores, ledger, onTime, context, quality] = await Promise.all([
     scoresForCycle([member.id], cycle),
     ledgerFor(member.id, cycle),
     onTimeRateFor([member.id], cycle),
     performanceContext([member.id], cycle),
+    qualityForCycle(member.id, cycle),
   ]);
 
   const score = scores.get(member.id) ?? {
@@ -59,6 +61,7 @@ export default async function TeamMemberPage({ params }: { params: { id: string 
         count: context.get(member.id)?.load ?? 0,
         weight: context.get(member.id)?.totalWeight ?? 0,
       }}
+      quality={quality}
       viewerIsAdmin
       isSelf={member.id === admin.id}
     />

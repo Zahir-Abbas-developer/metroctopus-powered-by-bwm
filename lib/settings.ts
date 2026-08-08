@@ -37,6 +37,16 @@ export type AgencySettings = {
   targetMissThreshold: number;
   autoRenewEnabled: boolean;
   carryOverDueDays: number;
+  // Phase 10 — quality, money and health.
+  bonusQualityHigh: number;
+  penaltyQualityLow: number;
+  defaultTargetRoas: number;
+  roasAlertWeeks: number;
+  paymentOverdueDays: number;
+  healthWeightDelivery: number;
+  healthWeightRoas: number;
+  healthWeightPayment: number;
+  healthWeightBlocked: number;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -64,6 +74,15 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   targetMissThreshold: 0.6,
   autoRenewEnabled: true,
   carryOverDueDays: 5,
+  bonusQualityHigh: 0.5,
+  penaltyQualityLow: 1,
+  defaultTargetRoas: 3,
+  roasAlertWeeks: 2,
+  paymentOverdueDays: 7,
+  healthWeightDelivery: 35,
+  healthWeightRoas: 30,
+  healthWeightPayment: 20,
+  healthWeightBlocked: 15,
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -98,6 +117,15 @@ export async function getSettings(): Promise<AgencySettings> {
     targetMissThreshold: row.targetMissThreshold,
     autoRenewEnabled: row.autoRenewEnabled,
     carryOverDueDays: row.carryOverDueDays,
+    bonusQualityHigh: row.bonusQualityHigh,
+    penaltyQualityLow: row.penaltyQualityLow,
+    defaultTargetRoas: row.defaultTargetRoas,
+    roasAlertWeeks: row.roasAlertWeeks,
+    paymentOverdueDays: row.paymentOverdueDays,
+    healthWeightDelivery: row.healthWeightDelivery,
+    healthWeightRoas: row.healthWeightRoas,
+    healthWeightPayment: row.healthWeightPayment,
+    healthWeightBlocked: row.healthWeightBlocked,
   };
 }
 
@@ -110,6 +138,16 @@ export async function getSettings(): Promise<AgencySettings> {
  * expire after everyone has gone home, and every one of them would be missed
  * through no fault of the member.
  */
+/** The health weights, in the shape lib/clientHealth.ts expects. */
+export function healthWeightsFrom(settings: AgencySettings) {
+  return {
+    delivery: settings.healthWeightDelivery,
+    roas: settings.healthWeightRoas,
+    payment: settings.healthWeightPayment,
+    blocked: settings.healthWeightBlocked,
+  };
+}
+
 export function effectiveCheckLatest(settings: AgencySettings): number {
   return Math.min(
     settings.checkLatestMinutes,

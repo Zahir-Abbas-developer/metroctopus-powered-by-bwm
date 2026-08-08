@@ -54,7 +54,13 @@ export type ClientSummary = {
     startDate: string;
     endDate: string;
     progress: ProjectProgress;
+    /** "PENDING" | "PAID" | "OVERDUE" on this cycle. */
+    paymentStatus: string;
   } | null;
+  /** Computed, never entered. See lib/clientHealth.ts. */
+  health: { score: number; band: "HEALTHY" | "WATCH" | "AT_RISK"; headline: string | null } | null;
+  /** True when ROAS has been under target for the alert window. */
+  performanceAlert: boolean;
 };
 
 export type AssigneeChip = {

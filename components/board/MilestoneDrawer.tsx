@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { Tabs } from "@/components/ui/Tabs";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { useToast } from "@/components/ui/Toast";
+import { ApproveDialog, QualityStars } from "@/components/quality/ApproveDialog";
 import { BlockControl } from "@/components/board/BlockControl";
 import { CommentComposer, type MentionMember } from "@/components/board/CommentComposer";
 import {
@@ -60,6 +61,8 @@ type Detail = {
     blockedSince: string | null;
     blockedMinutes: number;
     adminReviewMinutes: number | null;
+    qualityRating: number | null;
+    qualityComment: string | null;
   };
   comments: {
     id: string;
@@ -117,6 +120,7 @@ export function MilestoneDrawer({
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [tab, setTab] = useState<Tab>("details");
   const [busy, setBusy] = useState(false);
+  const [approving, setApproving] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -154,15 +158,21 @@ export function MilestoneDrawer({
     }));
   }, [data]);
 
-  async function move(to: MilestoneStatus, reason?: string) {
+  async function move(
+    to: MilestoneStatus,
+    extra: { reason?: string; qualityRating?: number; qualityComment?: string } | string = {},
+  ) {
     if (!data) return;
     setBusy(true);
+
+    // Callers that pass a bare string mean a rejection reason.
+    const payload = typeof extra === "string" ? { reason: extra } : extra;
 
     try {
       const response = await fetch(`/api/milestones/${data.milestone.id}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: to, reason }),
+        body: JSON.stringify({ status: to, ...payload }),
       });
       const body = await response.json().catch(() => ({}));
 
@@ -172,6 +182,7 @@ export function MilestoneDrawer({
       }
 
       toast.success(`Moved to ${MILESTONE_STATUS_LABEL[to]}.`);
+      setApproving(false);
       await load();
       onChanged();
     } catch {
@@ -293,6 +304,12 @@ export function MilestoneDrawer({
                     ) : undefined
                   }
                   onClick={() => {
+                    // Approving means rating the work, so it opens a dialog
+                    // rather than firing straight at the API.
+                    if (isApprove) {
+                      setApproving(true);
+                      return;
+                    }
                     if (isReject) {
                       const reason = window.prompt(
                         "What needs reworking? The member is charged points for this.",
@@ -315,6 +332,17 @@ export function MilestoneDrawer({
         ) : undefined
       }
     >
+      <ApproveDialog
+        open={approving}
+        title={milestone?.title ?? ""}
+        memberName={milestone?.assignee?.name ?? null}
+        busy={busy}
+        onClose={() => setApproving(false)}
+        onApprove={async (qualityRating, qualityComment) => {
+          await move("COMPLETED", { qualityRating, qualityComment });
+        }}
+      />
+
       {state === "loading" && (
         <div className="space-y-3 p-5">
           <Skeleton className="h-24 rounded-card" />
@@ -424,6 +452,16 @@ export function MilestoneDrawer({
                 )}
                 {milestone.completedAt && (
                   <Row label="Approved">{formatDateTime(milestone.completedAt)}</Row>
+                )}
+                {milestone.qualityRating !== null && (
+                  <Row label="Quality">
+                    <span className="inline-flex items-center gap-2">
+                      <QualityStars rating={milestone.qualityRating} />
+                      {milestone.qualityComment && (
+                        <span className="text-ink/55">{milestone.qualityComment}</span>
+                      )}
+                    </span>
+                  </Row>
                 )}
                 {/* The owner's own clock, shown only to the owner. */}
                 {viewerRole === "ADMIN" && milestone.adminReviewMinutes !== null && (

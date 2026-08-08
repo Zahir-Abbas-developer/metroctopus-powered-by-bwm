@@ -20,6 +20,9 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { Tabs } from "@/components/ui/Tabs";
+import { KpiPanel } from "@/components/kpis/KpiPanel";
+import { HEALTH_BAND_COLOR, HEALTH_BAND_LABEL } from "@/lib/clientHealth";
+import { cn } from "@/lib/utils";
 import { ClientEditModal } from "@/components/clients/ClientEditModal";
 import { NewEngagementModal } from "@/components/clients/NewEngagementModal";
 import {
@@ -46,6 +49,8 @@ export type ClientRecord = {
   notes: string | null;
   /** Off means the nightly job never opens a new cycle for this client. */
   autoRenew: boolean;
+  /** Null falls back to the agency default. */
+  targetRoas: number | null;
   onboardedAt: string;
 };
 
@@ -59,7 +64,14 @@ export type ProjectRecord = {
   progress: ProjectProgress;
 };
 
-type Tab = "overview" | "projects" | "notes";
+type Tab = "overview" | "kpis" | "projects" | "notes";
+
+export type ClientHealthSummary = {
+  score: number;
+  band: "HEALTHY" | "WATCH" | "AT_RISK";
+  headline: string | null;
+  components: { key: string; label: string; score: number | null; detail: string }[];
+};
 
 export type ClientWaiting = {
   totalDays: number;
@@ -71,12 +83,15 @@ export function ClientDetail({
   projects,
   services,
   waiting,
+  health,
 }: {
   client: ClientRecord;
   projects: ProjectRecord[];
   services: ServiceSummary[];
   /** Delay attributable to this client, from blocked milestones. */
   waiting: ClientWaiting;
+  /** Computed, never entered. See lib/clientHealth.ts. */
+  health: ClientHealthSummary | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<Tab>("overview");
@@ -153,6 +168,7 @@ export function ClientDetail({
       <Tabs
         items={[
           { key: "overview", label: "Overview" },
+          { key: "kpis", label: "Performance" },
           { key: "projects", label: "Projects", count: projects.length },
           { key: "notes", label: "Notes" },
         ]}
@@ -172,6 +188,63 @@ export function ClientDetail({
 
       {tab === "overview" && (
         <div className="grid gap-5 lg:grid-cols-3">
+          {health && (
+            <Card className="lg:col-span-3">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2.5">
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: HEALTH_BAND_COLOR[health.band] }}
+                    />
+                    <h2 className="font-display text-base font-bold tracking-tight text-ink">
+                      Client health · {HEALTH_BAND_LABEL[health.band]}
+                    </h2>
+                  </div>
+                  <p className="mt-1 text-[13px] leading-relaxed text-ink/55">
+                    {health.headline ??
+                      "Delivering on time, performing against target, paying, and responsive."}
+                  </p>
+                </div>
+
+                <p className="font-display text-3xl font-extrabold tabular-nums leading-none text-ink">
+                  {health.score}
+                </p>
+              </div>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {health.components.map((component) => (
+                  <div
+                    key={component.key}
+                    className="rounded-[10px] border border-line px-3.5 py-3"
+                    title={component.detail}
+                  >
+                    <p className="flex items-baseline justify-between gap-2">
+                      <span className="text-[13px] text-ink/60">{component.label}</span>
+                      <span
+                        className={cn(
+                          "font-display text-sm font-bold tabular-nums",
+                          component.score === null
+                            ? "text-ink/25"
+                            : component.score >= 75
+                              ? "text-brand"
+                              : component.score >= 55
+                                ? "text-warn"
+                                : "text-danger",
+                        )}
+                      >
+                        {component.score === null ? "—" : component.score}
+                      </span>
+                    </p>
+                    <p className="mt-1 text-[11px] leading-snug text-ink/40">
+                      {component.detail}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {/* Delay this client caused. Sits at the top of the overview because
               it is the number that changes a "you were late" conversation. */}
           {(waiting.totalDays > 0 || waiting.openItems.length > 0) && (
@@ -302,6 +375,8 @@ export function ClientDetail({
           </Card>
         </div>
       )}
+
+      {tab === "kpis" && <KpiPanel clientId={client.id} canEdit />}
 
       {tab === "projects" && (
         <div className="space-y-3">

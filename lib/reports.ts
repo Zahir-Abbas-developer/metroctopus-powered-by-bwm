@@ -16,6 +16,7 @@ import { performanceContext } from "@/lib/score-service";
 import { clientBlockedDays } from "@/lib/blocking";
 import { businessDevelopmentSummary } from "@/lib/pipeline";
 import { monthlyLoadFor } from "@/lib/capacity-service";
+import { kpisForClient } from "@/lib/kpi-service";
 import { narrateClientReport, narrateMemberReport } from "@/lib/narrative";
 import { notify } from "@/lib/notifications";
 import {
@@ -117,10 +118,30 @@ async function buildMemberPayload(
 
   const attendance = await buildAttendanceSummary(userId, periodStart, rangeEnd);
 
-  const [capacity, bd] = await Promise.all([
+  const [capacity, bd, rated] = await Promise.all([
     monthlyLoadFor(userId, periodStart, rangeEnd),
     businessDevelopmentSummary(userId, periodStart, rangeEnd),
+    prisma.milestone.findMany({
+      where: {
+        assigneeId: userId,
+        qualityRating: { not: null },
+        qualityRatedAt: { gte: periodStart, lt: rangeEnd },
+      },
+      select: { qualityRating: true },
+    }),
   ]);
+
+  const quality = {
+    average:
+      rated.length === 0
+        ? null
+        : Math.round(
+            (rated.reduce((sum, row) => sum + (row.qualityRating ?? 0), 0) / rated.length) * 10,
+          ) / 10,
+    rated: rated.length,
+    fiveStar: rated.filter((row) => row.qualityRating === 5).length,
+    lowRated: rated.filter((row) => (row.qualityRating ?? 5) <= 2).length,
+  };
 
   // Volume context: the doctrine forbids a score without it, and the narrative
   // needs the team ranking to say "the heaviest load on the team".
@@ -234,6 +255,7 @@ async function buildMemberPayload(
     onTimeRate: own?.onTimeRate ?? 0,
     load: { count: own?.load ?? 0, weight: own?.totalWeight ?? 0, rank },
     capacity,
+    quality,
     // Only for people who actually work a pipeline. A delivery member's report
     // has no business-development section rather than an empty one.
     businessDevelopment: bd.active
@@ -418,6 +440,7 @@ async function buildClientPayload(
   // complaint — the point is that "this slipped" and "we asked you on the 4th"
   // stop being two competing recollections.
   const waiting = await clientBlockedDays(client.id);
+  const kpis = await kpisForClient(client.id, 12);
 
   return {
     version: PAYLOAD_VERSION,
@@ -428,6 +451,48 @@ async function buildClientPayload(
       end: periodEnd.toISOString(),
       label: formatPeriod(periodStart, periodEnd),
     },
+    kpis:
+      kpis.weeks.length === 0
+        ? undefined
+        : {
+            targetRoas: kpis.targetRoas,
+            week: kpis.latest
+              ? {
+                  weekStart: kpis.latest.weekStart.toISOString(),
+                  spend: kpis.latest.spend,
+                  revenue: kpis.latest.revenue,
+                  orders: kpis.latest.orders,
+                  roas: kpis.latest.roas,
+                  conversionRate: kpis.latest.conversionRate,
+                  averageOrderValue: kpis.latest.averageOrderValue,
+                }
+              : null,
+            trends: {
+              roas: {
+                deltaPercent: kpis.trends.roas.deltaPercent,
+                direction: kpis.trends.roas.direction,
+              },
+              revenue: {
+                deltaPercent: kpis.trends.revenue.deltaPercent,
+                direction: kpis.trends.revenue.direction,
+              },
+              spend: {
+                deltaPercent: kpis.trends.spend.deltaPercent,
+                direction: kpis.trends.spend.direction,
+              },
+              orders: {
+                deltaPercent: kpis.trends.orders.deltaPercent,
+                direction: kpis.trends.orders.direction,
+              },
+            },
+            summary: {
+              weeks: kpis.summary.weeks,
+              spend: kpis.summary.spend,
+              revenue: kpis.summary.revenue,
+              roas: kpis.summary.roas,
+            },
+            alertFiring: kpis.alert.firing,
+          },
     awaitingInput: {
       totalDays: waiting.totalDays,
       items: waiting.openItems.map((item) => ({

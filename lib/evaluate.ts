@@ -13,6 +13,7 @@ import { runDailyAttendanceSweep, type DailySweepResult } from "@/lib/attendance
 import { chaseStaleReviews } from "@/lib/review-sla";
 import { runAutoRenewal, type RenewalRun } from "@/lib/renewal";
 import { captureMrrSnapshot, runWeeklyTargets, type WeeklyTargetRun } from "@/lib/pipeline";
+import { markOverdueCycles } from "@/lib/payments";
 
 /**
  * The daily evaluation pass.
@@ -52,6 +53,8 @@ export type EvaluationResult = {
   /** Phase 9 — weekly activity targets settled, on Mondays. */
   targets: WeeklyTargetRun | null;
   mrr: { year: number; month: number; amount: number; activeClients: number };
+  /** Phase 10 — unpaid cycles that crossed the overdue threshold tonight. */
+  markedOverdue: number;
   reports: GenerationResult | null;
 };
 
@@ -70,6 +73,10 @@ export async function runEvaluation(
   const reviewChases = await chaseStaleReviews(now);
   const lateOrBonusApplied = await catchUpCompletions();
   const closeout = await closeOutEndedProjects(now);
+
+  // Payment settles before renewal, so the renewals digest can say "previous
+  // cycle unpaid" against a status that is current rather than a day stale.
+  const markedOverdue = await markOverdueCycles(now);
 
   // Renewal runs *after* close-out, and that order is load-bearing: close-out
   // is what charges the MISSED penalties for the cycle that just ended, and
@@ -111,6 +118,7 @@ export async function runEvaluation(
     renewal,
     targets,
     mrr,
+    markedOverdue,
     reports,
   };
 }

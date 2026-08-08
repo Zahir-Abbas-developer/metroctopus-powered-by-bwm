@@ -1,4 +1,4 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -17,7 +17,8 @@ export interface StatCardProps {
   value: string | number;
   /** Small unit rendered next to the value, e.g. "%" or "pts". */
   unit?: string;
-  hint?: string;
+  /** A short line under the figure. Takes a node so a trend arrow can live here. */
+  hint?: ReactNode;
   icon?: ComponentType<{ className?: string }>;
   tone?: StatTone;
   /** Renders a shimmer placeholder in place of the value. */
