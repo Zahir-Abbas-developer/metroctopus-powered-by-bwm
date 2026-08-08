@@ -130,3 +130,94 @@ member's score remains `100 + sum(that month's events)`.
 - Keep components small and reusable in `/components`
 - All dates handled with a single date utility; timezone: **Asia/Karachi**
 - After completing any significant feature, append a summary to `PROGRESS.md`
+
+## Fairness & Leverage Doctrine
+
+Governs **Phases 8–11**. These eight principles outrank anything earlier in
+this file that contradicts them, and where one does, the conflict is named
+below. A scoring system people believe is unfair gets gamed or ignored, so
+fairness here is a functional requirement, not a courtesy.
+
+### 1. Deadlines are judged on submission, never approval
+
+A member's deadline is met the moment they **submit**. Approval time is the
+owner's latency, not theirs, and must never move a member's score.
+
+The owner's review speed becomes **the owner's own tracked metric** — time from
+submission to decision, visible in the same reports the team is measured by.
+
+> **Overrides:** the current engine charges LATE and pays `EARLY_BONUS` against
+> `completedAt`, which is set at approval. `lib/scoring.ts` and every call site
+> must switch to `submittedAt`, and historical events keep their old basis
+> rather than being silently recomputed.
+
+### 2. Nobody is penalized for time they cannot control
+
+The clock pauses for anything outside a member's hands:
+
+- **Blocked work** pauses the deadline clock. A milestone waiting on a client
+  asset, an ad-account approval or another member's output accrues no lateness
+  while blocked.
+- **Declared outages** (power cut, internet failure) pause availability checks.
+- **Break time** pauses availability checks — see principle 4.
+
+Every pause is a recorded, auditable event with a reason and a duration, not a
+silent adjustment. A pause a member can declare freely and unlimited is a hole
+in the system, so declared pauses are visible to the owner and reviewable.
+
+### 3. Raw score never appears alone
+
+Wherever a score is shown, **On-Time Rate %** and **Workload** are shown beside
+it. A 92 carrying four milestones and a 92 carrying nineteen are not the same
+achievement, and a score presented without volume context invites the wrong
+conclusion. This applies to the dashboard, the leaderboard, member profiles and
+every report.
+
+### 4. Prayer and meal breaks are protected
+
+Within the 12:00–22:00 shift, prayer and meal breaks are a **protected daily
+allowance, capped in minutes and never penalized**. Time inside the allowance
+issues no availability check and costs no points. Exceeding the allowance is a
+normal, visible fact — not a hidden penalty.
+
+The cap and how breaks are declared are decisions for the phase that builds
+this; they belong in the `Settings` row alongside the other attendance rules,
+not hardcoded.
+
+### 5. Business development is scored on activity and outcomes
+
+Sales pipeline work does not decompose into client milestones, so scoring Saad
+Tariq's Business Developer work against milestones would measure the wrong
+thing entirely. It is scored on **activity targets** (outreach volume, calls,
+proposals) and **outcomes** (deals closed, pipeline value moved).
+
+This is a second scoring path feeding the **same `ScoreEvent` ledger** — a
+member's score stays `100 + sum(that month's events)`. It is not a parallel
+engine.
+
+### 6. Monthly cycles auto-renew
+
+On the 1st of the month, every active retainer client's next cycle must already
+exist — projects, modules, milestones, deadlines and assignments — with **zero
+manual setup from the owner**. Renewal is generated from the client's services
+and the previous cycle, and the owner edits exceptions rather than building
+each month from nothing.
+
+### 7. Money is first-class dashboard data
+
+**Pipeline value, MRR and per-client ROAS** are primary dashboard metrics,
+displayed with the same weight as delivery and performance figures. The agency
+runs on retainers; a dashboard that shows only task completion tells the owner
+how busy the team is but not how the business is doing.
+
+### 8. Consequences are written policy, and every event is disputable
+
+- **Policy in the app.** Whatever a score triggers — bonus eligibility, a
+  performance review, a warning — is stated in the product where the team can
+  read it. No consequence exists only in the owner's head.
+- **Disputes in the app.** Every `ScoreEvent` can be formally disputed by the
+  member it charges, with a reason. The owner resolves it, and the resolution
+  follows the existing excuse pattern: the original event is **never deleted or
+  edited**, and an upheld dispute writes a compensating `MANUAL_ADJUST`. The
+  ledger stays append-only, so the record shows both what happened and how it
+  was settled.
