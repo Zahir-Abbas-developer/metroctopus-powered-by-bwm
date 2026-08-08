@@ -243,13 +243,37 @@ export function planFor(serviceSlugs: readonly string[]): {
  * This is a sensible default the owner overrides inline on the project page —
  * not an assignment engine. It exists so a freshly created project arrives with
  * owners attached rather than twenty-five unassigned rows.
+ *
+ * The titles are matched against the real roster, where people wear several
+ * hats, so each entry lists the exact title first and keeps generic
+ * single-discipline labels as fallbacks for anyone hired later.
  */
 export const SERVICE_JOB_TITLES: Record<string, readonly string[]> = {
-  "shopify-design-development": ["Shopify Developer", "Web Developer"],
-  "google-ads-management": ["Google Ads Specialist", "Media Buyer"],
-  "meta-ads-management": ["Meta Ads Specialist", "Media Buyer"],
-  "creative-research-design": ["Creative Designer", "Creative Strategist"],
-  "full-funnel": ["Funnel Manager", "Account Manager"],
+  "shopify-design-development": [
+    "Shopify Designer · AI Websites · Product Hunting",
+    "Shopify Developer",
+    "Web Developer",
+  ],
+  "google-ads-management": [
+    "Performance Marketer",
+    "Google Ads Specialist",
+    "Media Buyer",
+  ],
+  "meta-ads-management": [
+    "Performance Marketer",
+    "Meta Ads Specialist",
+    "Media Buyer",
+  ],
+  "creative-research-design": [
+    "Ecommerce Marketplaces · Sourcing · AI SEO",
+    "Creative Designer",
+    "Creative Strategist",
+  ],
+  "full-funnel": [
+    "Business Developer",
+    "Funnel Manager",
+    "Account Manager",
+  ],
 };
 
 export type AssignableMember = {

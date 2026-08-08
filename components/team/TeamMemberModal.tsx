@@ -168,7 +168,7 @@ export function TeamMemberModal({
         <Input
           label="Full name"
           requiredMark
-          placeholder="Ayesha Khan"
+          placeholder="Saad Tariq"
           value={draft.name}
           onChange={(event) => set("name", event.target.value)}
           error={errors.name}
@@ -180,7 +180,7 @@ export function TeamMemberModal({
           type="email"
           requiredMark
           autoComplete="off"
-          placeholder="ayesha@agency.local"
+          placeholder="saad@agency.local"
           value={draft.email}
           onChange={(event) => set("email", event.target.value)}
           error={errors.email}
@@ -193,7 +193,7 @@ export function TeamMemberModal({
               label="Job title"
               requiredMark
               list="job-title-suggestions"
-              placeholder="Shopify Developer"
+              placeholder="Performance Marketer"
               value={draft.jobTitle}
               onChange={(event) => set("jobTitle", event.target.value)}
               error={errors.jobTitle}

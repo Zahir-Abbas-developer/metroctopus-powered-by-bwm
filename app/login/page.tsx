@@ -88,7 +88,7 @@ export default async function LoginPage({
                   <dd className="font-medium text-ink/80">admin123</dd>
                 </div>
                 <div className="flex justify-between gap-3">
-                  <dt>ayesha@agency.local</dt>
+                  <dt>subtain@agency.local</dt>
                   <dd className="font-medium text-ink/80">member123</dd>
                 </div>
               </dl>

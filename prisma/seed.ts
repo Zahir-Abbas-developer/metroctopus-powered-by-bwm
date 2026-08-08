@@ -14,20 +14,40 @@ const prisma = new PrismaClient();
 const ADMIN_PASSWORD = "admin123";
 const MEMBER_PASSWORD = "member123";
 
-/** One member per service line the agency sells, plus a funnel owner. */
+/**
+ * The real team.
+ *
+ * Addresses follow first-name@agency.local so the demo is self-consistent;
+ * swap them for real mailboxes before anyone relies on the welcome email.
+ * The owner keeps admin@agency.local so the documented sign-in still works.
+ */
 const TEAM = [
-  { name: "Ayesha Khan", email: "ayesha@agency.local", jobTitle: "Shopify Developer" },
-  { name: "Bilal Ahmed", email: "bilal@agency.local", jobTitle: "Google Ads Specialist" },
-  { name: "Hira Siddiqui", email: "hira@agency.local", jobTitle: "Meta Ads Specialist" },
-  { name: "Usman Tariq", email: "usman@agency.local", jobTitle: "Creative Designer" },
-  { name: "Fatima Noor", email: "fatima@agency.local", jobTitle: "Creative Strategist" },
-  { name: "Daniyal Raza", email: "daniyal@agency.local", jobTitle: "Funnel Manager" },
+  {
+    name: "Subtain",
+    email: "subtain@agency.local",
+    jobTitle: "Performance Marketer",
+  },
+  {
+    name: "Saad Tariq",
+    email: "saad@agency.local",
+    jobTitle: "Business Developer",
+  },
+  {
+    name: "Shahnawaz",
+    email: "shahnawaz@agency.local",
+    jobTitle: "Shopify Designer · AI Websites · Product Hunting",
+  },
+  {
+    name: "Shahzaib",
+    email: "shahzaib@agency.local",
+    jobTitle: "Ecommerce Marketplaces · Sourcing · AI SEO",
+  },
 ];
 
 const ADMIN = {
-  name: "Hamza Sheikh",
+  name: "Raja Zain",
   email: "admin@agency.local",
-  jobTitle: "Agency Owner",
+  jobTitle: "Founder · Client Acquisition & Scaling",
 };
 
 /** The agency's offerings. `slug` keys the planning templates and never changes. */
@@ -175,6 +195,19 @@ async function main() {
         isActive: true,
       },
     });
+  }
+
+  // Anyone not on the roster above is left over from an earlier seed. This is
+  // the demo seed and it is destructive by design — production uses
+  // prisma/seed-admin.ts, which only ever upserts the owner. Without this,
+  // "replacing the team" would leave the previous sample accounts able to sign
+  // in alongside the real one.
+  const roster = [ADMIN.email, ...TEAM.map((member) => member.email)];
+  const removed = await prisma.user.deleteMany({
+    where: { email: { notIn: roster } },
+  });
+  if (removed.count > 0) {
+    console.log(`  removed ${removed.count} account(s) not on the current roster`);
   }
 
   const members = await prisma.user.findMany({

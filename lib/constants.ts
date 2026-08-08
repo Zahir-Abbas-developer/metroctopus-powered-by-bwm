@@ -18,11 +18,18 @@ export const ROLE_LABEL: Record<Role, string> = {
 };
 
 /**
- * Delivery specialisms across the agency's five service lines. Offered as
- * suggestions in the team form — the field stays free text so the owner can
+ * Suggestions in the team form — the field stays free text so the owner can
  * hire into a role nobody anticipated.
+ *
+ * The current team's titles come first, since those are the ones being typed
+ * in practice; the generic single-discipline labels follow for future hires.
  */
 export const JOB_TITLES = [
+  "Founder · Client Acquisition & Scaling",
+  "Performance Marketer",
+  "Business Developer",
+  "Shopify Designer · AI Websites · Product Hunting",
+  "Ecommerce Marketplaces · Sourcing · AI SEO",
   "Shopify Developer",
   "Web Developer",
   "Media Buyer",

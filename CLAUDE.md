@@ -12,7 +12,22 @@ The agency provides end-to-end services to e-commerce clients:
 - Creative research & design
 - Full funnel management, from website to sales
 
-Clients work on **monthly retainers**. The team is **fully remote**: 1 owner/admin + 6 team members (designers, marketers, developers).
+Clients work on **monthly retainers**. The team is **fully remote**: 1 owner/admin + 4 team members.
+
+### The team
+
+| Name | Role | Job title |
+| --- | --- | --- |
+| Raja Zain | ADMIN | Founder · Client Acquisition & Scaling |
+| Subtain | MEMBER | Performance Marketer |
+| Saad Tariq | MEMBER | Business Developer |
+| Shahnawaz | MEMBER | Shopify Designer · AI Websites · Product Hunting |
+| Shahzaib | MEMBER | Ecommerce Marketplaces · Sourcing · AI SEO |
+
+People wear more than one hat here, so a job title covers several
+specialisms rather than one. Anything that maps work to a person — the
+auto-assignment defaults in `lib/templates.ts`, for instance — has to match
+against these titles, not against single-discipline labels.
 
 ## The Problem Being Solved
 
@@ -78,6 +93,32 @@ Fixed — this is the product's identity.
 - Rounded pill badges for statuses
 
 Every screen must look intentionally designed, like a product from a world-class design studio.
+
+## Working hours & attendance
+
+### Hours
+
+- **12:00 – 22:00**, timezone **Asia/Karachi** (already the project timezone)
+- **Monday – Saturday**; Sunday is off
+- Workdays and hours are fixed for now, and become **admin-configurable later**
+
+### Attendance philosophy
+
+Clock-in / clock-out on its own is **not trusted**. A button can be tapped from
+a phone anywhere, so it proves only that someone had their phone — not that
+they were working.
+
+Instead, the system issues **3 random, hidden availability checks per member
+per day**. They are unannounced and unpredictable, so they cannot be planned
+around. Responding on time is what proves a member is genuinely reachable
+during working hours.
+
+### Scoring
+
+Attendance feeds the monthly performance score through the **existing
+`ScoreEvent` engine** — not a parallel scoring system. The rules in
+`lib/scoring.ts` stay the single source of truth for how points move, and a
+member's score remains `100 + sum(that month's events)`.
 
 ## Roles
 
