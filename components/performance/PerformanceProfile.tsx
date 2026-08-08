@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { StatCard } from "@/components/ui/StatCard";
 import { ManualAdjustButton } from "@/components/performance/ManualAdjustButton";
+import { DisputeButton } from "@/components/disputes/DisputeButton";
 import { formatCycle, formatDateTime } from "@/lib/date";
 import { MONTHLY_BASELINE, SCORE_EVENT_LABEL, formatPoints, type ScoreEventType } from "@/lib/scoring";
 import type { Cycle, MemberScore, ScoreLedgerEntry } from "@/lib/score-service";
@@ -291,6 +292,18 @@ export function PerformanceProfile({
                         <span className="rounded-pill border border-line bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-ink/50">
                           Manual
                         </span>
+                      )}
+
+                      {/* The moment of disagreement is when someone is looking
+                          at the deduction, not later when they'd have to
+                          remember to find a form. */}
+                      {isSelf && (entry.disputable || entry.disputeStatus) && (
+                        <DisputeButton
+                          scoreEventId={entry.id}
+                          eventReason={entry.reason}
+                          points={entry.points}
+                          existingStatus={entry.disputeStatus}
+                        />
                       )}
                     </div>
 

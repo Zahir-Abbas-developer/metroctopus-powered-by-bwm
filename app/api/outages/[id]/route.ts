@@ -1,7 +1,12 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { apiError, requireAdminApi } from "@/lib/api";
+import { prisma } from "@/lib/prisma";
+import { apiError } from "@/lib/api";
+import { getCurrentUser } from "@/lib/session";
+import { canDecideAttendance } from "@/lib/permissions";
+import { actorFor, podMemberIds } from "@/lib/permissions-service";
+import { recordAudit } from "@/lib/audit";
 import { fieldErrors } from "@/lib/validation";
 import { reviewOutage } from "@/lib/outages";
 
@@ -12,8 +17,8 @@ const reviewSchema = z.object({
 
 /** The owner's decision on an outage report. */
 export async function PATCH(request: Request, { params }: { params: { id: string } }) {
-  const { user: admin, response } = await requireAdminApi();
-  if (response) return response;
+  const user = await getCurrentUser();
+  if (!user) return apiError("You must be signed in", 401);
 
   let body: unknown;
   try {
@@ -35,14 +40,38 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     });
   }
 
+  const report = await prisma.outageReport.findUnique({
+    where: { id: params.id },
+    select: { userId: true, user: { select: { name: true } } },
+  });
+  if (!report) return apiError("That report no longer exists", 404);
+
+  const actor = await actorFor(user);
+  const pod = await podMemberIds(actor);
+  const decision = canDecideAttendance(actor, {
+    userId: report.userId,
+    inPod: pod.includes(report.userId),
+  });
+  if (!decision.allowed) return apiError(decision.reason ?? "Not allowed", 403);
+
   const result = await reviewOutage({
     reportId: params.id,
-    adminId: admin!.id,
+    adminId: user.id,
     approve: parsed.data.status === "APPROVED",
     adminNote: parsed.data.adminNote ?? null,
   });
 
   if (!result.ok) return apiError(result.reason, 409);
+
+  await recordAudit({
+    actorId: user.id,
+    action: "OUTAGE_REVIEWED",
+    entityType: "OutageReport",
+    entityId: params.id,
+    summary: `${parsed.data.status === "APPROVED" ? "Upheld" : "Rejected"} ${report.user.name}'s outage report`,
+    after: { status: parsed.data.status, excused: result.excused, charged: result.charged },
+    asLead: decision.as === "LEAD",
+  });
 
   return NextResponse.json(result);
 }

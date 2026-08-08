@@ -14,6 +14,8 @@ import { chaseStaleReviews } from "@/lib/review-sla";
 import { runAutoRenewal, type RenewalRun } from "@/lib/renewal";
 import { captureMrrSnapshot, runWeeklyTargets, type WeeklyTargetRun } from "@/lib/pipeline";
 import { markOverdueCycles } from "@/lib/payments";
+import { runIncentives, type IncentiveRun } from "@/lib/incentives-service";
+import { chaseOpenDisputes } from "@/lib/disputes";
 
 /**
  * The daily evaluation pass.
@@ -55,12 +57,16 @@ export type EvaluationResult = {
   mrr: { year: number; month: number; amount: number; activeClients: number };
   /** Phase 10 — unpaid cycles that crossed the overdue threshold tonight. */
   markedOverdue: number;
+  /** Phase 11 — the month close, on the 1st. Null on any other day. */
+  incentives: IncentiveRun | null;
+  /** Phase 11 — reminders about disputes past their SLA. */
+  disputeChases: number;
   reports: GenerationResult | null;
 };
 
 export async function runEvaluation(
   now: Date = new Date(),
-  options: { generateReports?: boolean; settleTargets?: boolean } = {},
+  options: { generateReports?: boolean; settleTargets?: boolean; closeMonth?: boolean } = {},
 ): Promise<EvaluationResult> {
   // Attendance first: absences and missed checks become score events before
   // any report is frozen, so a report never omits a charge the same run made.
@@ -94,6 +100,13 @@ export async function runEvaluation(
 
   const mrr = await captureMrrSnapshot(now);
 
+  // The month close. Runs on the 1st against the month that just finished, so
+  // a streak is evaluated on complete months rather than one with a day in it.
+  const incentives =
+    options.closeMonth || isAgencyFirstOfMonth(now) ? await runIncentives(now) : null;
+
+  const disputeChases = await chaseOpenDisputes(now);
+
   // Reporting cadence: weekly on Mondays, monthly on the 1st, both in agency
   // time. `generateReports: true` forces a run for a manual trigger.
   const due: ReportType[] = [];
@@ -119,6 +132,8 @@ export async function runEvaluation(
     targets,
     mrr,
     markedOverdue,
+    incentives,
+    disputeChases,
     reports,
   };
 }

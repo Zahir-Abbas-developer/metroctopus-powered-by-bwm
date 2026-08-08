@@ -18,6 +18,9 @@ import { getSettings } from "@/lib/settings";
 import { notifyApproved, notifyRejected } from "@/lib/notifications";
 import { recordScoreEvent, recordStatusChange } from "@/lib/activity";
 import { releaseDependents } from "@/lib/blocking";
+import { canDecideMilestone } from "@/lib/permissions";
+import { actorFor } from "@/lib/permissions-service";
+import { recordAudit } from "@/lib/audit";
 
 /**
  * The one place a milestone's status can change, because every scoring
@@ -39,6 +42,11 @@ import { releaseDependents } from "@/lib/blocking";
  * what releases the work to the client, so self-approval would make delivery
  * self-reported — but approval no longer times anything, so an owner sitting on
  * a review can no longer cost a member points.
+ *
+ * Phase 11: a **Service Lead** carries the owner's approval authority inside
+ * their own service lines, and never over their own work. See
+ * lib/permissions.ts — that check is the load-bearing one and it lives in a
+ * pure function with its own tests.
  *
  * BLOCKED is not reachable from here; see lib/blocking.ts and the /block route.
  */
@@ -67,9 +75,26 @@ export async function POST(
   });
   if (!milestone) return apiError("That milestone no longer exists", 404);
 
-  const isAdmin = user.role === "ADMIN";
-  if (!isAdmin && milestone.assigneeId !== user.id) {
-    return apiError("You can only update milestones assigned to you", 403);
+  const actor = await actorFor(user);
+  const serviceId = milestone.module.serviceId;
+
+  // Who is deciding, and with what authority. `as` is "ADMIN" for the owner,
+  // "LEAD" for a service lead acting inside their lines — the audit log and
+  // the activity feed both carry it.
+  const decision = canDecideMilestone(actor, {
+    assigneeId: milestone.assigneeId,
+    serviceId,
+  });
+  const canDecide = decision.allowed;
+  // "isAdmin" now means "may make an owner-level decision", which is the sense
+  // every use of it below actually wants.
+  const isAdmin = canDecide;
+
+  if (!canDecide && milestone.assigneeId !== user.id) {
+    return apiError(
+      decision.reason ?? "You can only update milestones assigned to you",
+      403,
+    );
   }
 
   const from = milestone.status as MilestoneStatus;
@@ -77,16 +102,21 @@ export async function POST(
 
   if (from === to) return NextResponse.json({ milestone, scored: 0 });
 
-  if (!canTransition(user.role, from, to)) {
+  // A lead exercises the admin transition matrix inside their scope.
+  if (!canTransition(canDecide ? "ADMIN" : user.role, from, to)) {
     return apiError(
-      isAdmin
+      canDecide
         ? `A milestone can't go from ${from} to ${to}`
-        : "Only the agency owner can approve or close a milestone",
+        : // `decision.reason` is the specific one — "you can't decide on your
+          // own work" for a lead's own milestone, rather than the generic
+          // role message, which is exactly the case they need explaining.
+          (decision.reason ??
+            "Only the agency owner or the service lead can approve or close a milestone"),
       403,
     );
   }
 
-  const isRejection = isAdmin && from === "SUBMITTED" && to === "IN_PROGRESS";
+  const isRejection = canDecide && from === "SUBMITTED" && to === "IN_PROGRESS";
   const reason = parsed.data.reason?.trim() ?? "";
 
   if (isRejection && reason.length < 5) {
@@ -100,7 +130,7 @@ export async function POST(
   const rating = parsed.data.qualityRating ?? null;
   const qualityComment = parsed.data.qualityComment?.trim() ?? "";
 
-  if (to === "COMPLETED" && isAdmin) {
+  if (to === "COMPLETED" && canDecide) {
     if (rating === null) {
       return apiError("Rate the work before approving it", 422, {
         qualityRating: "Pick 1–5 stars",
@@ -232,6 +262,17 @@ export async function POST(
         }
       }
 
+      await recordAudit({
+        actorId: user.id,
+        action: "MILESTONE_APPROVED",
+        entityType: "Milestone",
+        entityId: milestone.id,
+        summary: `Approved "${milestone.title}" at ${rating ?? "—"} stars`,
+        before: { status: from, qualityRating: milestone.qualityRating },
+        after: { status: to, qualityRating: rating },
+        asLead: decision.as === "LEAD",
+      });
+
       // Anything that was waiting on this milestone starts moving again.
       await releaseDependents(milestone.id, user.id, now);
     } else if (isRejection) {
@@ -251,6 +292,17 @@ export async function POST(
           actorId: user.id,
         });
       }
+
+      await recordAudit({
+        actorId: user.id,
+        action: "MILESTONE_REJECTED",
+        entityType: "Milestone",
+        entityId: milestone.id,
+        summary: `Sent "${milestone.title}" back: ${reason}`,
+        before: { status: from },
+        after: { status: to },
+        asLead: decision.as === "LEAD",
+      });
 
       if (event) {
         await notifyRejected({

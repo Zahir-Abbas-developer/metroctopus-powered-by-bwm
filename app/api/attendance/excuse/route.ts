@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
-import { apiError, requireAdminApi } from "@/lib/api";
+import { apiError } from "@/lib/api";
+import { getCurrentUser } from "@/lib/session";
+import { canDecideAttendance } from "@/lib/permissions";
+import { actorFor, podMemberIds } from "@/lib/permissions-service";
+import { recordAudit } from "@/lib/audit";
 import { fieldErrors } from "@/lib/validation";
 import { agencyYearMonth } from "@/lib/date";
 import { notify } from "@/lib/notifications";
@@ -28,8 +32,8 @@ const excuseSchema = z.object({
  * was late, and with it any pattern worth noticing.
  */
 export async function POST(request: Request) {
-  const { user: admin, response } = await requireAdminApi();
-  if (response) return response;
+  const user = await getCurrentUser();
+  if (!user) return apiError("You must be signed in", 401);
 
   let body: unknown;
   try {
@@ -60,6 +64,15 @@ export async function POST(request: Request) {
     return apiError("That event isn't a penalty", 422);
   }
 
+  // A Service Lead may excuse for their pod, never for themselves.
+  const actor = await actorFor(user);
+  const pod = await podMemberIds(actor);
+  const decision = canDecideAttendance(actor, {
+    userId: original.userId,
+    inPod: pod.includes(original.userId),
+  });
+  if (!decision.allowed) return apiError(decision.reason ?? "Not allowed", 403);
+
   const dedupeKey = `excuse:${original.id}`;
 
   const already = await prisma.scoreEvent.findUnique({ where: { dedupeKey } });
@@ -84,8 +97,19 @@ export async function POST(request: Request) {
       year: cycle.year,
       month: cycle.month,
       dedupeKey,
-      createdById: admin!.id,
+      createdById: user.id,
     },
+  });
+
+  await recordAudit({
+    actorId: user.id,
+    action: "CHECK_EXCUSED",
+    entityType: "ScoreEvent",
+    entityId: original.id,
+    summary: `Excused ${label.toLowerCase()} for ${original.user.name}: ${parsed.data.reason}`,
+    before: { points: original.points },
+    after: { compensated: Math.abs(original.points) },
+    asLead: decision.as === "LEAD",
   });
 
   await notify({

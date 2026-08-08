@@ -17,6 +17,10 @@ export type NavKey =
   | "attendance"
   | "my-performance"
   | "my-reports"
+  | "disputes"
+  | "incentives"
+  | "audit"
+  | "scoring"
   | "team"
   | "reports";
 
@@ -65,7 +69,21 @@ export const NAV_ITEMS: readonly NavItem[] = [
     href: "/my-reports",
     roles: ["ADMIN", "MEMBER"],
   },
+  {
+    key: "disputes",
+    label: "Disputes",
+    href: "/disputes",
+    roles: ["ADMIN", "MEMBER"],
+  },
+  { key: "incentives", label: "Incentives", href: "/incentives", roles: ["ADMIN"] },
   { key: "team", label: "Team", href: "/team", roles: ["ADMIN"] },
+  {
+    key: "scoring",
+    label: "How scoring works",
+    href: "/scoring",
+    roles: ["ADMIN", "MEMBER"],
+  },
+  { key: "audit", label: "Audit log", href: "/admin/audit", roles: ["ADMIN"] },
   {
     key: "reports",
     label: "Reports",

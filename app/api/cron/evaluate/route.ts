@@ -4,6 +4,7 @@ import { apiError } from "@/lib/api";
 import { authorizeCron } from "@/lib/cron-auth";
 import { runEvaluation } from "@/lib/evaluate";
 import { sendOverdueAlert } from "@/lib/email/dispatch";
+import { beginJob } from "@/lib/ops";
 
 /**
  * The daily pass: deadline notices, catch-up scoring, project close-out, and
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
   const auth = await authorizeCron(request);
   if (!auth.ok) return auth.response;
 
+  const finish = await beginJob("evaluate");
+
   try {
     const result = await runEvaluation();
     // Only the scheduled run mails the owner; a manual run from the dashboard
@@ -26,8 +29,16 @@ export async function POST(request: Request) {
         ? await sendOverdueAlert()
         : { status: "skipped" as const, reason: "manual run" };
 
+    await finish(
+      "OK",
+      `${result.renewal.renewed.length} renewed · ${result.attendance.markedAbsent} absent · ${
+        result.incentives ? `${result.incentives.bonuses.length} bonuses` : "no month close"
+      }`,
+    );
+
     return NextResponse.json({ ...result, overdueAlert: alert.status });
-  } catch {
+  } catch (error) {
+    await finish("FAILED", error instanceof Error ? error.message : String(error));
     return apiError("The evaluation run failed", 500);
   }
 }

@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { getSettings } from "@/lib/settings";
 import { agencyYearMonth, dueDeadline, previousYearMonth } from "@/lib/date";
 import {
   MONTHLY_BASELINE,
@@ -146,6 +147,10 @@ export async function scoresForCycle(
 
 export type ScoreLedgerEntry = {
   id: string;
+  /** Set once a dispute exists on this event. */
+  disputeStatus: string | null;
+  /** False once the dispute window has closed on it. */
+  disputable: boolean;
   type: string;
   points: number;
   reason: string;
@@ -167,6 +172,7 @@ export async function ledgerFor(
     orderBy: { createdAt: "desc" },
     include: {
       createdBy: { select: { name: true } },
+      dispute: { select: { status: true } },
       milestone: {
         select: {
           title: true,
@@ -180,8 +186,18 @@ export async function ledgerFor(
     },
   });
 
+  const settings = await getSettings();
+  const windowMs = settings.disputeWindowDays * 86_400_000;
+  const now = Date.now();
+
   return events.map((event) => ({
     id: event.id,
+    disputeStatus: event.dispute?.status ?? null,
+    // Only charges, only inside the window, only if not already disputed.
+    disputable:
+      event.points < 0 &&
+      !event.dispute &&
+      now - event.createdAt.getTime() <= windowMs,
     type: event.type,
     points: event.points,
     reason: event.reason,

@@ -3,6 +3,8 @@ import { notify } from "@/lib/notifications";
 import { sendPush } from "@/lib/reach";
 import { getSettings } from "@/lib/settings";
 import { agencyToday } from "@/lib/date";
+import { routeReview } from "@/lib/permissions";
+import { adminIds, leadsByService } from "@/lib/permissions-service";
 import { reviewAge, type ReviewAge } from "@/lib/fairness-types";
 
 export * from "@/lib/fairness-types";
@@ -30,10 +32,31 @@ export type PendingReview = {
   assignee: { id: string; name: string; avatarColor: string } | null;
   clientName: string;
   moduleName: string;
+  /** Whose queue this belongs in first. Null when only the owner can act. */
+  lead: { id: string; name: string } | null;
+  /** True once the owner has been pulled in as well. */
+  escalated: boolean;
+  /** Everyone who may act on it right now. */
+  reviewerIds: string[];
 };
 
-/** Everything submitted and not yet decided, longest wait first. */
-export async function pendingReviews(now = new Date()): Promise<PendingReview[]> {
+/**
+ * Everything submitted and not yet decided, longest wait first.
+ *
+ * Each row carries where it is routed. A submission goes to its service lead
+ * first; after the escalation window the owner is added rather than the lead
+ * being removed, so delegation cannot become a place work goes to die without
+ * punishing a lead for a busy Tuesday.
+ *
+ * `viewerId` filters to what that person may actually act on — the owner sees
+ * everything, a lead sees their lines.
+ */
+export async function pendingReviews(
+  now = new Date(),
+  viewerId?: string,
+): Promise<PendingReview[]> {
+  const settings = await getSettings();
+
   const submitted = await prisma.milestone.findMany({
     where: { status: "SUBMITTED", submittedAt: { not: null } },
     orderBy: { submittedAt: "asc" },
@@ -42,17 +65,44 @@ export async function pendingReviews(now = new Date()): Promise<PendingReview[]>
       module: {
         select: {
           name: true,
+          serviceId: true,
           project: { select: { client: { select: { businessName: true } } } },
         },
       },
     },
   });
 
-  return submitted.map((milestone) => {
+  const serviceIds = [
+    ...new Set(
+      submitted
+        .map((milestone) => milestone.module.serviceId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+
+  const [leads, admins] = await Promise.all([
+    leadsByService(serviceIds),
+    adminIds(),
+  ]);
+
+  const rows = submitted.map((milestone) => {
     const waitingHours = Math.max(
       0,
       (now.getTime() - milestone.submittedAt!.getTime()) / 3_600_000,
     );
+
+    const serviceLeads = milestone.module.serviceId
+      ? (leads.get(milestone.module.serviceId) ?? [])
+      : [];
+
+    const route = routeReview({
+      assigneeId: milestone.assigneeId,
+      serviceId: milestone.module.serviceId,
+      serviceLeadIds: serviceLeads.map((lead) => lead.id),
+      adminIds: admins,
+      waitingHours,
+      escalationHours: settings.leadEscalationHours,
+    });
 
     return {
       id: milestone.id,
@@ -64,8 +114,13 @@ export async function pendingReviews(now = new Date()): Promise<PendingReview[]>
       assignee: milestone.assignee,
       clientName: milestone.module.project.client.businessName,
       moduleName: milestone.module.name,
+      lead: serviceLeads.find((lead) => lead.id === route.leadUserId) ?? null,
+      escalated: route.escalated,
+      reviewerIds: [...route.reviewerIds],
     };
   });
+
+  return viewerId ? rows.filter((row) => row.reviewerIds.includes(viewerId)) : rows;
 }
 
 export type ReviewStats = {
@@ -83,7 +138,7 @@ export type ReviewStats = {
  * monthly summary describes that month rather than all time.
  */
 export async function reviewStats(
-  options: { since?: Date; until?: Date; now?: Date } = {},
+  options: { since?: Date; until?: Date; now?: Date; viewerId?: string } = {},
 ): Promise<ReviewStats> {
   const now = options.now ?? new Date();
 
@@ -102,7 +157,7 @@ export async function reviewStats(
     select: { adminReviewMinutes: true },
   });
 
-  const queue = await pendingReviews(now);
+  const queue = await pendingReviews(now, options.viewerId);
 
   const total = decided.reduce((sum, row) => sum + (row.adminReviewMinutes ?? 0), 0);
 
@@ -113,6 +168,60 @@ export async function reviewStats(
     stale: queue.filter((row) => row.age === "STALE").length,
     longestWaitHours: queue.length === 0 ? null : queue[0].waitingHours,
   };
+}
+
+/**
+ * Average decision time per reviewer.
+ *
+ * The owner's number was the Phase 8 bargain for taking review time out of
+ * members' scores. Delegation means leads now inherit the same accountability —
+ * a lead who sits on approvals is doing the same damage the owner was, and
+ * measuring only the owner would quietly exempt them.
+ */
+export async function reviewTimesByReviewer(): Promise<
+  { userId: string; name: string; decided: number; averageMinutes: number }[]
+> {
+  const rows = await prisma.auditLog.findMany({
+    where: {
+      action: { in: ["MILESTONE_APPROVED", "MILESTONE_REJECTED"] },
+      actorId: { not: null },
+    },
+    select: { actorId: true, entityId: true, actor: { select: { name: true } } },
+  });
+
+  const milestoneIds = [
+    ...new Set(rows.map((row) => row.entityId).filter((id): id is string => Boolean(id))),
+  ];
+
+  const minutes = new Map(
+    (
+      await prisma.milestone.findMany({
+        where: { id: { in: milestoneIds }, adminReviewMinutes: { not: null } },
+        select: { id: true, adminReviewMinutes: true },
+      })
+    ).map((milestone) => [milestone.id, milestone.adminReviewMinutes ?? 0]),
+  );
+
+  const byActor = new Map<string, { name: string; total: number; count: number }>();
+  for (const row of rows) {
+    if (!row.actorId || !row.entityId) continue;
+    const value = minutes.get(row.entityId);
+    if (value === undefined) continue;
+
+    const entry = byActor.get(row.actorId) ?? { name: row.actor?.name ?? "Unknown", total: 0, count: 0 };
+    entry.total += value;
+    entry.count += 1;
+    byActor.set(row.actorId, entry);
+  }
+
+  return [...byActor]
+    .map(([userId, entry]) => ({
+      userId,
+      name: entry.name,
+      decided: entry.count,
+      averageMinutes: Math.round(entry.total / entry.count),
+    }))
+    .sort((a, b) => b.averageMinutes - a.averageMinutes);
 }
 
 /**

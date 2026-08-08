@@ -6,6 +6,7 @@ import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors } from "@/lib/validation";
 import { getSettings } from "@/lib/settings";
 import { parseWorkdays } from "@/lib/attendance-time";
+import { changedFields, recordAudit } from "@/lib/audit";
 
 const minuteOfDay = z.number().int().min(0).max(24 * 60);
 
@@ -47,6 +48,18 @@ const settingsSchema = z
     healthWeightRoas: z.number().int().min(0).max(100),
     healthWeightPayment: z.number().int().min(0).max(100),
     healthWeightBlocked: z.number().int().min(0).max(100),
+    // Phase 11 — delegation, incentives and culture.
+    leadEscalationHours: z.number().int().min(1).max(336),
+    bonusThresholdScore: z.number().int().min(0).max(100),
+    bonusStreakMonths: z.number().int().min(1).max(12),
+    defaultBonusPercent: z.number().min(0).max(100),
+    reviewThresholdScore: z.number().int().min(0).max(100),
+    reviewWindowMonths: z.number().int().min(1).max(12),
+    reviewTriggerCount: z.number().int().min(1).max(12),
+    disputeWindowDays: z.number().int().min(1).max(90),
+    disputeSlaHours: z.number().int().min(1).max(720),
+    leaderboardVisibility: z.enum(["ADMIN_ONLY", "TEAM_VISIBLE"]),
+    backupWarnHours: z.number().int().min(1).max(336),
   })
   .partial()
   // Cross-field rules, because a setting that is individually valid can still
@@ -79,7 +92,7 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
-  const { response } = await requireAdminApi();
+  const { user: admin, response } = await requireAdminApi();
   if (response) return response;
 
   let body: unknown;
@@ -117,6 +130,13 @@ export async function PATCH(request: Request) {
     );
   }
 
+  // Settings edits are an exercise of authority — the numbers here decide
+  // what everyone is scored on — so they land in the audit log with a diff.
+  const changed = changedFields(
+    current as unknown as Record<string, unknown>,
+    { ...current, ...parsed.data } as unknown as Record<string, unknown>,
+  );
+
   try {
     await prisma.settings.upsert({
       where: { id: "singleton" },
@@ -125,6 +145,19 @@ export async function PATCH(request: Request) {
     });
 
     const settings = await getSettings();
+
+    if (changed) {
+      await recordAudit({
+        actorId: admin!.id,
+        action: "SETTINGS_EDITED",
+        entityType: "Settings",
+        entityId: "singleton",
+        summary: `Changed ${Object.keys(changed.after).join(", ")}`,
+        before: changed.before,
+        after: changed.after,
+      });
+    }
+
     return NextResponse.json({
       settings: { ...settings, workdays: settings.workdays.join(",") },
     });

@@ -46,6 +46,17 @@ type SettingsShape = {
   healthWeightRoas: number;
   healthWeightPayment: number;
   healthWeightBlocked: number;
+  leadEscalationHours: number;
+  bonusThresholdScore: number;
+  bonusStreakMonths: number;
+  defaultBonusPercent: number;
+  reviewThresholdScore: number;
+  reviewWindowMonths: number;
+  reviewTriggerCount: number;
+  disputeWindowDays: number;
+  disputeSlaHours: number;
+  leaderboardVisibility: string;
+  backupWarnHours: number;
 };
 
 const DAYS = [
@@ -584,6 +595,144 @@ export function SettingsPanel() {
             draft.healthWeightBlocked}
           {" "}across four dimensions.
         </p>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Incentives
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          Evaluated when a month closes. Members see their streak progress; the
+          review rule is stated on the scoring page but never counted down at
+          anyone.
+        </p>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <Input
+            label="Bonus threshold score"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.bonusThresholdScore}
+            error={errors.bonusThresholdScore}
+            onChange={(event) => set("bonusThresholdScore", Number(event.target.value))}
+          />
+          <Input
+            label="Consecutive months"
+            type="number"
+            min={1}
+            value={draft.bonusStreakMonths}
+            error={errors.bonusStreakMonths}
+            onChange={(event) => set("bonusStreakMonths", Number(event.target.value))}
+          />
+          <Input
+            label="Standing bonus (%)"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.defaultBonusPercent}
+            error={errors.defaultBonusPercent}
+            onChange={(event) => set("defaultBonusPercent", Number(event.target.value))}
+            hint="Payroll reference only."
+          />
+          <Input
+            label="Review threshold score"
+            type="number"
+            min={0}
+            max={100}
+            value={draft.reviewThresholdScore}
+            error={errors.reviewThresholdScore}
+            onChange={(event) => set("reviewThresholdScore", Number(event.target.value))}
+          />
+          <Input
+            label="Months to look back"
+            type="number"
+            min={1}
+            value={draft.reviewWindowMonths}
+            error={errors.reviewWindowMonths}
+            onChange={(event) => set("reviewWindowMonths", Number(event.target.value))}
+          />
+          <Input
+            label="Low months to trigger"
+            type="number"
+            min={1}
+            value={draft.reviewTriggerCount}
+            error={errors.reviewTriggerCount}
+            onChange={(event) => set("reviewTriggerCount", Number(event.target.value))}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Delegation, disputes and culture
+        </h2>
+
+        <div className="mt-5 grid gap-4 sm:grid-cols-3">
+          <Input
+            label="Lead escalation (hours)"
+            type="number"
+            min={1}
+            value={draft.leadEscalationHours}
+            error={errors.leadEscalationHours}
+            onChange={(event) => set("leadEscalationHours", Number(event.target.value))}
+            hint="After this, the owner is added to the queue as well as the lead."
+          />
+          <Input
+            label="Dispute window (days)"
+            type="number"
+            min={1}
+            value={draft.disputeWindowDays}
+            error={errors.disputeWindowDays}
+            onChange={(event) => set("disputeWindowDays", Number(event.target.value))}
+          />
+          <Input
+            label="Dispute SLA (hours)"
+            type="number"
+            min={1}
+            value={draft.disputeSlaHours}
+            error={errors.disputeSlaHours}
+            onChange={(event) => set("disputeSlaHours", Number(event.target.value))}
+          />
+          <Input
+            label="Backup warning (hours)"
+            type="number"
+            min={1}
+            value={draft.backupWarnHours}
+            error={errors.backupWarnHours}
+            onChange={(event) => set("backupWarnHours", Number(event.target.value))}
+          />
+        </div>
+
+        <div className="mt-5">
+          <p className="mb-2 text-[13px] font-medium text-ink/80">Leaderboard</p>
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { value: "ADMIN_ONLY", label: "Owner only" },
+              { value: "TEAM_VISIBLE", label: "Whole team" },
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => set("leaderboardVisibility", option.value)}
+                className={cn(
+                  "rounded-pill border px-3 py-1.5 text-[13px] transition-colors",
+                  draft.leaderboardVisibility === option.value
+                    ? "border-brand bg-brand text-paper"
+                    : "border-line bg-white text-ink/55 hover:border-ink/25",
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-[12px] leading-relaxed text-ink/45">
+            Owner only is the default. Ranking five people against each other
+            makes fourth place feel like failure when fourth of five at 88 is a
+            good month — members see their own numbers and their own trend
+            instead.
+          </p>
+        </div>
       </Card>
 
       <div className="flex justify-end">

@@ -26,9 +26,13 @@ type QueueRow = {
   assignee: { id: string; name: string; avatarColor: string } | null;
   clientName: string;
   moduleName: string;
+  lead: { id: string; name: string } | null;
+  escalated: boolean;
 };
 
 type Payload = {
+  viewer: { id: string; isAdmin: boolean };
+  reviewers: { userId: string; name: string; decided: number; averageMinutes: number }[];
   stats: {
     averageMinutes: number | null;
     decided: number;
@@ -53,7 +57,7 @@ type Payload = {
 export function ReviewQueue() {
   const toast = useToast();
   const [data, setData] = useState<Payload | null>(null);
-  const [state, setState] = useState<"loading" | "ready" | "error">("loading");
+  const [state, setState] = useState<"loading" | "ready" | "error" | "none">("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState<QueueRow | null>(null);
   const [approving, setApproving] = useState<QueueRow | null>(null);
@@ -62,6 +66,12 @@ export function ReviewQueue() {
   const load = useCallback(async () => {
     try {
       const response = await fetch("/api/review-queue", { cache: "no-store" });
+      // 403 means this person has no queue — not an error, just nothing to show.
+      if (response.status === 403) {
+        setData(null);
+        setState("none");
+        return;
+      }
       if (!response.ok) throw new Error("failed");
       setData((await response.json()) as Payload);
       setState("ready");
@@ -104,6 +114,9 @@ export function ReviewQueue() {
   }
 
   if (state === "loading") return <Skeleton className="h-[320px] rounded-card" />;
+  // A member who leads nothing has no queue. Render nothing rather than an
+  // empty state explaining a feature they don't have.
+  if (state === "none") return null;
 
   if (state === "error" || !data) {
     return (
@@ -165,6 +178,19 @@ export function ReviewQueue() {
                   </p>
                 </div>
 
+                {/* Where it's routed. An escalated row is one the lead has
+                    already had a full day with. */}
+                {row.lead && (
+                  <Badge size="sm" tone={row.escalated ? "warning" : "neutral"}>
+                    {row.escalated ? `${row.lead.name} · escalated` : row.lead.name}
+                  </Badge>
+                )}
+                {!row.lead && data.viewer.isAdmin && (
+                  <Badge size="sm" tone="neutral">
+                    Owner only
+                  </Badge>
+                )}
+
                 <Badge size="sm" tone={REVIEW_AGE_TONE[row.age]}>
                   {formatHours(row.waitingHours)}
                 </Badge>
@@ -197,11 +223,29 @@ export function ReviewQueue() {
           </ul>
         )}
 
+        {data.viewer.isAdmin && data.reviewers.length > 1 && (
+          <div className="border-t border-line px-5 py-3">
+            <p className="eyebrow mb-2 text-ink/45">Average decision time</p>
+            <ul className="flex flex-wrap gap-x-5 gap-y-1 text-[12px] text-ink/55">
+              {data.reviewers.map((reviewer) => (
+                <li key={reviewer.userId} className="tabular-nums">
+                  {reviewer.name}{" "}
+                  <span className="font-medium text-ink/75">
+                    {formatWait(reviewer.averageMinutes)}
+                  </span>{" "}
+                  <span className="text-ink/35">over {reviewer.decided}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {stats.stale > 0 && (
           <p className="border-t border-line px-5 py-3 text-[12px] leading-relaxed text-danger">
             {stats.stale} {stats.stale === 1 ? "item has" : "items have"} been waiting
-            over 48 hours. Review time is your metric now — it no longer costs the
-            member anything, but they are still blocked on the answer.
+            over 48 hours. Review time is the reviewer&rsquo;s metric now — it no
+            longer costs the member anything, but they are still blocked on the
+            answer.
           </p>
         )}
       </Card>

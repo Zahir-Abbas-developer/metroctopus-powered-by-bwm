@@ -46,28 +46,34 @@ model User {
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  milestones    Milestone[]        @relation("MilestoneAssignee")
-  scoreEvents   ScoreEvent[]       @relation("ScoreEventSubject")
-  authoredScore ScoreEvent[]       @relation("ScoreEventAuthor")
-  reports       Report[]
-  notifications Notification[]
-  comments      Comment[]
-  mentions      CommentMention[]
-  attachments   Attachment[]
-  activity      Activity[]         @relation("ActivityActor")
-  attendance    AttendanceDay[]
-  leaveRequests LeaveRequest[]     @relation("LeaveSubject")
-  leaveReviews  LeaveRequest[]     @relation("LeaveReviewer")
-  outages       OutageReport[]     @relation("OutageSubject")
-  outageReviews OutageReport[]     @relation("OutageReviewer")
-  breaks        BreakSession[]
-  pushSubs      PushSubscription[]
-  blocksRaised  BlockPeriod[]      @relation("BlockAuthor")
-  blocksCleared BlockPeriod[]      @relation("BlockReleaser")
-  leads         Lead[]             @relation("LeadOwner")
-  salesActivity SalesActivity[]
-  targets       ActivityTarget[]
-  kpiEntries    ClientKpiEntry[]   @relation("KpiAuthor")
+  milestones     Milestone[]        @relation("MilestoneAssignee")
+  scoreEvents    ScoreEvent[]       @relation("ScoreEventSubject")
+  authoredScore  ScoreEvent[]       @relation("ScoreEventAuthor")
+  reports        Report[]
+  notifications  Notification[]
+  comments       Comment[]
+  mentions       CommentMention[]
+  attachments    Attachment[]
+  activity       Activity[]         @relation("ActivityActor")
+  attendance     AttendanceDay[]
+  leaveRequests  LeaveRequest[]     @relation("LeaveSubject")
+  leaveReviews   LeaveRequest[]     @relation("LeaveReviewer")
+  outages        OutageReport[]     @relation("OutageSubject")
+  outageReviews  OutageReport[]     @relation("OutageReviewer")
+  breaks         BreakSession[]
+  pushSubs       PushSubscription[]
+  blocksRaised   BlockPeriod[]      @relation("BlockAuthor")
+  blocksCleared  BlockPeriod[]      @relation("BlockReleaser")
+  leads          Lead[]             @relation("LeadOwner")
+  salesActivity  SalesActivity[]
+  targets        ActivityTarget[]
+  kpiEntries     ClientKpiEntry[]   @relation("KpiAuthor")
+  leadsServices  ServiceLead[]
+  disputes       Dispute[]          @relation("DisputeSubject")
+  disputeFiles   DisputeFile[]
+  disputeRulings Dispute[]          @relation("DisputeResolver")
+  auditEntries   AuditLog[]         @relation("AuditActor")
+  incentives     IncentiveAward[]
 
   @@index([role])
   @@index([isActive])
@@ -124,8 +130,178 @@ model ServiceCatalog {
 
   projects ProjectService[]
   modules  Module[]
+  leads    ServiceLead[]
 
   @@index([isActive])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 11 — Delegation, incentives, disputes, audit
+// ---------------------------------------------------------------------------
+
+/// Who leads a service line.
+///
+/// A Service Lead can approve, reject and excuse **within their services
+/// only**, and never on their own work. That constraint is the whole point:
+/// delegation that let someone sign off their own milestones would make the
+/// score self-reported, which is what the approval model has refused since
+/// Phase 3.
+model ServiceLead {
+  userId    String
+  serviceId String
+  createdAt DateTime @default(now())
+
+  user    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  service ServiceCatalog @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([userId, serviceId])
+  @@index([serviceId])
+}
+
+/// A member's formal challenge to one score event.
+///
+/// The point is that arguments about points stop happening in chat. A dispute
+/// has a written case, a named decision, a response, and a deadline — and
+/// whichever way it goes, the original event survives.
+model Dispute {
+  id             String    @id @default(cuid())
+  scoreEventId   String    @unique
+  userId         String
+  /// The member's case.
+  reason         String
+  /// "OPEN" | "UPHELD" | "REVERSED"
+  status         String    @default("OPEN")
+  resolvedById   String?
+  resolvedAt     DateTime?
+  /// Required on either outcome — a decision with no reasoning is the thing
+  /// this feature exists to replace.
+  responseNote   String?
+  /// True when a Service Lead ruled rather than the owner.
+  resolvedAsLead Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+
+  scoreEvent ScoreEvent    @relation(fields: [scoreEventId], references: [id], onDelete: Cascade)
+  user       User          @relation("DisputeSubject", fields: [userId], references: [id], onDelete: Cascade)
+  resolvedBy User?         @relation("DisputeResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+  files      DisputeFile[]
+
+  @@index([status, createdAt])
+  @@index([userId, createdAt])
+}
+
+/// Evidence attached to a dispute. Separate from milestone attachments because
+/// the retention question is different — a dispute file is part of a decision
+/// record, not a working file.
+model DisputeFile {
+  id         String   @id @default(cuid())
+  disputeId  String
+  uploaderId String
+  filename   String
+  storedName String   @unique
+  mimeType   String
+  size       Int
+  createdAt  DateTime @default(now())
+
+  dispute  Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+  uploader User    @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId])
+}
+
+/// What a run of good — or bad — months earns.
+///
+/// Written by the month-close pass, one row per member per type per month, so
+/// re-running the close is a no-op rather than a second bonus.
+model IncentiveAward {
+  id           String    @id @default(cuid())
+  userId       String
+  /// "EXCELLENCE_STREAK" | "PERFORMANCE_REVIEW"
+  type         String
+  year         Int
+  month        Int
+  /// Consecutive qualifying months at the point it was awarded.
+  streakMonths Int       @default(0)
+  /// Frozen evidence: the scores, events and attendance behind the decision.
+  /// Serialised JSON in a String column, like Report.payload.
+  evidence     String
+  /// Payroll reference only — this app never moves money.
+  bonusAmount  Float?
+  bonusPercent Float?
+  /// Set when the owner has actioned it, so the list is a queue not an archive.
+  actionedAt   DateTime?
+  actionedNote String?
+  createdAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, year, month])
+  @@index([type, year, month])
+  @@index([userId, createdAt])
+}
+
+/// Every sensitive action, with what changed.
+///
+/// Separate from Activity: that is a milestone's story, written for the team
+/// and rendered in a feed. This is the record of who exercised authority —
+/// score adjustments, dispute rulings, role changes, settings edits, excusals —
+/// and it is written for the person asking "who did that, and what was it
+/// before?".
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String?
+  /// "SCORE_ADJUSTED" | "DISPUTE_RESOLVED" | "ROLE_CHANGED" | "SETTINGS_EDITED"
+  /// | "CHECK_EXCUSED" | "OUTAGE_REVIEWED" | "MILESTONE_APPROVED"
+  /// | "MILESTONE_REJECTED" | "BLOCK_VETOED" | "LEAD_ASSIGNED"
+  action     String
+  /// What kind of thing was acted on, and which one.
+  entityType String
+  entityId   String?
+  /// One line, pre-rendered: "Approved 'Campaign launch' at 4 stars".
+  summary    String
+  /// Serialised JSON of the fields that changed, before and after. Null for
+  /// actions where "before" is meaningless.
+  beforeJson String?
+  afterJson  String?
+  /// True when the actor was exercising Service Lead authority rather than
+  /// being the owner. Every delegated action is tagged.
+  asLead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  actor User? @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([action, createdAt])
+  @@index([entityType, entityId])
+}
+
+/// The last run of each scheduled job, so silent failures become loud.
+model JobRun {
+  /// The job's name is its identity — one row per job, updated in place.
+  job        String    @id
+  startedAt  DateTime
+  finishedAt DateTime?
+  /// "RUNNING" | "OK" | "FAILED"
+  status     String    @default("RUNNING")
+  /// One line of what it did, or the error.
+  summary    String?
+  durationMs Int?
+
+  @@index([status])
+}
+
+/// A database backup attempt.
+model BackupRun {
+  id         String    @id @default(cuid())
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  /// "RUNNING" | "OK" | "FAILED" | "SKIPPED"
+  status     String    @default("RUNNING")
+  /// Where it went — a path or an object key.
+  location   String?
+  sizeBytes  Int?
+  error      String?
+
+  @@index([startedAt])
 }
 
 /// One engagement cycle for one client — normally a calendar month.
@@ -350,6 +526,7 @@ model ScoreEvent {
   user      User       @relation("ScoreEventSubject", fields: [userId], references: [id], onDelete: Cascade)
   createdBy User?      @relation("ScoreEventAuthor", fields: [createdById], references: [id], onDelete: SetNull)
   milestone Milestone? @relation(fields: [milestoneId], references: [id], onDelete: SetNull)
+  dispute   Dispute?
 
   @@index([userId, year, month])
   @@index([type])
@@ -879,6 +1056,36 @@ model Settings {
   healthWeightRoas     Int @default(30)
   healthWeightPayment  Int @default(20)
   healthWeightBlocked  Int @default(15)
+
+  // --- Delegation, incentives and culture (Phase 11) -----------------------
+  /// Hours a submission waits for its Service Lead before the owner is pulled
+  /// in as well. Delegation must not become a place work goes to die.
+  leadEscalationHours Int @default(24)
+
+  /// Score at or above which a month counts towards the excellence streak,
+  /// and how many consecutive months earn it.
+  bonusThresholdScore Int   @default(90)
+  bonusStreakMonths   Int   @default(3)
+  /// Payroll reference only — this app never moves money.
+  defaultBonusPercent Float @default(10)
+
+  /// Score below which a month counts towards a review, how many of the last
+  /// N months trigger one.
+  reviewThresholdScore Int @default(60)
+  reviewWindowMonths   Int @default(3)
+  reviewTriggerCount   Int @default(2)
+
+  /// How long a member has to dispute an event, and how long the owner has to
+  /// answer.
+  disputeWindowDays Int @default(7)
+  disputeSlaHours   Int @default(72)
+
+  /// "ADMIN_ONLY" | "TEAM_VISIBLE". Default is deliberately private: ranking
+  /// five people against each other is a different product.
+  leaderboardVisibility String @default("ADMIN_ONLY")
+
+  /// Hours since the last successful backup before the owner is warned.
+  backupWarnHours Int @default(26)
 
   updatedAt DateTime @updatedAt
 }

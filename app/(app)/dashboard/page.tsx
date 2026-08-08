@@ -48,6 +48,11 @@ import { MrrCard } from "@/components/dashboard/MrrCard";
 import { CollectionsCard } from "@/components/dashboard/CollectionsCard";
 import { AtRiskClients } from "@/components/dashboard/AtRiskClients";
 import { collections } from "@/lib/payments";
+import { healthReport } from "@/lib/ops";
+import { SystemHealth } from "@/components/dashboard/SystemHealth";
+import { StreakCard } from "@/components/incentives/StreakCard";
+import { monthlyScores, streakFor } from "@/lib/incentives-service";
+import { getSettings } from "@/lib/settings";
 import { clientsAtRisk } from "@/lib/client-health-service";
 import { TargetBar } from "@/components/pipeline/TargetBar";
 import { formatMoney } from "@/lib/pipeline-types";
@@ -131,17 +136,34 @@ export default async function DashboardPage({
   // Money. The owner's dashboard leads with MRR because it is the number the
   // whole machine exists to grow — everything else on this page is a means to
   // moving it.
-  const [mrr, pipeline, money, clientsNeedingAttention] = isAdmin
+  const settings = await getSettings();
+
+  // ADMIN_ONLY by default. Ranking five people against each other is a
+  // different product, and not the one this is — so a member sees their own
+  // numbers and their own trend, framed against their own past rather than
+  // against four colleagues.
+  const leaderboardVisible = isAdmin || settings.leaderboardVisibility === "TEAM_VISIBLE";
+
+  const [mrr, pipeline, money, clientsNeedingAttention, health] = isAdmin
     ? await Promise.all([
         mrrSeries(6, now),
         pipelineMetrics(now),
         collections(now),
         clientsAtRisk(now, 5),
+        healthReport(now),
       ])
-    : [null, null, null, null];
+    : [null, null, null, null, null];
+
+  // A member's own streak — the one place the product shows someone something
+  // they're working towards rather than something they might lose.
+  const streak = isAdmin ? null : await streakFor(user.id, now);
+
+  // Personal-best framing: last month's score and on-time rate, so a member is
+  // measured against their own past rather than a five-person ranking.
+  const ownHistory = isAdmin ? null : await monthlyScores(user.id, cycle, 4);
 
   const memberIds = members.map((member) => member.id);
-  const scopedIds = isAdmin ? memberIds : [user.id];
+  const scopedIds = leaderboardVisible ? memberIds : [user.id];
   const [scores, context] = await Promise.all([
     scoresForCycle(scopedIds, cycle),
     performanceContext(scopedIds, cycle, now),
@@ -173,6 +195,31 @@ export default async function DashboardPage({
 
   const ownScore = scores.get(user.id)?.score ?? monthlyScore([]);
   const ownContext = context.get(user.id);
+
+  /**
+   * A member's own trend, in words.
+   *
+   * Never a comparison to anyone else. The whole point of ADMIN_ONLY is that a
+   * five-person ranking makes fourth place feel like failure when fourth of
+   * five at 88 points is a good month — so the framing is always personal.
+   */
+  const personalBest = (() => {
+    if (!ownHistory) return null;
+    const active = ownHistory.filter((month) => month.active);
+    if (active.length < 2) return null;
+
+    const current = active[active.length - 1];
+    const past = active.slice(0, -1);
+    const best = Math.max(...past.map((month) => month.score));
+    const previous = past[past.length - 1].score;
+
+    if (current.score > best) return "Your best month yet — keep it there.";
+    if (current.score > previous) {
+      return `Up ${Math.round(current.score - previous)} points on last month.`;
+    }
+    if (current.score === previous) return "Holding steady on last month.";
+    return null;
+  })();
 
   // Only rows genuinely inside 48 hours or already late belong on "At risk".
   const atRiskAll = atRisk.filter((milestone) => {
@@ -215,8 +262,19 @@ export default async function DashboardPage({
         </div>
       </PageHeader>
 
+      {/* Small when healthy, loud when a job has quietly stopped. */}
+      {isAdmin && health && <SystemHealth report={health} />}
+
       {/* Asked once, then never again. */}
       <PushSetup />
+
+      {streak && (
+        <StreakCard
+          streak={streak}
+          threshold={settings.bonusThresholdScore}
+          bonusPercent={settings.defaultBonusPercent}
+        />
+      )}
 
       {/* The day itself, before anything about the month. */}
       {!isAdmin && <AttendanceCard />}
@@ -226,9 +284,11 @@ export default async function DashboardPage({
           this person's job, not an empty state. */}
       <TargetBar userId={user.id} />
 
-      {/* The owner's queue sits above their own metrics: work waiting on a
-          decision is more urgent than a number describing last week. */}
-      {isAdmin && <ReviewQueue />}
+      {/* The review queue sits above everything else on the page: work waiting
+          on a decision is more urgent than a number describing last week. It
+          renders nothing for anyone without a queue, so it can be mounted
+          unconditionally and the component decides. */}
+      <ReviewQueue />
 
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
@@ -422,7 +482,7 @@ export default async function DashboardPage({
         </Card>
 
         {/* Leaderboard (owner) or personal standing (member) */}
-        {isAdmin ? (
+        {leaderboardVisible ? (
           <Card padded={false}>
             <CardHeader
               title="Team performance"
@@ -489,6 +549,12 @@ export default async function DashboardPage({
             <p className="mt-1 text-[13px] text-ink/50">
               This month&rsquo;s deadlines, judged on when you submitted.
             </p>
+
+            {personalBest && (
+              <p className="mt-3 rounded-[10px] border border-brand/20 bg-brand-tint px-3 py-2 text-[13px] leading-relaxed text-brand">
+                {personalBest}
+              </p>
+            )}
 
             <div className="mt-6 flex items-center gap-6">
               <ScoreRing score={ownScore} size="md" showLabel />

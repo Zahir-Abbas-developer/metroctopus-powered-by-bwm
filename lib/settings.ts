@@ -47,6 +47,18 @@ export type AgencySettings = {
   healthWeightRoas: number;
   healthWeightPayment: number;
   healthWeightBlocked: number;
+  // Phase 11 — delegation, incentives and culture.
+  leadEscalationHours: number;
+  bonusThresholdScore: number;
+  bonusStreakMonths: number;
+  defaultBonusPercent: number;
+  reviewThresholdScore: number;
+  reviewWindowMonths: number;
+  reviewTriggerCount: number;
+  disputeWindowDays: number;
+  disputeSlaHours: number;
+  leaderboardVisibility: string;
+  backupWarnHours: number;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -83,6 +95,17 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   healthWeightRoas: 30,
   healthWeightPayment: 20,
   healthWeightBlocked: 15,
+  leadEscalationHours: 24,
+  bonusThresholdScore: 90,
+  bonusStreakMonths: 3,
+  defaultBonusPercent: 10,
+  reviewThresholdScore: 60,
+  reviewWindowMonths: 3,
+  reviewTriggerCount: 2,
+  disputeWindowDays: 7,
+  disputeSlaHours: 72,
+  leaderboardVisibility: "ADMIN_ONLY",
+  backupWarnHours: 26,
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -126,6 +149,17 @@ export async function getSettings(): Promise<AgencySettings> {
     healthWeightRoas: row.healthWeightRoas,
     healthWeightPayment: row.healthWeightPayment,
     healthWeightBlocked: row.healthWeightBlocked,
+    leadEscalationHours: row.leadEscalationHours,
+    bonusThresholdScore: row.bonusThresholdScore,
+    bonusStreakMonths: row.bonusStreakMonths,
+    defaultBonusPercent: row.defaultBonusPercent,
+    reviewThresholdScore: row.reviewThresholdScore,
+    reviewWindowMonths: row.reviewWindowMonths,
+    reviewTriggerCount: row.reviewTriggerCount,
+    disputeWindowDays: row.disputeWindowDays,
+    disputeSlaHours: row.disputeSlaHours,
+    leaderboardVisibility: row.leaderboardVisibility,
+    backupWarnHours: row.backupWarnHours,
   };
 }
 
@@ -145,6 +179,17 @@ export function healthWeightsFrom(settings: AgencySettings) {
     roas: settings.healthWeightRoas,
     payment: settings.healthWeightPayment,
     blocked: settings.healthWeightBlocked,
+  };
+}
+
+/** The incentive rules, in the shape lib/incentives.ts expects. */
+export function incentiveConfigFrom(settings: AgencySettings) {
+  return {
+    bonusThresholdScore: settings.bonusThresholdScore,
+    bonusStreakMonths: settings.bonusStreakMonths,
+    reviewThresholdScore: settings.reviewThresholdScore,
+    reviewWindowMonths: settings.reviewWindowMonths,
+    reviewTriggerCount: settings.reviewTriggerCount,
   };
 }
 

@@ -17,6 +17,7 @@
     "db:deploy": "node scripts/sync-db-provider.mjs && prisma migrate deploy",
     "db:seed": "node scripts/sync-db-provider.mjs && tsx prisma/seed.ts",
     "db:seed:admin": "node scripts/sync-db-provider.mjs && tsx prisma/seed-admin.ts",
+    "promote": "node scripts/sync-db-provider.mjs && node scripts/promote-admin.mjs",
     "db:studio": "prisma studio",
     "db:reset": "node scripts/sync-db-provider.mjs && prisma db push --force-reset && npm run db:seed"
   },

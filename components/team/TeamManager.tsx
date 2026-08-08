@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/Toast";
 import { StatCard } from "@/components/ui/StatCard";
 import { Tabs } from "@/components/ui/Tabs";
 import { UtilizationGrid } from "@/components/capacity/UtilizationGrid";
+import { ServiceLeadPanel } from "@/components/team/ServiceLeadPanel";
 import {
   Table,
   TableShell,
@@ -53,7 +54,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const toast = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
-  const [view, setView] = useState<"roster" | "utilization">("roster");
+  const [view, setView] = useState<"roster" | "leads" | "utilization">("roster");
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "onTime",
     desc: true,
@@ -141,11 +142,14 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
       <Tabs
         items={[
           { key: "roster", label: "Roster" },
+          { key: "leads", label: "Service leads" },
           { key: "utilization", label: "Utilization" },
         ]}
         active={view}
         onChange={setView}
       />
+
+      {view === "leads" && <ServiceLeadPanel />}
 
       {view === "utilization" && <UtilizationGrid />}
 

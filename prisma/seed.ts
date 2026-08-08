@@ -326,6 +326,7 @@ async function main() {
   const fairness = await seedFairness(admin.id);
   const growth = await seedGrowth(admin.id, members);
   const outcomes = await seedOutcomes();
+  const governance = await seedGovernance(admin.id);
   const { reports, notifications } = await seedReportsAndNotifications();
   const collab = await seedCollaboration(admin.id);
 
@@ -341,6 +342,7 @@ async function main() {
     ...fairness,
     ...growth,
     ...outcomes,
+    ...governance,
     ...collab,
   });
 }
@@ -566,6 +568,167 @@ async function createAttendanceEvent(event: {
       createdAt: event.at,
     },
   });
+}
+
+/**
+ * The Phase 11 surfaces: who leads which service line, a backup owner, and
+ * enough history that the disputes and audit screens open with something in
+ * them rather than three empty states.
+ *
+ * The lead assignments follow the brief exactly — Shahnawaz leads the Shopify
+ * line, Subtain leads both ad lines — because those are the real specialisms
+ * on the roster in CLAUDE.md.
+ */
+async function seedGovernance(adminId: string) {
+  await prisma.serviceLead.deleteMany({});
+  await prisma.dispute.deleteMany({});
+  await prisma.auditLog.deleteMany({});
+  await prisma.incentiveAward.deleteMany({});
+  await prisma.jobRun.deleteMany({});
+  await prisma.backupRun.deleteMany({});
+
+  const now = new Date();
+
+  const services = await prisma.serviceCatalog.findMany({ select: { id: true, slug: true } });
+  const bySlug = new Map(services.map((service) => [service.slug, service.id]));
+
+  const people = await prisma.user.findMany({ select: { id: true, name: true, jobTitle: true } });
+  const find = (fragment: string) =>
+    people.find((person) => person.name.toLowerCase().includes(fragment.toLowerCase()));
+
+  const shahnawaz = find("Shahnawaz");
+  const subtain = find("Subtain");
+
+  const assignments: [string | undefined, string[]][] = [
+    [shahnawaz?.id, ["shopify-design-development"]],
+    [subtain?.id, ["google-ads-management", "meta-ads-management"]],
+  ];
+
+  let leads = 0;
+  for (const [userId, slugs] of assignments) {
+    if (!userId) continue;
+    for (const slug of slugs) {
+      const serviceId = bySlug.get(slug);
+      if (!serviceId) continue;
+      await prisma.serviceLead.create({ data: { userId, serviceId } });
+      leads += 1;
+    }
+  }
+
+  // A backup owner, so the "admin is unavailable" path has somewhere to
+  // escalate to that isn't a single point of failure.
+  const backup = find("Saad");
+  if (backup) {
+    await prisma.user.update({ where: { id: backup.id }, data: { role: "ADMIN" } });
+  }
+
+  // --- A decided dispute and an open one -----------------------------------
+  const charges = await prisma.scoreEvent.findMany({
+    where: { points: { lt: 0 }, type: { in: ["LATE", "ATTENDANCE_MISS", "REJECTED"] } },
+    orderBy: { createdAt: "desc" },
+    take: 2,
+  });
+
+  let disputes = 0;
+  for (const [index, charge] of charges.entries()) {
+    const open = index === 0;
+
+    await prisma.dispute.create({
+      data: {
+        scoreEventId: charge.id,
+        userId: charge.userId,
+        reason:
+          index === 0
+            ? "The client's ad account access didn't come through until the 14th — the deadline assumed the 11th. I've forwarded the thread."
+            : "I was on a call with the client when the check fired and answered nine minutes after the window closed.",
+        status: open ? "OPEN" : "REVERSED",
+        ...(open
+          ? {}
+          : {
+              resolvedById: adminId,
+              resolvedAt: addDays(now, -2),
+              responseNote:
+                "You're right — the access request is timestamped the 14th. Points returned.",
+            }),
+        createdAt: addDays(now, open ? -1 : -4),
+      },
+    });
+    disputes += 1;
+
+    if (!open) {
+      const cycle = agencyYearMonth(charge.createdAt);
+      await prisma.scoreEvent.create({
+        data: {
+          userId: charge.userId,
+          type: "MANUAL_ADJUST",
+          points: Math.abs(charge.points),
+          reason: "Dispute upheld: the access request is timestamped the 14th.",
+          year: cycle.year,
+          month: cycle.month,
+          dedupeKey: `dispute-seed:${charge.id}:REVERSAL`,
+          createdById: adminId,
+          createdAt: addDays(now, -2),
+        },
+      });
+    }
+  }
+
+  // --- Some audit history --------------------------------------------------
+  const auditSeed: [string, string, string, boolean][] = [
+    ["LEAD_ASSIGNED", "User", "Shahnawaz leads Shopify Design & Development", false],
+    ["LEAD_ASSIGNED", "User", "Subtain leads Google Ads Management, Meta Ads Management", false],
+    ["MILESTONE_APPROVED", "Milestone", "Approved \"Week 2 optimization & report\" at 4 stars", true],
+    ["DISPUTE_RESOLVED", "Dispute", "Reversed the charge — the access request is timestamped the 14th", false],
+    ["SETTINGS_EDITED", "Settings", "Changed leaderboardVisibility", false],
+  ];
+
+  let audits = 0;
+  for (const [index, [action, entityType, summary, asLead]] of auditSeed.entries()) {
+    await prisma.auditLog.create({
+      data: {
+        actorId: asLead ? (subtain?.id ?? adminId) : adminId,
+        action,
+        entityType,
+        summary,
+        asLead,
+        ...(action === "SETTINGS_EDITED"
+          ? {
+              beforeJson: JSON.stringify({ leaderboardVisibility: "TEAM_VISIBLE" }),
+              afterJson: JSON.stringify({ leaderboardVisibility: "ADMIN_ONLY" }),
+            }
+          : {}),
+        createdAt: addDays(now, -(index + 1) * 0.8),
+      },
+    });
+    audits += 1;
+  }
+
+  // --- Job runs, so the health widget is green rather than "never run" -----
+  for (const job of ["evaluate", "backup"]) {
+    const startedAt = addDays(now, -0.4);
+    await prisma.jobRun.create({
+      data: {
+        job,
+        startedAt,
+        finishedAt: new Date(startedAt.getTime() + 4200),
+        status: "OK",
+        summary: job === "evaluate" ? "0 renewed · 0 absent · no month close" : "SKIPPED · local SQLite",
+        durationMs: 4200,
+      },
+    });
+  }
+
+  await prisma.backupRun.create({
+    data: {
+      startedAt: addDays(now, -0.4),
+      finishedAt: addDays(now, -0.4),
+      status: "OK",
+      location: "(demo) provider snapshot",
+      sizeBytes: 4_812_000,
+    },
+  });
+
+  return { serviceLeads: leads, seededDisputes: disputes, auditEntries: audits };
 }
 
 /**
@@ -1535,6 +1698,9 @@ function print(stats: {
   qualityRatings: number;
   kpiWeeks: number;
   paidCycles: number;
+  serviceLeads: number;
+  seededDisputes: number;
+  auditEntries: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -1571,6 +1737,10 @@ function print(stats: {
   console.log(
     `  ${stats.qualityRatings} quality ratings · ${stats.kpiWeeks} KPI weeks · ` +
       `${stats.paidCycles} cycles paid`,
+  );
+  console.log(
+    `  ${stats.serviceLeads} service leads · ${stats.seededDisputes} disputes · ` +
+      `${stats.auditEntries} audit entries`,
   );
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");

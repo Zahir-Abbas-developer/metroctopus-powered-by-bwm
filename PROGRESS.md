@@ -1598,3 +1598,210 @@ each naming *why* rather than only how bad.
   step.
 - **Health has no memory.** It is computed fresh each time, so the dashboard can
   say a client is at risk but not that they have been sliding for a month.
+
+---
+
+## Phase 11 — The business runs without the owner (8 August 2026) · **v2.0.0**
+
+Four systems so the agency keeps working — and keeps being fair — when the one
+person who could approve anything is unavailable.
+
+### Service leads
+
+A member who leads a service line carries the owner's approval authority inside
+it: approving and rejecting work with the Phase 10 quality rating, excusing
+availability checks, ruling on outages and disputes, and seeing their pod's
+numbers.
+
+Two limits, both enforced server-side in `lib/permissions.ts` — a pure module
+with 34 tests, because this is the file that decides whether somebody can
+approve their own work:
+
+1. **A lead can never act on themselves.** Not their milestones, not their
+   attendance, not their disputes, and not a dispute about a charge they raised
+   — which is the same conflict one step removed. It is not overridable by
+   configuration.
+2. **Authority stops at the service boundary.** Leading Google Ads confers
+   nothing over a Shopify build.
+
+The self-check runs *before* the scope check, so a lead looking at their own
+out-of-scope milestone is told "you can't decide on your own work" rather than
+the less useful "outside your service lines".
+
+**Review routing.** A submission goes to its service lead first. After the
+escalation window the owner is *added* rather than the lead being *removed* —
+delegation must not become a place work goes to die, but taking the lead off it
+would punish them for a busy Tuesday. When the lead is the assignee it routes
+straight to the owner instead of sitting in a queue nobody may legitimately
+clear. Average decision time is now measured **per reviewer**: a lead who sits
+on approvals does the same damage the owner was doing before Phase 8, and
+measuring only the owner would quietly exempt them.
+
+**A second owner.** `npm run promote -- someone@agency.local`, a script rather
+than only a button, because the situation you most need a backup owner in is
+the one where the only existing owner cannot sign in. It refuses to remove the
+last active owner.
+
+### The incentive engine
+
+**Excellence streak** — three consecutive months at 90+. **Performance review**
+— two of the last three below 60. The asymmetry is deliberate: a bonus rewards a
+*sustained run*, a review catches a *pattern*, and making both work the same way
+would either trivialise the bonus or make the review trigger-happy.
+
+Members see only their own streak, framed as progress toward something. The
+review rule is stated plainly on the scoring page but never counted down at
+anyone — a member having a bad run does not need a card ticking towards a
+difficult conversation.
+
+Evidence is **frozen into the award** when it is raised: the score events, the
+attendance summary, the disputes. A review conversation two weeks later has to
+be about the same numbers that raised it.
+
+### Formal disputes
+
+Any deduction can be challenged within seven days, from the member's own ledger
+row — the moment of disagreement is when someone is looking at the charge, not
+later when they have to remember to find a form.
+
+Whichever way it goes, **the original event survives**. A reversal writes a
+compensating `MANUAL_ADJUST` beside it, charged to the same cycle as the
+original so reversing a March charge in April credits March. A written response
+is mandatory on *either* outcome, because upholding in silence is exactly what
+this replaces.
+
+The monthly reversal rate never appears without its sentence. A high rate is a
+measurement of the **rules**, not of the people filing — the honest response is
+to change the thresholds, and a bare percentage invites the opposite reading. A
+zero rate gets questioned too: it means either well-calibrated scoring or
+challenges not getting a fair hearing, and the answer is in the response notes.
+
+### Culture and ops
+
+**Leaderboard visibility** defaults to owner-only. Ranking five people against
+each other makes fourth place feel like failure when fourth of five at 88 is a
+good month, so members get their own numbers and their own trend — "your best
+month yet", "up 4 points on last month" — measured against their own past.
+
+**`/api/health`** is unauthenticated: a monitor cannot hold a session, and a
+health endpoint behind auth only tells the truth when you are already logged in.
+It answers 503 **only** when the database is unreachable; a late backup is a 200
+with `"status": "degraded"`, because paging someone about a stale snapshot as
+though the app were down is how alerts get muted. Every scheduled job stamps a
+`JobRun` row, and a one-line widget on the dashboard turns a silently dead cron
+into the only red thing on a page of healthy numbers.
+
+**Backups.** The managed provider's snapshots are the primary path and the
+README says so first. This job is a second copy and a liveness signal; where
+`pg_dump` is absent — Vercel — it records **SKIPPED**, because a backup system
+that reports success when it did nothing is worse than none. The restore
+procedure is documented, restores to a *new* database, and ends by re-running
+the idempotent evaluation pass.
+
+**`/admin/audit`** records every exercise of authority with a before/after diff
+of only the fields that moved. "Adjusted a score" is a note; "−2 → 0 on this
+event, by this person, at this time" is a record.
+
+### Acceptance: a full month with the owner sealed out
+
+The walkthrough runs the whole business end to end and **counts owner
+requests** during the blackout rather than trusting the script to behave — any
+call through the owner's session while sealed fails the run. It reported zero.
+
+Lead logged → activities → won (+3 to the closer) → owner converts and a
+14-milestone plan generates → **owner goes dark** → work submitted and routed to
+the ads lead → the Shopify lead is refused for being out of scope → the ads lead
+approves at 4 stars, tagged delegated → the ads lead is refused on their own
+milestone and it is absent from their queue → a block, a missed check excused by
+the lead, the original charge surviving → a dispute filed, ruled by the lead,
+points returned with the original intact → seven nightly passes → month close
+awards the streak, re-running awards nothing → **owner returns** and sees every
+queue, each reviewer's average, and seven delegated actions in the audit log.
+
+- **351 unit tests** (61 added: 34 permissions, 27 incentives).
+- **51 acceptance checks**, plus **14 Postgres migration checks** covering every
+  unique index that carries a correctness guarantee and that the audit trail
+  outlives the actor.
+- `tsc`, `next lint`, production build and the seed all clean.
+
+### Two bugs the acceptance run found
+
+1. **An empty month scored 100 and counted toward the excellence streak.** A
+   score is `100 + sum(events)`, so a month with no events is a perfect month —
+   correct for someone who had a clean month, completely wrong for a month
+   nobody was here. Every member of a brand-new agency would have earned a bonus
+   after three months of an empty database, and anyone on extended leave would
+   have accrued a streak for doing nothing. A month now only counts with
+   evidence of work: score events, days worked, or milestones that came due. The
+   walkthrough caught it because a three-month setup reported a seven-month
+   streak.
+2. **The status route swallowed the useful refusal.** A lead trying to approve
+   their own work got the generic "only the owner or the service lead can do
+   that" instead of "you can't decide on your own work — this one goes to the
+   owner". The permission layer produced the right message; the route replaced
+   it with its own.
+
+### Known limits
+
+- **A pod is computed from live assignments.** A lead's attendance authority
+  covers whoever currently has work in their service lines, so it shifts as work
+  is reassigned. Correct for a team of five that shuffles constantly; it would
+  need a real membership model at twenty.
+- **Dispute file attachments are modelled but have no upload route.** The
+  `DisputeFile` table and the relation exist; the member writes their case in
+  text and links to evidence. Wiring it to the Phase 5 upload path is small.
+- **The audit log has no retention policy.** It grows forever, which is right
+  for now and will want thought before it is years old.
+- **Incentive amounts are a payroll reference.** This app never moves money, and
+  making it look like it does would be a much larger feature wearing a smaller
+  one's clothes.
+
+---
+
+## v2.0.0 — what eleven phases built
+
+| Phase | |
+| --- | --- |
+| **1** | Design system, auth with three guard layers, team management |
+| **2** | Clients, engagements, planning templates, the milestone planner |
+| **3** | The scoring engine — pure, ledger-backed, exhaustively tested |
+| **4** | Frozen-snapshot reports and notifications |
+| **5** | Kanban board, milestone drawer, comments, files, activity, search |
+| **6** | Postgres, email, cron, hardening, deployment · **v1.0.0** |
+| **7** | Smart attendance with random availability checks |
+| **8** | Fairness corrections — scoring engine v2 |
+| **9** | Growth — pipeline, auto-renewal, capacity planning |
+| **10** | Outcomes — quality ratings, client KPIs, payments, health |
+| **11** | Delegation, incentives, disputes, audit · **v2.0.0** |
+
+**Totals:** 351 unit tests, ~250 HTTP acceptance checks across the phases, 70
+routes, 27 tables.
+
+The decisions that shaped it, in order of how much they mattered:
+
+1. **The score is never stored.** `ScoreEvent` is append-only and a score is
+   always `100 + sum(that month's events)`. Every correction since — excusals,
+   vetoes, dispute reversals — writes a compensating entry rather than editing
+   one, so the ledger can always explain itself.
+2. **Nobody approves their own work.** True of members since Phase 3 and of
+   service leads since Phase 11. It is the one rule with no configuration
+   switch.
+3. **Fairness is a functional requirement, not a courtesy.** A scoring system
+   people believe is unfair gets gamed or ignored. Phase 8 moved lateness onto
+   submission, paused the clock for blocked work, and made the owner's review
+   time the owner's problem — and every phase since has had to hold that line.
+4. **Idempotency is a database guarantee**, not a convention. Unique dedupe
+   keys on score events, reports, notifications, renewals, targets and awards.
+5. **The pure core is pure.** Scoring, narrative, capacity, health, permissions
+   and incentives have no database and no clock, which is the only reason they
+   could be tested to this depth.
+6. **Secrecy where it changes behaviour.** Availability check times exit through
+   one visibility gate, and a test asserts the secret never appears in a
+   serialised payload.
+
+### What would need attention before this scales past a dozen people
+
+- Rate limiting is per-instance; a global limit needs Redis.
+- Uploads are local files — two functions in `lib/uploads.ts` to replace.
+- Pods, leaderboard framing and the review queue all assume a small team.
+- The ad-platform integrations are documented but unbuilt (`lib/integrations/`).

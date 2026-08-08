@@ -116,6 +116,7 @@ Set these in the Vercel project (all environments):
 | `SMTP_*`, `EMAIL_FROM` | Optional; email is skipped and logged when unset |
 | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Optional; web push is skipped when unset |
 | `WHATSAPP_*` | Optional; the WhatsApp channel is skipped when unset |
+| `BACKUP_DIR` | Optional; where `pg_dump` writes. Unset means the provider's snapshots are the only backup |
 
 `.env.example` documents every one of them.
 
@@ -176,7 +177,88 @@ refuses passwords under 12 characters and known defaults like `admin123`. Sign
 in, then add your team from `/team`; each member gets a welcome email with
 their credentials if SMTP is configured.
 
-### 5. Scheduled jobs
+### 5. Backups and restore
+
+**The provider's own snapshots are the primary backup.** Neon has
+point-in-time restore; Supabase takes daily backups. Both are continuous,
+off-host, and maintained by someone whose job that is. Turn one of them on
+before anything else:
+
+- **Neon** — Branches → *Restore*. Point-in-time is on by default; the
+  retention window is set per project.
+- **Supabase** — Database → Backups. Daily on the free tier, PITR on Pro.
+
+The app runs a *second* copy nightly and, more importantly, records whether it
+happened. Set `BACKUP_DIR` to a writable path and schedule
+`/api/cron/backup`. On Vercel there is no `pg_dump` and no persistent disk, so
+the run records itself as **SKIPPED** — which is the honest outcome. A backup
+system that reports success when it did nothing is worse than none.
+
+Settings shows the last successful backup, and warns after
+`backupWarnHours` (26 by default).
+
+#### Restoring
+
+Test this before you need it. A backup nobody has restored from is a
+hypothesis.
+
+```bash
+# 1. Stop writes — put the app in maintenance or pause the deployment.
+
+# 2. Restore into a NEW database first, never over the live one.
+createdb agencyos_restore
+pg_restore --no-owner --no-privileges --dbname=agencyos_restore backup.dump
+
+# 3. Check it's the database you think it is.
+psql agencyos_restore -c 'select count(*) from "ScoreEvent";'
+psql agencyos_restore -c 'select max("createdAt") from "AuditLog";'
+
+# 4. Point DATABASE_URL at the restored database and redeploy.
+```
+
+From a provider snapshot, restore to a new branch or project and repoint
+`DATABASE_URL` — same rule: never restore in place.
+
+After any restore, run the evaluation pass once manually. It is idempotent, so
+it will settle anything the missing window should have done without
+double-charging:
+
+```bash
+curl -X POST https://your-app.vercel.app/api/cron/evaluate \
+  -H "Authorization: Bearer $CRON_SECRET"
+```
+
+### 6. Health and monitoring
+
+`GET /api/health` is unauthenticated and returns JSON:
+
+```json
+{ "status": "ok", "database": { "ok": true }, "jobs": [...], "backup": {...} }
+```
+
+It answers **503 only when the database is unreachable**. A late backup or a
+job that hasn't run is `200` with `"status": "degraded"` — those are real
+problems but they are not "the app is down", and paging someone as though they
+were is how alerts get muted.
+
+Point an uptime monitor at it. The owner's dashboard carries the same
+information as a one-line widget.
+
+### 7. A second owner
+
+The situation you most need a backup owner in is the one where the only
+existing owner cannot sign in — so promotion is a script, not just a button:
+
+```bash
+npm run promote -- --list
+npm run promote -- someone@agency.local
+npm run promote -- someone@agency.local --demote
+```
+
+It refuses to remove the last active owner, and records the change in the audit
+log like any other role change.
+
+### 8. Scheduled jobs
 
 `vercel.json` registers three crons. Vercel schedules in **UTC**; the agency
 works in Asia/Karachi (UTC+5):
