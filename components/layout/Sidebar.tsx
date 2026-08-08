@@ -9,6 +9,7 @@ import {
   CheckSquare,
   FileText,
   Gauge,
+  KanbanSquare,
   Layers,
   LayoutDashboard,
   LogOut,
@@ -23,6 +24,7 @@ import { Avatar } from "@/components/ui/Avatar";
 
 const ICONS: Record<NavKey, LucideIcon> = {
   dashboard: LayoutDashboard,
+  board: KanbanSquare,
   clients: Briefcase,
   projects: Layers,
   "my-tasks": CheckSquare,

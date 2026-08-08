@@ -20,6 +20,7 @@ import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { StatCard } from "@/components/ui/StatCard";
 import {
   Table,
@@ -40,9 +41,9 @@ type Status = "loading" | "ready" | "error";
 type SortKey = "name" | "score" | "joined";
 
 export function TeamManager({ currentUserId }: { currentUserId: string }) {
+  const toast = useToast();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
-  const [flash, setFlash] = useState<string | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "name",
     desc: false,
@@ -69,18 +70,11 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
     void load();
   }, [load]);
 
-  // Success banners fade out on their own so the table stays the focus.
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 4000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
   function onSaved(message: string) {
     setFormOpen(false);
     setEditing(null);
     setStatusTarget(null);
-    setFlash(message);
+    toast.success(message);
     void load();
   }
 
@@ -124,16 +118,6 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
           </Button>
         }
       />
-
-      {flash && (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-card border border-brand/20 bg-brand-tint px-4 py-3 text-[13px] leading-relaxed text-brand"
-        >
-          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{flash}</span>
-        </div>
-      )}
 
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard

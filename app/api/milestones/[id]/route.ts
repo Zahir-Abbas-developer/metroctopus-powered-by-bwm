@@ -5,13 +5,14 @@ import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, updateMilestoneSchema } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
 import { clientNameForModule, notifyAssigned } from "@/lib/notifications";
+import { recordDueDateChange, recordReassignment } from "@/lib/activity";
 
 /** Field edits are the owner's alone. Status changes live in ./status. */
 export async function PATCH(
   request: Request,
   { params }: { params: { id: string } },
 ) {
-  const { response } = await requireAdminApi();
+  const { user: admin, response } = await requireAdminApi();
   if (response) return response;
 
   let body: unknown;
@@ -57,6 +58,33 @@ export async function PATCH(
       },
       include: { assignee: { select: { id: true, name: true, avatarColor: true } } },
     });
+    if (assigneeId !== undefined && (assigneeId ?? null) !== existing.assigneeId) {
+      const previous = existing.assigneeId
+        ? await prisma.user.findUnique({
+            where: { id: existing.assigneeId },
+            select: { name: true },
+          })
+        : null;
+
+      await recordReassignment({
+        milestoneId: milestone.id,
+        title: milestone.title,
+        fromName: previous?.name ?? null,
+        toName: milestone.assignee?.name ?? null,
+        actorId: admin!.id,
+      });
+    }
+
+    if (parsedDue && parsedDue.getTime() !== existing.dueDate.getTime()) {
+      await recordDueDateChange({
+        milestoneId: milestone.id,
+        title: milestone.title,
+        from: existing.dueDate,
+        to: parsedDue,
+        actorId: admin!.id,
+      });
+    }
+
     // Only on a genuine handover — re-saving the same assignee shouldn't ping
     // them again.
     if (assigneeId && assigneeId !== existing.assigneeId) {

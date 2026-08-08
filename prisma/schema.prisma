@@ -45,6 +45,10 @@ model User {
   authoredScore ScoreEvent[]   @relation("ScoreEventAuthor")
   reports       Report[]
   notifications Notification[]
+  comments      Comment[]
+  mentions      CommentMention[]
+  attachments   Attachment[]
+  activity      Activity[]       @relation("ActivityActor")
 
   @@index([role])
   @@index([isActive])
@@ -175,6 +179,9 @@ model Milestone {
   module      Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   assignee    User?        @relation("MilestoneAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   scoreEvents ScoreEvent[]
+  comments    Comment[]
+  attachments Attachment[]
+  activity    Activity[]
 
   @@index([moduleId])
   @@index([assigneeId, status])
@@ -256,6 +263,95 @@ model Report {
   @@index([type, periodStart])
   @@index([userId, type])
   @@index([clientId, type])
+}
+
+// ---------------------------------------------------------------------------
+// Phase 5 — Collaboration on a milestone
+// ---------------------------------------------------------------------------
+
+/// A comment on a milestone. One level of threading: a reply points at the
+/// comment it answers, and replies of replies are flattened into the same
+/// thread — deep nesting turns a work discussion into a maze.
+model Comment {
+  id          String   @id @default(cuid())
+  milestoneId String
+  userId      String
+  body        String
+  /// Null for a top-level comment; otherwise the comment being replied to.
+  parentId    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  milestone Milestone        @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parent    Comment?         @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   Comment[]        @relation("CommentThread")
+  mentions  CommentMention[]
+
+  @@index([milestoneId, createdAt])
+  @@index([parentId])
+}
+
+/// Who a comment mentioned. Stored rather than re-parsed, so renaming someone
+/// can never silently change who was notified about what.
+model CommentMention {
+  id        String @id @default(cuid())
+  commentId String
+  userId    String
+
+  comment Comment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([commentId, userId])
+  @@index([userId])
+}
+
+/// An uploaded file.
+///
+/// `storedName` is server-generated and is the only thing ever used to build a
+/// path; `filename` is the untrusted original, kept for display only.
+model Attachment {
+  id          String   @id @default(cuid())
+  milestoneId String
+  uploaderId  String
+  /// Original name, shown to people. Never used for filesystem access.
+  filename    String
+  /// Generated name on disk, e.g. "<cuid>.png".
+  storedName  String   @unique
+  mimeType    String
+  /// Bytes.
+  size        Int
+  createdAt   DateTime @default(now())
+
+  milestone Milestone @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  uploader  User      @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+
+  @@index([milestoneId, createdAt])
+}
+
+/// The audit trail: what happened, to what, and who did it.
+///
+/// Written by the routes that change things rather than by database triggers,
+/// so each entry can carry a sentence a person can actually read.
+model Activity {
+  id          String   @id @default(cuid())
+  /// "STATUS_CHANGED" | "REASSIGNED" | "DUE_DATE_CHANGED" | "SCORE_EVENT"
+  /// | "COMMENT_ADDED" | "ATTACHMENT_ADDED" | "MILESTONE_CREATED"
+  type        String
+  /// Pre-rendered, e.g. "moved Campaign launch to Submitted".
+  summary     String
+  /// Optional extra detail — a rejection reason, the old and new date.
+  detail      String?
+  milestoneId String?
+  /// Null for anything the system did on its own (the evaluation pass).
+  actorId     String?
+  createdAt   DateTime @default(now())
+
+  milestone Milestone? @relation(fields: [milestoneId], references: [id], onDelete: Cascade)
+  actor     User?      @relation("ActivityActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt])
+  @@index([milestoneId, createdAt])
 }
 
 /// An in-app notification. No email yet — that's a later phase.

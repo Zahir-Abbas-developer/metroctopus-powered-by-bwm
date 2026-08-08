@@ -6,6 +6,7 @@ import { Menu, X } from "lucide-react";
 
 import { Sidebar, type SidebarUser } from "@/components/layout/Sidebar";
 import { NotificationBell } from "@/components/layout/NotificationBell";
+import { CommandPalette } from "@/components/layout/CommandPalette";
 
 /**
  * Fixed 240px rail on desktop; a slide-over drawer below `lg`. The drawer
@@ -91,7 +92,8 @@ export function AppShell({
       <div className="lg:pl-sidebar">
         {/* Desktop top bar. Deliberately slim — it exists for the bell, and a
             heavier header would fight the editorial page headings below it. */}
-        <div className="no-print sticky top-0 z-20 hidden justify-end border-b border-line bg-paper/90 px-10 py-3 backdrop-blur lg:flex">
+        <div className="no-print sticky top-0 z-20 hidden items-center justify-end gap-2.5 border-b border-line bg-paper/90 px-10 py-3 backdrop-blur lg:flex">
+          <CommandPalette />
           <NotificationBell />
         </div>
 

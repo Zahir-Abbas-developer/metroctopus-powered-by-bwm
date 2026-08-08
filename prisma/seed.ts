@@ -6,6 +6,7 @@ import { planFor, defaultAssigneeFor } from "../lib/templates";
 import { addDays, dueDeadline, agencyYearMonth, toDateOnly, formatDate } from "../lib/date";
 import { generateReports } from "../lib/reports";
 import { notify } from "../lib/notifications";
+import { mentionedUserIds } from "../lib/mentions";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "../lib/scoring";
 
 const prisma = new PrismaClient();
@@ -281,8 +282,128 @@ async function main() {
 
   const scoreEvents = await backfillScoreEvents(admin.id);
   const { reports, notifications } = await seedReportsAndNotifications();
+  const collab = await seedCollaboration(admin.id);
 
-  print({ projectCount, milestoneCount, scoreEvents, reports, notifications });
+  print({
+    projectCount,
+    milestoneCount,
+    scoreEvents,
+    reports,
+    notifications,
+    ...collab,
+  });
+}
+
+/**
+ * A little conversation and history, so the drawer and the activity feed open
+ * with something real in them rather than three empty states.
+ */
+async function seedCollaboration(adminId: string) {
+  await prisma.comment.deleteMany({});
+  await prisma.activity.deleteMany({});
+
+  const members = await prisma.user.findMany({
+    where: { isActive: true },
+    select: { id: true, name: true },
+  });
+
+  const milestones = await prisma.milestone.findMany({
+    where: { assigneeId: { not: null } },
+    orderBy: { dueDate: "asc" },
+    take: 6,
+    select: { id: true, title: true, assigneeId: true, status: true },
+  });
+
+  const SCRIPT = [
+    "Kicked this off — the tracking plan is in the shared drive.",
+    "@{owner} the client asked for one more concept direction. Fine to add a day?",
+    "Approved on the call. Numbers look healthy so far.",
+    "Blocked on brand assets — chased the client this morning.",
+  ];
+
+  let comments = 0;
+  let activity = 0;
+
+  for (const [index, milestone] of milestones.entries()) {
+    const author = members.find((m) => m.id === milestone.assigneeId);
+    if (!author) continue;
+
+    const body = SCRIPT[index % SCRIPT.length].replace(
+      "{owner}",
+      members.find((m) => m.id === adminId)?.name ?? "Hamza Sheikh",
+    );
+
+    const mentioned = mentionedUserIds(body, members).filter((id) => id !== author.id);
+
+    const comment = await prisma.comment.create({
+      data: {
+        milestoneId: milestone.id,
+        userId: author.id,
+        body,
+        mentions: { create: mentioned.map((userId) => ({ userId })) },
+      },
+    });
+    comments += 1;
+
+    // Every other thread gets a reply from the owner.
+    if (index % 2 === 1) {
+      await prisma.comment.create({
+        data: {
+          milestoneId: milestone.id,
+          userId: adminId,
+          parentId: comment.id,
+          body: "Yes — take the extra day, but keep week 4 where it is.",
+        },
+      });
+      comments += 1;
+    }
+
+    await prisma.activity.create({
+      data: {
+        type: "COMMENT_ADDED",
+        summary: `commented on "${milestone.title}"`,
+        detail: body.slice(0, 120),
+        milestoneId: milestone.id,
+        actorId: author.id,
+      },
+    });
+    activity += 1;
+  }
+
+  // A spread of the other activity types, so the feed shows real variety.
+  for (const milestone of milestones.slice(0, 4)) {
+    await prisma.activity.create({
+      data: {
+        type: "STATUS_CHANGED",
+        summary: `moved "${milestone.title}" from Pending to In progress`,
+        milestoneId: milestone.id,
+        actorId: milestone.assigneeId,
+      },
+    });
+    activity += 1;
+  }
+
+  const scored = await prisma.scoreEvent.findMany({
+    take: 4,
+    orderBy: { createdAt: "desc" },
+    include: { user: { select: { name: true } }, milestone: { select: { id: true } } },
+  });
+
+  for (const event of scored) {
+    await prisma.activity.create({
+      data: {
+        type: "SCORE_EVENT",
+        summary: `${event.points > 0 ? "+" : "−"}${Math.abs(event.points).toFixed(1)} for ${event.user.name}`,
+        detail: event.reason,
+        milestoneId: event.milestone?.id ?? null,
+        actorId: event.createdById,
+        createdAt: event.createdAt,
+      },
+    });
+    activity += 1;
+  }
+
+  return { comments, activity };
 }
 
 /**
@@ -509,6 +630,8 @@ function print(stats: {
   scoreEvents: number;
   reports: number;
   notifications: number;
+  comments: number;
+  activity: number;
 }) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
@@ -529,6 +652,7 @@ function print(stats: {
       `${stats.milestoneCount} milestones · ${stats.scoreEvents} score events`,
   );
   console.log(`  ${stats.reports} reports · ${stats.notifications} notifications`);
+  console.log(`  ${stats.comments} comments · ${stats.activity} activity entries`);
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");
 }

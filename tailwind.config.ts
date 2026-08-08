@@ -77,10 +77,20 @@ const config: Config = {
         shimmer: {
           "100%": { transform: "translateX(100%)" },
         },
+        /* Transform-only: if the animation never runs, the element is still
+           in its final position rather than invisible. */
+        "slide-in-right": {
+          from: { transform: "translateX(100%)" },
+          to: { transform: "translateX(0)" },
+        },
       },
       animation: {
-        "fade-in": "fade-in 160ms ease-out",
-        "scale-in": "scale-in 180ms cubic-bezier(0.22, 1, 0.36, 1)",
+        // `forwards` matters: without a fill mode these animations leave the
+        // element at its pre-animation opacity if the animation is suppressed
+        // or interrupted, which silently renders panels invisible.
+        "fade-in": "fade-in 160ms ease-out forwards",
+        "scale-in": "scale-in 180ms cubic-bezier(0.22, 1, 0.36, 1) forwards",
+        "slide-in-right": "slide-in-right 220ms cubic-bezier(0.22, 1, 0.36, 1)",
         shimmer: "shimmer 1.6s infinite",
       },
     },

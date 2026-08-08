@@ -33,6 +33,8 @@ import { ScoreRing } from "@/components/ui/ScoreRing";
 import { StatCard } from "@/components/ui/StatCard";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { RunEvaluationButton } from "@/components/dashboard/RunEvaluationButton";
+import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
+import { recentActivity } from "@/lib/activity";
 import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
 
 export const metadata: Metadata = {
@@ -94,6 +96,9 @@ export default async function DashboardPage({
   ).length;
   const onTimeRate =
     completed.length === 0 ? 0 : Math.round((onTimeCount / completed.length) * 100);
+
+  // Owner-only: the feed spans everyone's work by definition.
+  const activity = isAdmin ? await recentActivity(20) : [];
 
   const memberIds = members.map((member) => member.id);
   const [scores, onTimeByMember] = await Promise.all([
@@ -386,6 +391,22 @@ export default async function DashboardPage({
           </Card>
         )}
       </section>
+
+      {/* Workspace activity */}
+      {isAdmin && (
+        <Card padded={false}>
+          <CardHeader
+            title="Activity"
+            description="The last 20 things that happened across the workspace"
+            action={
+              <Link href="/board" className={buttonClasses("ghost", "sm")}>
+                Open the board
+              </Link>
+            }
+          />
+          <ActivityFeed activity={activity} />
+        </Card>
+      )}
 
       {/* Member's next deadlines */}
       {!isAdmin && atRiskRows.length === 0 && (

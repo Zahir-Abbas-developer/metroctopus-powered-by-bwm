@@ -19,6 +19,7 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Input } from "@/components/ui/Input";
 import { ProgressBar } from "@/components/ui/ProgressBar";
+import { useToast } from "@/components/ui/Toast";
 import { MilestoneModal } from "@/components/projects/MilestoneModal";
 import { MilestoneRowItem, type MemberOption } from "@/components/projects/MilestoneRowItem";
 import { RejectModal } from "@/components/projects/RejectModal";
@@ -53,9 +54,8 @@ export function ProjectPlanner({
   members: MemberOption[];
 }) {
   const router = useRouter();
+  const toast = useToast();
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<{ module: ModuleSection; milestone: MilestoneRow | null } | null>(
     null,
@@ -90,21 +90,20 @@ export function ProjectPlanner({
     successMessage?: string,
   ): Promise<boolean> {
     setBusyId(id);
-    setError(null);
 
     try {
       const response = await request();
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        setError(body?.error ?? "That didn't work. Please try again.");
+        toast.error(body?.error ?? "That didn't work. Please try again.");
         return false;
       }
 
-      if (successMessage) setFlash(successMessage);
+      if (successMessage) toast.success(successMessage);
       router.refresh();
       return true;
     } catch {
-      setError("We couldn't reach the server. Check your connection and retry.");
+      toast.error("We couldn't reach the server. Check your connection and retry.");
       return false;
     } finally {
       setBusyId(null);
@@ -195,26 +194,6 @@ export function ProjectPlanner({
           </div>
         </div>
       </Card>
-
-      {flash && (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-card border border-brand/20 bg-brand-tint px-4 py-3 text-[13px] leading-relaxed text-brand"
-        >
-          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{flash}</span>
-        </div>
-      )}
-
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-2.5 rounded-card border border-danger/20 bg-danger-tint px-4 py-3 text-[13px] leading-relaxed text-danger"
-        >
-          <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
 
       {/* Modules */}
       {modules.length === 0 ? (
@@ -362,7 +341,7 @@ export function ProjectPlanner({
             onClick={() => {
               const name = newWorkstream.trim();
               if (name.length < 2) {
-                setError("A workstream needs a name of at least 2 characters.");
+                toast.error("A workstream needs a name of at least 2 characters.");
                 return;
               }
               void mutate(
@@ -399,7 +378,7 @@ export function ProjectPlanner({
           onClose={() => setEditing(null)}
           onSaved={(message) => {
             setEditing(null);
-            setFlash(message);
+            toast.success(message);
             router.refresh();
           }}
         />

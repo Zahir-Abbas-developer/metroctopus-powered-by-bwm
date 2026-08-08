@@ -577,3 +577,104 @@ checks ownership, and a member requesting someone else's report gets a 404.
 
 Email delivery for the notifications that already exist, and a client-facing
 portal reusing the client weekly document.
+
+---
+
+## Phase 5 — Daily collaboration (8 August 2026)
+
+The board people actually work on, and the record that replaces the chat
+thread.
+
+### Kanban board
+
+`/board` with `@dnd-kit`: Pending, In progress, Submitted, Completed. Cards
+carry the client as an eyebrow, the title, weight as dots, a due-date chip that
+turns amber inside 48 hours and red once overdue, and the assignee's avatar.
+Filters by project, member and service; a member sees only their own work,
+scoped **in the query** rather than filtered in the browser.
+
+Dragging enforces exactly the Phase 3 rules. The check runs twice on purpose:
+`canTransition` gates the drop before the card moves — so an illegal drag is
+refused with a toast instead of snapping back — and the API refuses it again.
+A column that would reject the drop dims while you drag, and the move is
+optimistic with a rollback if the request fails.
+
+The drag handle is a separate target from the card body. Making the whole card
+draggable makes it fiddly to open one.
+
+### Milestone drawer
+
+Right-hand panel with four tabs, the screen that is meant to replace the
+scattered chat thread — the work, the conversation, the files and the history
+all attached to the deliverable rather than to a channel.
+
+**Comments** thread one level deep. A reply to a reply joins the same thread
+rather than nesting further, because deep nesting turns a work discussion into
+a maze. A reply's parent is verified to belong to the same milestone, so a
+crafted `parentId` can't graft a thread from one record onto another.
+
+**@mentions** are resolved by `lib/mentions.ts` — pure, dependency-free, 18
+unit tests. Names contain spaces, so a naive `@\w+` would only ever match the
+first word; matching runs against the roster instead, longest name first. A
+first name only resolves when it is unique across the team: with two Ayeshas,
+`@Ayesha` matches nobody, because notifying an arbitrary one of two people is
+worse than notifying neither. Mentions are stored on the comment rather than
+re-parsed later, so renaming someone can't silently change who was notified
+about what.
+
+**Attachments** upload to `/uploads` in dev. This is where this kind of app
+usually goes wrong, so: the stored name is server-generated and is the only
+thing that ever builds a path (the original filename is display data, making
+`../../.env` just a label); reads resolve and verify containment before opening
+anything; an allowlist gates types, with SVG deliberately excluded as
+script-capable; and files are served through an authenticated route with
+`nosniff`, a fixed content type and a sandbox CSP rather than static hosting.
+Images get inline thumbnails, everything else downloads.
+
+**Activity** logs status changes, reassignments, due-date moves, score events,
+comments and uploads, written by the routes that change things so each entry
+carries a readable sentence.
+
+### Global additions
+
+- **Cmd+K palette** over clients, projects, milestones and members, debounced,
+  keyboard-navigable, scoped server-side by role.
+- **Activity feed** on the owner's dashboard — the last 20 things that happened.
+- **Focus today** on `/my-tasks`: the three most pressing items, ordered
+  overdue → nearest deadline → heaviest. Three on purpose; a focus list of ten
+  is just a list.
+
+### Polish
+
+A toast system replaced the per-page flash banners in the team, planner,
+reports and tasks screens, so every mutation reports its outcome the same way.
+Errors linger longer than successes — you may need to read them twice.
+
+### Verification
+
+- **75 unit tests** (39 scoring, 18 narrative, 18 mentions).
+- **78 Phase 5 acceptance checks**, including the security boundaries:
+  cross-member drags, cross-member drawer reads, cross-milestone reply grafts,
+  SVG and oversized uploads refused, unauthenticated file reads refused, and a
+  check that no stored filename contains path structure.
+- **381 checks in total** across all five phases, re-run with no regressions.
+- `tsc`, lint and build clean.
+
+### Two bugs found and fixed
+
+1. **The build broke** because `lib/uploads.ts` imported `node:fs`, and the
+   drawer imported `formatBytes` from it — dragging Node built-ins into the
+   browser bundle. `formatBytes` moved to `lib/utils.ts` and `uploads.ts` is
+   now marked `server-only`, so the same mistake fails loudly at the import.
+2. **The drawer rendered invisible.** Visual QA showed the panel translucent;
+   its computed `opacity` was 0 *after* the animation had finished. The
+   `fade-in` keyframe had no fill mode, so visibility depended on the animation
+   actually running. Fill modes were added, and the drawer now animates on
+   transform alone — if the animation is skipped entirely, the panel is still
+   in its final position rather than invisible. Worth remembering: never let an
+   element's visibility depend on an animation completing.
+
+### Next up
+
+Email delivery for notifications, and a client-facing portal reusing the client
+weekly document.

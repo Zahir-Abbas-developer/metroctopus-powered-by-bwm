@@ -8,6 +8,7 @@ import type { Role } from "@/lib/constants";
 
 export type NavKey =
   | "dashboard"
+  | "board"
   | "clients"
   | "projects"
   | "my-tasks"
@@ -37,6 +38,7 @@ export type NavItem = {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { key: "dashboard", label: "Dashboard", href: "/dashboard", roles: ["ADMIN", "MEMBER"] },
+  { key: "board", label: "Board", href: "/board", roles: ["ADMIN", "MEMBER"] },
   { key: "clients", label: "Clients", href: "/clients", roles: ["ADMIN"] },
   { key: "projects", label: "Projects", href: "/projects", roles: ["ADMIN"] },
   { key: "my-tasks", label: "My tasks", href: "/my-tasks", roles: ["ADMIN", "MEMBER"] },

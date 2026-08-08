@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  AlertCircle,
   CalendarCheck,
-  CheckCircle2,
   Clock,
+  Flame,
   PartyPopper,
   Play,
   Send,
@@ -18,6 +17,8 @@ import { Card } from "@/components/ui/Card";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
+import { MilestoneDrawer } from "@/components/board/MilestoneDrawer";
 import { WeightDots } from "@/components/ui/WeightDots";
 import {
   MILESTONE_STATUS_LABEL,
@@ -44,12 +45,18 @@ type Group = {
  * Members move work PENDING -> IN_PROGRESS -> SUBMITTED. Approval is the
  * owner's, so there is deliberately no "mark complete" button here.
  */
-export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
+export function MyTasks({
+  isAdmin,
+  viewerId,
+}: {
+  isAdmin: boolean;
+  viewerId: string;
+}) {
+  const toast = useToast();
   const [tasks, setTasks] = useState<MyTask[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [flash, setFlash] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -68,15 +75,8 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 4000);
-    return () => clearTimeout(timer);
-  }, [flash]);
-
   async function move(task: MyTask, next: MilestoneStatus, message: string) {
     setBusyId(task.id);
-    setError(null);
 
     try {
       const response = await fetch(`/api/milestones/${task.id}/status`, {
@@ -87,14 +87,14 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
 
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        setError(body?.error ?? "That didn't work. Please try again.");
+        toast.error(body?.error ?? "That didn't work. Please try again.");
         return;
       }
 
-      setFlash(message);
+      toast.success(message);
       await load();
     } catch {
-      setError("We couldn't reach the server. Check your connection and retry.");
+      toast.error("We couldn't reach the server. Check your connection and retry.");
     } finally {
       setBusyId(null);
     }
@@ -142,6 +142,26 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
     ];
   }, [tasks]);
 
+  /**
+   * The three things to do next: overdue first, then nearest deadline, then
+   * heaviest. Deliberately three — a "focus" list of ten is just a list.
+   */
+  const focus = useMemo(() => {
+    return tasks
+      .filter((task) => task.status !== "COMPLETED" && task.status !== "MISSED")
+      .sort((a, b) => {
+        const aOverdue = dueUrgency(a.dueDate) === "overdue" ? 0 : 1;
+        const bOverdue = dueUrgency(b.dueDate) === "overdue" ? 0 : 1;
+        if (aOverdue !== bOverdue) return aOverdue - bOverdue;
+
+        const byDate = Date.parse(a.dueDate) - Date.parse(b.dueDate);
+        if (byDate !== 0) return byDate;
+
+        return b.weight - a.weight;
+      })
+      .slice(0, 3);
+  }, [tasks]);
+
   const openCount = groups
     .filter((group) => group.key !== "done")
     .reduce((sum, group) => sum + group.tasks.length, 0);
@@ -157,26 +177,6 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
             : "Everything assigned to you, ordered by how close it is to its deadline."
         }
       />
-
-      {flash && (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-card border border-brand/20 bg-brand-tint px-4 py-3 text-[13px] leading-relaxed text-brand"
-        >
-          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{flash}</span>
-        </div>
-      )}
-
-      {error && (
-        <div
-          role="alert"
-          className="flex items-start gap-2.5 rounded-card border border-danger/20 bg-danger-tint px-4 py-3 text-[13px] leading-relaxed text-danger"
-        >
-          <AlertCircle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
 
       {status === "loading" && (
         <div className="space-y-3">
@@ -209,6 +209,64 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
             }
           />
         </Card>
+      )}
+
+      {status === "ready" && focus.length > 0 && (
+        <section>
+          <div className="mb-3">
+            <h2 className="flex items-center gap-2 font-display text-lg font-bold tracking-tight text-ink">
+              <Flame className="h-4 w-4 text-danger" />
+              Focus today
+            </h2>
+            <p className="mt-0.5 text-[13px] text-ink/50">
+              The {focus.length === 1 ? "one thing" : `${focus.length} things`} to
+              deal with before anything else.
+            </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-3">
+            {focus.map((task, index) => {
+              const urgency = dueUrgency(task.dueDate);
+
+              return (
+                <button
+                  key={task.id}
+                  type="button"
+                  onClick={() => setOpenId(task.id)}
+                  className={cn(
+                    "flex flex-col rounded-card border bg-white p-4 text-left transition-colors hover:border-ink/25",
+                    urgency === "overdue" ? "border-danger/30" : "border-line",
+                  )}
+                >
+                  <span className="flex items-center justify-between gap-2">
+                    <span className="eyebrow text-ink/40">{task.clientName}</span>
+                    <span className="font-display text-[11px] font-bold text-ink/25">
+                      {index + 1}
+                    </span>
+                  </span>
+
+                  <span className="mt-2 flex-1 text-[13px] font-medium leading-snug text-ink">
+                    {task.title}
+                  </span>
+
+                  <span className="mt-3 flex items-center justify-between gap-2">
+                    <span
+                      className={cn(
+                        "rounded-pill border px-2 py-0.5 text-[11px]",
+                        urgency === "overdue" && "border-danger/25 bg-danger-tint font-medium text-danger",
+                        urgency === "soon" && "border-warn/25 bg-warn-tint font-medium text-warn",
+                        urgency === "normal" && "border-line bg-white text-ink/50",
+                      )}
+                    >
+                      {urgency === "overdue" ? "Overdue" : formatDate(task.dueDate)}
+                    </span>
+                    <WeightDots weight={task.weight} />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
       )}
 
       {status === "ready" && tasks.length > 0 && openCount === 0 && (
@@ -258,12 +316,21 @@ export function MyTasks({ isAdmin }: { isAdmin: boolean }) {
                     onSubmit={() =>
                       move(task, "SUBMITTED", `"${task.title}" submitted for approval.`)
                     }
+                    onOpen={() => setOpenId(task.id)}
                   />
                 ))}
               </div>
             </section>
           );
         })}
+
+      <MilestoneDrawer
+        milestoneId={openId}
+        viewerId={viewerId}
+        viewerRole={isAdmin ? "ADMIN" : "MEMBER"}
+        onClose={() => setOpenId(null)}
+        onChanged={() => void load()}
+      />
     </div>
   );
 }
@@ -274,6 +341,7 @@ function TaskCard({
   busy,
   onStart,
   onSubmit,
+  onOpen,
 }: {
   task: MyTask;
   /** Project plans are owner-only, so members get the title as plain text. */
@@ -281,6 +349,7 @@ function TaskCard({
   busy: boolean;
   onStart: () => void;
   onSubmit: () => void;
+  onOpen: () => void;
 }) {
   const settled = task.status === "COMPLETED" || task.status === "MISSED";
   const urgency = settled ? "normal" : dueUrgency(task.dueDate);
@@ -298,9 +367,16 @@ function TaskCard({
           <p className="eyebrow mb-1.5 text-ink/40">
             {task.clientName} · {task.moduleName}
           </p>
-          <h3 className={cn("text-[15px] font-medium text-ink", settled && "text-ink/55")}>
+          <button
+            type="button"
+            onClick={onOpen}
+            className={cn(
+              "text-left text-[15px] font-medium text-ink transition-colors hover:text-brand",
+              settled && "text-ink/55",
+            )}
+          >
             {task.title}
-          </h3>
+          </button>
           {task.description && (
             <p className="mt-1 text-[13px] leading-relaxed text-ink/50">{task.description}</p>
           )}

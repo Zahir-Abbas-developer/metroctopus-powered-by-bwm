@@ -9,6 +9,7 @@ import { dueDeadline } from "@/lib/date";
 import { applyEvents } from "@/lib/score-service";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "@/lib/scoring";
 import { notifyApproved, notifyRejected } from "@/lib/notifications";
+import { recordScoreEvent, recordStatusChange } from "@/lib/activity";
 
 /**
  * The one place a milestone's status can change, because every scoring
@@ -103,11 +104,30 @@ export async function POST(
       include: { assignee: { select: { id: true, name: true, avatarColor: true } } },
     });
 
+    await recordStatusChange({
+      milestoneId: milestone.id,
+      title: milestone.title,
+      from,
+      to,
+      actorId: user.id,
+      reason: isRejection ? reason : null,
+    });
+
     let scored = 0;
 
     if (to === "COMPLETED") {
       const proposals = evaluateCompletion(facts);
       scored = await applyEvents(proposals, { at: now });
+
+      for (const proposal of proposals) {
+        await recordScoreEvent({
+          milestoneId: milestone.id,
+          userName: updated.assignee?.name ?? "the assignee",
+          type: proposal.type,
+          points: proposal.points,
+          reason: proposal.reason,
+        });
+      }
 
       if (milestone.assigneeId) {
         await notifyApproved({
@@ -123,6 +143,17 @@ export async function POST(
         reason,
       );
       scored = event ? await applyEvents([event], { at: now, createdById: user.id }) : 0;
+
+      if (event) {
+        await recordScoreEvent({
+          milestoneId: milestone.id,
+          userName: updated.assignee?.name ?? "the assignee",
+          type: event.type,
+          points: event.points,
+          reason: event.reason,
+          actorId: user.id,
+        });
+      }
 
       if (event) {
         await notifyRejected({

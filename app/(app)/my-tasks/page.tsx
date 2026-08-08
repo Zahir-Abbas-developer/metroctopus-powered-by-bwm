@@ -10,5 +10,5 @@ export const metadata: Metadata = {
 export default async function MyTasksPage() {
   const user = await requireUser();
 
-  return <MyTasks isAdmin={user.role === "ADMIN"} />;
+  return <MyTasks isAdmin={user.role === "ADMIN"} viewerId={user.id} />;
 }

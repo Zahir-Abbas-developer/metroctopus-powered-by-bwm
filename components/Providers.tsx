@@ -3,7 +3,13 @@
 import { SessionProvider } from "next-auth/react";
 import type { ReactNode } from "react";
 
-/** Client-side session context, so components can call `useSession`/`signOut`. */
+import { ToastProvider } from "@/components/ui/Toast";
+
+/** Client-side session context and the toast surface every mutation reports to. */
 export function Providers({ children }: { children: ReactNode }) {
-  return <SessionProvider>{children}</SessionProvider>;
+  return (
+    <SessionProvider>
+      <ToastProvider>{children}</ToastProvider>
+    </SessionProvider>
+  );
 }

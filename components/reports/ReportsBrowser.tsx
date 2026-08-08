@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Select } from "@/components/ui/Select";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 import { GenerateReportsModal } from "@/components/reports/GenerateReportsModal";
 import { REPORT_TYPES, REPORT_TYPE_LABEL, REPORT_TYPE_TONE, type ReportType } from "@/lib/reports";
 import { formatDate } from "@/lib/date";
@@ -48,7 +49,7 @@ export function ReportsBrowser({
   const [memberId, setMemberId] = useState<string>("ALL");
   const [period, setPeriod] = useState<string>("ALL");
   const [generating, setGenerating] = useState(false);
-  const [flash, setFlash] = useState<string | null>(null);
+  const toast = useToast();
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -66,12 +67,6 @@ export function ReportsBrowser({
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!flash) return;
-    const timer = setTimeout(() => setFlash(null), 5000);
-    return () => clearTimeout(timer);
-  }, [flash]);
 
   // Periods present in the data, newest first — no point offering empty ones.
   const periods = useMemo(() => {
@@ -117,16 +112,6 @@ export function ReportsBrowser({
           ) : undefined
         }
       />
-
-      {flash && (
-        <div
-          role="status"
-          className="flex items-start gap-2.5 rounded-card border border-brand/20 bg-brand-tint px-4 py-3 text-[13px] leading-relaxed text-brand"
-        >
-          <CheckCircle2 aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{flash}</span>
-        </div>
-      )}
 
       {status === "ready" && reports.length > 0 && (
         <div className="grid gap-3 sm:grid-cols-3">
@@ -286,7 +271,7 @@ export function ReportsBrowser({
           onClose={() => setGenerating(false)}
           onGenerated={(message) => {
             setGenerating(false);
-            setFlash(message);
+            toast.success(message);
             void load();
           }}
         />
