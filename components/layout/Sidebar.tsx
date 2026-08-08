@@ -7,9 +7,10 @@ import {
   BarChart3,
   Briefcase,
   CheckSquare,
+  Gauge,
+  Layers,
   LayoutDashboard,
   LogOut,
-  Users,
   Users2,
   type LucideIcon,
 } from "lucide-react";
@@ -22,8 +23,9 @@ import { Avatar } from "@/components/ui/Avatar";
 const ICONS: Record<NavKey, LucideIcon> = {
   dashboard: LayoutDashboard,
   clients: Briefcase,
-  projects: Users,
-  tasks: CheckSquare,
+  projects: Layers,
+  "my-tasks": CheckSquare,
+  "my-performance": Gauge,
   team: Users2,
   reports: BarChart3,
 };

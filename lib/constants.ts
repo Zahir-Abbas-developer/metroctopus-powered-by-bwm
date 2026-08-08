@@ -1,3 +1,5 @@
+import type { BadgeTone } from "@/components/ui/Badge";
+
 /**
  * Single source of truth for the string unions stored in the database.
  *
@@ -76,4 +78,147 @@ export function initialsFor(name: string): string {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+// ---------------------------------------------------------------------------
+// Clients
+// ---------------------------------------------------------------------------
+
+export const CLIENT_STATUSES = ["LEAD", "ACTIVE", "PAUSED", "CHURNED"] as const;
+export type ClientStatus = (typeof CLIENT_STATUSES)[number];
+
+export const CLIENT_STATUS_LABEL: Record<ClientStatus, string> = {
+  LEAD: "Lead",
+  ACTIVE: "Active",
+  PAUSED: "Paused",
+  CHURNED: "Churned",
+};
+
+export const CLIENT_STATUS_TONE: Record<ClientStatus, BadgeTone> = {
+  LEAD: "info",
+  ACTIVE: "success",
+  PAUSED: "warning",
+  CHURNED: "danger",
+};
+
+/** Suggestions only — the field stays free text. */
+export const INDUSTRIES = [
+  "Apparel & Fashion",
+  "Beauty & Skincare",
+  "Health & Supplements",
+  "Home & Furniture",
+  "Electronics & Gadgets",
+  "Jewellery & Accessories",
+  "Food & Beverage",
+  "Pet Products",
+  "Sports & Fitness",
+  "Baby & Kids",
+] as const;
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+export const PROJECT_STATUSES = [
+  "PLANNING",
+  "ACTIVE",
+  "COMPLETED",
+  "OVERDUE_CLOSEOUT",
+] as const;
+export type ProjectStatus = (typeof PROJECT_STATUSES)[number];
+
+export const PROJECT_STATUS_LABEL: Record<ProjectStatus, string> = {
+  PLANNING: "Planning",
+  ACTIVE: "Active",
+  COMPLETED: "Completed",
+  OVERDUE_CLOSEOUT: "Overdue closeout",
+};
+
+export const PROJECT_STATUS_TONE: Record<ProjectStatus, BadgeTone> = {
+  PLANNING: "info",
+  ACTIVE: "success",
+  COMPLETED: "neutral",
+  OVERDUE_CLOSEOUT: "danger",
+};
+
+/** Default engagement length. Spec: endDate = startDate + 30 days. */
+export const PROJECT_LENGTH_DAYS = 30;
+
+// ---------------------------------------------------------------------------
+// Milestones
+// ---------------------------------------------------------------------------
+
+export const MILESTONE_STATUSES = [
+  "PENDING",
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "COMPLETED",
+  "MISSED",
+] as const;
+export type MilestoneStatus = (typeof MILESTONE_STATUSES)[number];
+
+export const MILESTONE_STATUS_LABEL: Record<MilestoneStatus, string> = {
+  PENDING: "Pending",
+  IN_PROGRESS: "In progress",
+  SUBMITTED: "Submitted",
+  COMPLETED: "Completed",
+  MISSED: "Missed",
+};
+
+export const MILESTONE_STATUS_TONE: Record<MilestoneStatus, BadgeTone> = {
+  PENDING: "neutral",
+  IN_PROGRESS: "info",
+  SUBMITTED: "warning",
+  COMPLETED: "success",
+  MISSED: "danger",
+};
+
+export const WEIGHT_MIN = 1;
+export const WEIGHT_MAX = 5;
+export const WEIGHT_DEFAULT = 3;
+
+export const WEIGHT_LABEL: Record<number, string> = {
+  1: "Minor",
+  2: "Low",
+  3: "Standard",
+  4: "High",
+  5: "Critical",
+};
+
+/**
+ * Transitions each role may perform.
+ *
+ * A member drives their own work forward but can never mark it COMPLETED —
+ * approval belongs to the owner, because completion is what the scoring engine
+ * pays out on. Letting members self-approve would make the score self-reported.
+ */
+export const MEMBER_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
+  PENDING: ["IN_PROGRESS"],
+  IN_PROGRESS: ["SUBMITTED", "PENDING"],
+  SUBMITTED: [],
+  COMPLETED: [],
+  MISSED: ["IN_PROGRESS"],
+};
+
+export const ADMIN_TRANSITIONS: Record<MilestoneStatus, MilestoneStatus[]> = {
+  PENDING: ["IN_PROGRESS", "SUBMITTED", "COMPLETED", "MISSED"],
+  IN_PROGRESS: ["PENDING", "SUBMITTED", "COMPLETED", "MISSED"],
+  SUBMITTED: ["COMPLETED", "IN_PROGRESS", "MISSED"],
+  COMPLETED: ["IN_PROGRESS"],
+  MISSED: ["IN_PROGRESS", "COMPLETED"],
+};
+
+export function allowedTransitions(
+  role: Role,
+  from: MilestoneStatus,
+): MilestoneStatus[] {
+  return role === "ADMIN" ? ADMIN_TRANSITIONS[from] : MEMBER_TRANSITIONS[from];
+}
+
+export function canTransition(
+  role: Role,
+  from: MilestoneStatus,
+  to: MilestoneStatus,
+): boolean {
+  return allowedTransitions(role, from).includes(to);
 }

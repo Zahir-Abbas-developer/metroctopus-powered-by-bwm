@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { Briefcase } from "lucide-react";
 
+import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/session";
-import { ComingSoon } from "@/components/layout/ComingSoon";
+import { ClientsBrowser } from "@/components/clients/ClientsBrowser";
 
 export const metadata: Metadata = {
   title: "Clients",
@@ -11,19 +11,13 @@ export const metadata: Metadata = {
 export default async function ClientsPage() {
   await requireAdmin();
 
-  return (
-    <ComingSoon
-      eyebrow="Delivery"
-      title="Clients"
-      description="Every e-commerce account on a monthly retainer, and the services each one has bought."
-      phase="Phase 2"
-      icon={Briefcase}
-      bullets={[
-        "Onboard a client with the services they've signed up for",
-        "Shopify, Google Ads, Meta Ads, creative and funnel management",
-        "Retainer value, start date and account status",
-        "A per-client view of every module, milestone and task",
-      ]}
-    />
-  );
+  // The catalogue is small and rarely changes, so it ships with the page
+  // rather than costing the wizard an extra request when it opens.
+  const services = await prisma.serviceCatalog.findMany({
+    where: { isActive: true },
+    orderBy: { order: "asc" },
+    select: { id: true, name: true, slug: true, description: true },
+  });
+
+  return <ClientsBrowser services={services} />;
 }

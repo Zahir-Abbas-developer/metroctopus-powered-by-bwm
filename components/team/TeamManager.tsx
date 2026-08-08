@@ -1,9 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, Pencil, RotateCcw, UserPlus, UserX, Users2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  ArrowDown,
+  ArrowUp,
+  CheckCircle2,
+  Pencil,
+  RotateCcw,
+  UserPlus,
+  UserX,
+  Users2,
+} from "lucide-react";
 
 import { Avatar } from "@/components/ui/Avatar";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
@@ -22,14 +33,20 @@ import {
 import { MemberStatusModal } from "@/components/team/MemberStatusModal";
 import { TeamMemberModal } from "@/components/team/TeamMemberModal";
 import { formatDate } from "@/lib/date";
+import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/types";
 
 type Status = "loading" | "ready" | "error";
+type SortKey = "name" | "score" | "joined";
 
 export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [flash, setFlash] = useState<string | null>(null);
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
+    key: "name",
+    desc: false,
+  });
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
@@ -69,6 +86,31 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
 
   const active = members.filter((member) => member.isActive);
   const admins = active.filter((member) => member.role === "ADMIN");
+
+  const sorted = useMemo(() => {
+    const rows = [...members];
+    rows.sort((a, b) => {
+      // Deactivated members always sink, whatever the sort.
+      if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+
+      const direction = sort.desc ? -1 : 1;
+      if (sort.key === "score") return (a.score - b.score) * direction;
+      if (sort.key === "joined") {
+        return (Date.parse(a.createdAt) - Date.parse(b.createdAt)) * direction;
+      }
+      return a.name.localeCompare(b.name) * direction;
+    });
+    return rows;
+  }, [members, sort]);
+
+  function toggleSort(key: SortKey) {
+    setSort((current) =>
+      current.key === key
+        ? { key, desc: !current.desc }
+        // Scores are most useful worst-first, names best A–Z.
+        : { key, desc: key === "score" },
+    );
+  }
 
   return (
     <div className="space-y-8">
@@ -167,25 +209,50 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
           <Table>
             <THead>
               <TR>
-                <TH>Member</TH>
+                <TH aria-sort={sort.key === "name" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                  <SortHeader
+                    label="Member"
+                    active={sort.key === "name"}
+                    desc={sort.desc}
+                    onClick={() => toggleSort("name")}
+                  />
+                </TH>
                 <TH>Job title</TH>
+                <TH aria-sort={sort.key === "score" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                  <SortHeader
+                    label="Score"
+                    active={sort.key === "score"}
+                    desc={sort.desc}
+                    onClick={() => toggleSort("score")}
+                  />
+                </TH>
                 <TH>Role</TH>
                 <TH>Status</TH>
-                <TH>Joined</TH>
+                <TH aria-sort={sort.key === "joined" ? (sort.desc ? "descending" : "ascending") : "none"}>
+                  <SortHeader
+                    label="Joined"
+                    active={sort.key === "joined"}
+                    desc={sort.desc}
+                    onClick={() => toggleSort("joined")}
+                  />
+                </TH>
                 <TH className="text-right">Actions</TH>
               </TR>
             </THead>
             <TBody>
-              {members.map((member) => {
+              {sorted.map((member) => {
                 const isSelf = member.id === currentUserId;
 
                 return (
                   <TR key={member.id} muted={!member.isActive}>
                     <TD>
-                      <div className="flex items-center gap-3">
+                      <Link
+                        href={`/team/${member.id}`}
+                        className="group/name flex items-center gap-3"
+                      >
                         <Avatar name={member.name} color={member.avatarColor} />
                         <div className="min-w-0">
-                          <p className="flex items-center gap-2 truncate font-medium text-ink">
+                          <p className="flex items-center gap-2 truncate font-medium text-ink group-hover/name:text-brand">
                             {member.name}
                             {isSelf && (
                               <span className="text-[11px] font-normal text-ink/40">
@@ -197,10 +264,34 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                             {member.email}
                           </p>
                         </div>
-                      </div>
+                      </Link>
                     </TD>
 
                     <TD className="text-ink/70">{member.jobTitle}</TD>
+
+                    <TD>
+                      <Link
+                        href={`/team/${member.id}`}
+                        className="flex items-center gap-2.5"
+                        title={`${member.score} points · ${member.onTimeRate}% on time`}
+                      >
+                        <ScoreRing score={member.score} size="xs" showValue={false} />
+                        <span className="font-display text-sm font-bold tabular-nums text-ink">
+                          {member.score}
+                        </span>
+                        {member.trend !== null && Math.abs(member.trend) >= 0.05 && (
+                          <span
+                            className={cn(
+                              "text-[11px] font-medium tabular-nums",
+                              member.trend > 0 ? "text-brand" : "text-danger",
+                            )}
+                          >
+                            {member.trend > 0 ? "+" : "−"}
+                            {Math.abs(member.trend).toFixed(1)}
+                          </span>
+                        )}
+                      </Link>
+                    </TD>
 
                     <TD>
                       <Badge tone={member.role === "ADMIN" ? "info" : "neutral"}>
@@ -276,5 +367,40 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
         onSaved={onSaved}
       />
     </div>
+  );
+}
+
+function SortHeader({
+  label,
+  active,
+  desc,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  desc: boolean;
+  onClick: () => void;
+}) {
+  const Icon = desc ? ArrowDown : ArrowUp;
+  const direction = desc ? "descending" : "ascending";
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      // aria-sort belongs on the column header cell, not the button — the TH
+      // carries it. The button just announces what pressing it will do.
+      aria-label={`Sort by ${label}, currently ${active ? direction : "unsorted"}`}
+      className={cn(
+        "eyebrow flex items-center gap-1 transition-colors",
+        active ? "text-ink/70" : "text-ink/50 hover:text-ink/70",
+      )}
+    >
+      {label}
+      <Icon
+        aria-hidden
+        className={cn("h-3 w-3 transition-opacity", active ? "opacity-100" : "opacity-0")}
+      />
+    </button>
   );
 }

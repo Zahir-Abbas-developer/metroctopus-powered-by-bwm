@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { createUserSchema, fieldErrors } from "@/lib/validation";
 import { avatarColorFor } from "@/lib/constants";
+import { currentCycle, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { MONTHLY_BASELINE } from "@/lib/scoring";
 
 /** Columns safe to return — never the password hash. */
 const SELECT = {
@@ -29,7 +31,26 @@ export async function GET() {
       orderBy: [{ role: "asc" }, { isActive: "desc" }, { name: "asc" }],
     });
 
-    return NextResponse.json({ members });
+    // Scores ride along with the list so the team table can sort by them
+    // without a second round trip per row.
+    const cycle = currentCycle();
+    const ids = members.map((member) => member.id);
+    const [scores, onTime] = await Promise.all([
+      scoresForCycle(ids, cycle),
+      onTimeRateFor(ids, cycle),
+    ]);
+
+    return NextResponse.json({
+      members: members.map((member) => {
+        const score = scores.get(member.id);
+        return {
+          ...member,
+          score: score?.score ?? MONTHLY_BASELINE,
+          trend: score?.trend ?? null,
+          onTimeRate: onTime.get(member.id)?.rate ?? 0,
+        };
+      }),
+    });
   } catch {
     return apiError("Couldn't load the team", 500);
   }

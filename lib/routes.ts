@@ -10,7 +10,8 @@ export type NavKey =
   | "dashboard"
   | "clients"
   | "projects"
-  | "tasks"
+  | "my-tasks"
+  | "my-performance"
   | "team"
   | "reports";
 
@@ -20,17 +21,29 @@ export type NavItem = {
   href: string;
   /** Roles allowed to open the route. */
   roles: readonly Role[];
-  /** Phase 1 renders these as visible-but-inert links. */
+  /** Rendered as a visible-but-inert link until the phase that builds it. */
   comingSoon?: boolean;
 };
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { key: "dashboard", label: "Dashboard", href: "/dashboard", roles: ["ADMIN", "MEMBER"] },
-  { key: "clients", label: "Clients", href: "/clients", roles: ["ADMIN"], comingSoon: true },
-  { key: "projects", label: "Projects", href: "/projects", roles: ["ADMIN", "MEMBER"], comingSoon: true },
-  { key: "tasks", label: "Tasks", href: "/tasks", roles: ["ADMIN", "MEMBER"], comingSoon: true },
+  { key: "clients", label: "Clients", href: "/clients", roles: ["ADMIN"] },
+  { key: "projects", label: "Projects", href: "/projects", roles: ["ADMIN"] },
+  { key: "my-tasks", label: "My tasks", href: "/my-tasks", roles: ["ADMIN", "MEMBER"] },
+  {
+    key: "my-performance",
+    label: "My performance",
+    href: "/my-performance",
+    roles: ["ADMIN", "MEMBER"],
+  },
   { key: "team", label: "Team", href: "/team", roles: ["ADMIN"] },
-  { key: "reports", label: "Reports", href: "/reports", roles: ["ADMIN", "MEMBER"], comingSoon: true },
+  {
+    key: "reports",
+    label: "Reports",
+    href: "/reports",
+    roles: ["ADMIN", "MEMBER"],
+    comingSoon: true,
+  },
 ];
 
 /** Route prefixes only an ADMIN may open. */

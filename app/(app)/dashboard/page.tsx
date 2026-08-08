@@ -6,21 +6,40 @@ import {
   CheckSquare,
   Gauge,
   ShieldAlert,
-  Sparkles,
   Timer,
+  TriangleAlert,
+  Trophy,
 } from "lucide-react";
 
+import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
-import { formatDateLong, greeting } from "@/lib/date";
+import { currentCycle, onTimeRateFor, scoresForCycle } from "@/lib/score-service";
+import { monthlyScore } from "@/lib/scoring";
+import {
+  daysUntil,
+  dueDeadline,
+  formatDate,
+  formatDateLong,
+  greeting,
+} from "@/lib/date";
+import { Avatar } from "@/components/ui/Avatar";
+import { Badge } from "@/components/ui/Badge";
 import { buttonClasses } from "@/components/ui/Button";
 import { Card, CardHeader } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
+import { ProgressBar } from "@/components/ui/ProgressBar";
+import { ScoreRing } from "@/components/ui/ScoreRing";
 import { StatCard } from "@/components/ui/StatCard";
+import { WeightDots } from "@/components/ui/WeightDots";
+import { RunEvaluationButton } from "@/components/dashboard/RunEvaluationButton";
+import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
+
+const OPEN_STATUSES = ["PENDING", "IN_PROGRESS", "SUBMITTED"];
 
 export default async function DashboardPage({
   searchParams,
@@ -30,6 +49,88 @@ export default async function DashboardPage({
   const user = await requireUser();
   const isAdmin = user.role === "ADMIN";
   const firstName = (user.name ?? "there").split(" ")[0];
+  const cycle = currentCycle();
+  const now = new Date();
+
+  // An admin sees the whole agency; a member sees only their own work.
+  const scope = isAdmin ? {} : { assigneeId: user.id };
+
+  const [activeClients, openMilestones, completed, members, atRisk] = await Promise.all([
+    prisma.client.count({ where: { status: "ACTIVE" } }),
+    prisma.milestone.count({ where: { ...scope, status: { in: OPEN_STATUSES } } }),
+    prisma.milestone.findMany({
+      where: { ...scope, status: "COMPLETED", completedAt: { not: null } },
+      select: { dueDate: true, completedAt: true },
+    }),
+    prisma.user.findMany({
+      where: { isActive: true, role: "MEMBER" },
+      select: { id: true, name: true, jobTitle: true, avatarColor: true },
+    }),
+    prisma.milestone.findMany({
+      where: {
+        ...scope,
+        status: { in: OPEN_STATUSES },
+        // Anything due inside the next 48 hours, plus anything already past due.
+        // Filtered exactly below — the deadline is the end of the due day in
+        // agency time, which SQL can't express here.
+        dueDate: { lte: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000) },
+      },
+      orderBy: { dueDate: "asc" },
+      take: 40,
+      include: {
+        assignee: { select: { id: true, name: true, avatarColor: true } },
+        module: {
+          select: {
+            project: { select: { id: true, title: true, client: { select: { businessName: true } } } },
+          },
+        },
+      },
+    }),
+  ]);
+
+  // On-time rate over every approved milestone in scope, not just this month.
+  const onTimeCount = completed.filter(
+    (milestone) => milestone.completedAt! <= dueDeadline(milestone.dueDate),
+  ).length;
+  const onTimeRate =
+    completed.length === 0 ? 0 : Math.round((onTimeCount / completed.length) * 100);
+
+  const memberIds = members.map((member) => member.id);
+  const [scores, onTimeByMember] = await Promise.all([
+    scoresForCycle(isAdmin ? memberIds : [user.id], cycle),
+    onTimeRateFor(isAdmin ? memberIds : [user.id], cycle),
+  ]);
+
+  const leaderboard = members
+    .map((member) => {
+      const rate = onTimeByMember.get(member.id);
+      return {
+        ...member,
+        score: scores.get(member.id)?.score ?? monthlyScore([]),
+        onTime: rate?.rate ?? 0,
+        // Distinguishes "0% on time" from "nothing approved yet this month".
+        onTimeTotal: rate?.total ?? 0,
+      };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const avgScore =
+    leaderboard.length === 0
+      ? 0
+      : Math.round(
+          leaderboard.reduce((sum, member) => sum + member.score, 0) / leaderboard.length,
+        );
+
+  const ownScore = scores.get(user.id)?.score ?? monthlyScore([]);
+
+  // Only rows genuinely inside 48 hours or already late belong on "At risk".
+  const atRiskAll = atRisk.filter((milestone) => {
+    const deadline = dueDeadline(milestone.dueDate).getTime();
+    return deadline - now.getTime() <= 48 * 60 * 60 * 1000;
+  });
+  // The badge counts everything at risk; the list shows the closest few and
+  // says so, rather than quietly truncating.
+  const atRiskRows = atRiskAll.slice(0, 8);
 
   return (
     <div className="space-y-8">
@@ -48,115 +149,309 @@ export default async function DashboardPage({
 
       <PageHeader
         variant="dark"
-        eyebrow={formatDateLong(new Date())}
+        eyebrow={formatDateLong(now)}
         title={`${greeting()}, ${firstName}`}
         description={
           isAdmin
-            ? "Here's where the agency stands today. Client delivery, deadlines and team performance, all in one view."
-            : "Here's your work at a glance. Your milestones, deadlines and performance score for this month."
+            ? "Where the agency stands today — delivery, deadlines and how the team is scoring."
+            : "Your work at a glance, and how this month's score is tracking."
         }
       >
         <div className="grid gap-3 sm:grid-cols-3">
-          {[
-            { label: "Retainer cycle", value: "Monthly" },
-            { label: "Working timezone", value: "Asia / Karachi" },
-            { label: "Your role", value: isAdmin ? "Owner" : user.jobTitle },
-          ].map((item) => (
-            <div
-              key={item.label}
-              className="rounded-[10px] border border-paper/10 bg-paper/[0.04] px-4 py-3"
-            >
-              <p className="eyebrow text-paper/35">{item.label}</p>
-              <p className="mt-1.5 text-sm font-medium text-paper/85">
-                {item.value}
-              </p>
-            </div>
-          ))}
+          <HeroStat label="Retainer cycle" value="Monthly" />
+          <HeroStat label="Working timezone" value="Asia / Karachi" />
+          <HeroStat label="Your role" value={isAdmin ? "Owner" : user.jobTitle} />
         </div>
       </PageHeader>
 
-      {/* Metrics — zeroed until Phases 2–5 land the underlying data */}
       <section>
-        <div className="mb-4 flex items-baseline justify-between gap-4">
+        <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
           <h2 className="font-display text-lg font-bold tracking-tight text-ink">
             {isAdmin ? "Agency at a glance" : "Your month"}
           </h2>
-          <p className="text-[13px] text-ink/40">Updates as work is logged</p>
+          {isAdmin && <RunEvaluationButton />}
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <StatCard
             label="Active clients"
-            value={0}
+            value={activeClients}
             icon={Briefcase}
             tone="info"
-            hint={isAdmin ? "On a live monthly retainer" : "Clients you're assigned to"}
+            hint="On a live monthly retainer"
           />
           <StatCard
-            label="Open tasks"
-            value={0}
+            label="Open milestones"
+            value={openMilestones}
             icon={CheckSquare}
-            tone="neutral"
-            hint="Not yet marked complete"
+            tone={openMilestones === 0 ? "neutral" : "warning"}
+            hint={isAdmin ? "Across every engagement" : "Assigned to you"}
           />
           <StatCard
             label="On-time rate"
-            value={0}
+            value={onTimeRate}
             unit="%"
             icon={Timer}
-            tone="success"
-            hint="Milestones delivered by their deadline"
+            tone={
+              completed.length === 0
+                ? "neutral"
+                : onTimeRate >= 90
+                  ? "success"
+                  : onTimeRate >= 70
+                    ? "warning"
+                    : "danger"
+            }
+            // All-time, unlike the per-member rate on a profile, which is
+            // scoped to the cycle its score belongs to.
+            hint={`${onTimeCount} of ${completed.length} approved by deadline, all time`}
           />
           <StatCard
             label={isAdmin ? "Avg team score" : "Your score"}
-            value={0}
+            value={isAdmin ? avgScore : ownScore}
             unit="pts"
             icon={Gauge}
-            tone="warning"
+            tone={
+              (isAdmin ? avgScore : ownScore) >= 90
+                ? "success"
+                : (isAdmin ? avgScore : ownScore) >= 75
+                  ? "info"
+                  : "warning"
+            }
             hint="Starts at 100 each month"
           />
         </div>
       </section>
 
-      {/* Designed empty states rather than blank panels */}
       <section className="grid gap-5 lg:grid-cols-2">
+        {/* At risk */}
         <Card padded={false}>
           <CardHeader
-            title="Upcoming deadlines"
-            description="Milestones due in the next seven days"
-          />
-          <EmptyState
-            icon={CalendarClock}
-            eyebrow="Nothing scheduled"
-            title="No deadlines on the horizon"
-            description={
-              isAdmin
-                ? "Once clients are onboarded and their monthly modules are planned, every deadline lands here."
-                : "When the owner plans this month's modules, your milestones will appear here."
-            }
+            title="At risk"
+            description="Due within 48 hours, or already past deadline"
             action={
-              isAdmin ? (
-                <Link href="/team" className={buttonClasses("secondary", "md")}>
-                  Review your team
-                </Link>
+              atRiskAll.length > 0 ? (
+                <Badge tone="danger">{atRiskAll.length}</Badge>
               ) : undefined
             }
           />
+
+          {atRiskRows.length === 0 ? (
+            <EmptyState
+              icon={CalendarClock}
+              eyebrow="All clear"
+              title="Nothing at risk"
+              description={
+                isAdmin
+                  ? "No milestone is inside its final 48 hours or past its deadline right now."
+                  : "None of your milestones are close to their deadline."
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {atRiskRows.map((milestone) => {
+                const overdue = dueDeadline(milestone.dueDate) < now;
+                const days = daysUntil(dueDeadline(milestone.dueDate), now);
+
+                return (
+                  <li key={milestone.id} className="flex items-start gap-3 px-5 py-3.5">
+                    <span
+                      className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] border ${
+                        overdue
+                          ? "border-danger/20 bg-danger-tint text-danger"
+                          : "border-warn/20 bg-warn-tint text-warn"
+                      }`}
+                    >
+                      <TriangleAlert className="h-4 w-4" />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <Link
+                        href={`/projects/${milestone.module.project.id}`}
+                        className="text-sm font-medium text-ink hover:text-brand"
+                      >
+                        {milestone.title}
+                      </Link>
+                      <p className="mt-0.5 truncate text-[12px] text-ink/45">
+                        {milestone.module.project.client.businessName} ·{" "}
+                        {formatDate(milestone.dueDate)} · {lateness(overdue, days)}
+                      </p>
+                    </div>
+
+                    <div className="flex shrink-0 items-center gap-2">
+                      <WeightDots weight={milestone.weight} />
+                      {milestone.assignee ? (
+                        <Avatar
+                          name={milestone.assignee.name}
+                          color={milestone.assignee.avatarColor}
+                          size="sm"
+                        />
+                      ) : (
+                        <Badge size="sm" tone="neutral">
+                          Unassigned
+                        </Badge>
+                      )}
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {atRiskAll.length > atRiskRows.length && (
+            <p className="border-t border-line px-5 py-3 text-[12px] text-ink/40">
+              Showing the {atRiskRows.length} closest of {atRiskAll.length}.
+            </p>
+          )}
         </Card>
 
-        <Card padded={false}>
-          <CardHeader
-            title="Recent activity"
-            description="Task movement across the agency"
-          />
-          <EmptyState
-            icon={Sparkles}
-            eyebrow="Quiet so far"
-            title="No activity yet"
-            description="Completed tasks, missed deadlines and score changes will stream into this feed as the team works."
-          />
-        </Card>
+        {/* Leaderboard (owner) or personal standing (member) */}
+        {isAdmin ? (
+          <Card padded={false}>
+            <CardHeader
+              title="Team performance"
+              description="This month's scores, best to lowest"
+              action={
+                <Link href="/team" className={buttonClasses("ghost", "sm")}>
+                  All members
+                </Link>
+              }
+            />
+
+            {leaderboard.length === 0 ? (
+              <EmptyState
+                icon={Trophy}
+                eyebrow="No team yet"
+                title="Nobody to rank"
+                description="Add team members and their scores will be tracked here every month."
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {leaderboard.map((member, index) => (
+                  <li key={member.id}>
+                    <Link
+                      href={`/team/${member.id}`}
+                      className="flex items-center gap-3.5 px-5 py-3 transition-colors hover:bg-cream/50"
+                    >
+                      <span className="w-4 shrink-0 font-display text-sm font-bold tabular-nums text-ink/30">
+                        {index + 1}
+                      </span>
+                      <Avatar name={member.name} color={member.avatarColor} size="sm" />
+
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-ink">{member.name}</p>
+                        <p className="truncate text-[12px] text-ink/45">
+                          {member.jobTitle} ·{" "}
+                          {member.onTimeTotal === 0
+                            ? "no approvals yet"
+                            : `${member.onTime}% on time`}
+                        </p>
+                      </div>
+
+                      <ScoreRing score={member.score} size="xs" showValue={false} />
+                      <span className="w-8 text-right font-display text-sm font-bold tabular-nums text-ink">
+                        {member.score}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : (
+          <Card>
+            <h3 className="font-display text-base font-bold tracking-tight text-ink">
+              Your standing
+            </h3>
+            <p className="mt-1 text-[13px] text-ink/50">
+              Derived from this month&rsquo;s deadlines and approvals.
+            </p>
+
+            <div className="mt-6 flex items-center gap-6">
+              <ScoreRing score={ownScore} size="md" showLabel />
+              <div className="min-w-0 flex-1 space-y-4">
+                <ProgressBar
+                  value={onTimeByMember.get(user.id)?.rate ?? 0}
+                  label="On-time rate"
+                  showValue
+                />
+                <p className="text-[13px] leading-relaxed text-ink/55">
+                  Every month starts at 100. Deliver before the deadline and it
+                  stays there.
+                </p>
+                <Link href="/my-performance" className={buttonClasses("secondary", "sm")}>
+                  See what changed it
+                </Link>
+              </div>
+            </div>
+          </Card>
+        )}
       </section>
+
+      {/* Member's next deadlines */}
+      {!isAdmin && atRiskRows.length === 0 && (
+        <Card padded={false}>
+          <CardHeader title="Next up" description="Your closest deadlines" />
+          <MemberUpcoming userId={user.id} />
+        </Card>
+      )}
+    </div>
+  );
+}
+
+async function MemberUpcoming({ userId }: { userId: string }) {
+  const upcoming = await prisma.milestone.findMany({
+    where: { assigneeId: userId, status: { in: OPEN_STATUSES } },
+    orderBy: { dueDate: "asc" },
+    take: 5,
+    include: {
+      module: { select: { project: { select: { client: { select: { businessName: true } } } } } },
+    },
+  });
+
+  if (upcoming.length === 0) {
+    return (
+      <EmptyState
+        icon={CalendarClock}
+        eyebrow="Nothing scheduled"
+        title="No open milestones"
+        description="When the owner plans this month's work, your milestones will appear here."
+      />
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-line">
+      {upcoming.map((milestone) => (
+        <li key={milestone.id} className="flex items-center gap-3 px-5 py-3.5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium text-ink">{milestone.title}</p>
+            <p className="truncate text-[12px] text-ink/45">
+              {milestone.module.project.client.businessName} ·{" "}
+              {formatDate(milestone.dueDate)}
+            </p>
+          </div>
+          <Badge size="sm" dot tone={MILESTONE_STATUS_TONE[milestone.status as MilestoneStatus]}>
+            {MILESTONE_STATUS_LABEL[milestone.status as MilestoneStatus]}
+          </Badge>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** "0 days overdue" is nonsense — inside the first day it's overdue today. */
+function lateness(overdue: boolean, days: number): string {
+  if (!overdue) return "due within 48h";
+  const late = Math.abs(days);
+  if (late === 0) return "overdue today";
+  return `${late} day${late === 1 ? "" : "s"} overdue`;
+}
+
+function HeroStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-[10px] border border-paper/10 bg-paper/[0.04] px-4 py-3">
+      <p className="eyebrow text-paper/35">{label}</p>
+      <p className="mt-1.5 text-sm font-medium text-paper/85">{value}</p>
     </div>
   );
 }

@@ -113,6 +113,119 @@ export function relativeFromNow(value: DateInput, now: DateInput = new Date()): 
   );
 }
 
+// ---------------------------------------------------------------------------
+// Date-only fields and deadlines
+// ---------------------------------------------------------------------------
+
+export const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Asia/Karachi is UTC+5 year round — it observes no daylight saving. */
+const AGENCY_UTC_OFFSET_HOURS = 5;
+
+/**
+ * `startDate`, `endDate` and `dueDate` are date-only. They're stored at UTC
+ * midnight of the intended calendar day, which formats back to the same day in
+ * Karachi (UTC+5) with no off-by-one.
+ */
+export function toDateOnly(value: DateInput): Date {
+  const date = toDate(value);
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
+}
+
+/** Parse a `YYYY-MM-DD` value from an `<input type="date">`. */
+export function parseDateInput(value: string): Date | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!match) return null;
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/** Format a Date back into a `YYYY-MM-DD` value for an `<input type="date">`. */
+export function toDateInput(value: DateInput): string {
+  const date = toDateOnly(value);
+  return date.toISOString().slice(0, 10);
+}
+
+export function addDays(value: DateInput, days: number): Date {
+  return new Date(toDate(value).getTime() + days * DAY_MS);
+}
+
+/**
+ * The instant a milestone is actually late.
+ *
+ * A due date means "by the end of that day, in the office's timezone". The
+ * date is stored at UTC midnight, so the deadline is 19:00 UTC the same day —
+ * midnight in Karachi. Scoring uses this, never the raw stored date, otherwise
+ * everything due today would be late from 05:00 local onwards.
+ */
+export function dueDeadline(dueDate: DateInput): Date {
+  return new Date(
+    toDateOnly(dueDate).getTime() + (24 - AGENCY_UTC_OFFSET_HOURS) * 60 * 60 * 1000,
+  );
+}
+
+/** Whole days from now until `value`; negative once it's in the past. */
+export function daysUntil(value: DateInput, now: DateInput = new Date()): number {
+  return Math.ceil((toDate(value).getTime() - toDate(now).getTime()) / DAY_MS);
+}
+
+/** Inclusive whole-day span between two date-only values. */
+export function daysBetween(from: DateInput, to: DateInput): number {
+  return Math.round(
+    (toDateOnly(to).getTime() - toDateOnly(from).getTime()) / DAY_MS,
+  );
+}
+
+export type DueUrgency = "overdue" | "soon" | "normal";
+
+/**
+ * Deadline pressure for a milestone that isn't finished yet: red once the
+ * deadline has passed, amber inside the final 48 hours.
+ */
+export function dueUrgency(
+  dueDate: DateInput,
+  now: DateInput = new Date(),
+): DueUrgency {
+  const remaining = dueDeadline(dueDate).getTime() - toDate(now).getTime();
+  if (remaining < 0) return "overdue";
+  if (remaining <= 48 * 60 * 60 * 1000) return "soon";
+  return "normal";
+}
+
+/** The calendar month a score cycle belongs to, in agency time. */
+export function agencyYearMonth(value: DateInput = new Date()): {
+  year: number;
+  month: number;
+} {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: AGENCY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+  }).formatToParts(toDate(value));
+
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  return { year, month };
+}
+
+/** The month before the given cycle, rolling the year over at January. */
+export function previousYearMonth(cycle: { year: number; month: number }): {
+  year: number;
+  month: number;
+} {
+  return cycle.month === 1
+    ? { year: cycle.year - 1, month: 12 }
+    : { year: cycle.year, month: cycle.month - 1 };
+}
+
+/** "August 2026" from a `{ year, month }` cycle. */
+export function formatCycle(cycle: { year: number; month: number }): string {
+  return formatMonth(new Date(Date.UTC(cycle.year, cycle.month - 1, 1)));
+}
+
 /** Today's date in agency time as an ISO `YYYY-MM-DD` string. */
 export function agencyToday(now: DateInput = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
