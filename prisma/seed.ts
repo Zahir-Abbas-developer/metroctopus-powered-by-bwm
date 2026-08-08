@@ -3,7 +3,9 @@ import bcrypt from "bcryptjs";
 
 import { avatarColorFor } from "../lib/constants";
 import { planFor, defaultAssigneeFor } from "../lib/templates";
-import { addDays, dueDeadline, agencyYearMonth, toDateOnly } from "../lib/date";
+import { addDays, dueDeadline, agencyYearMonth, toDateOnly, formatDate } from "../lib/date";
+import { generateReports } from "../lib/reports";
+import { notify } from "../lib/notifications";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "../lib/scoring";
 
 const prisma = new PrismaClient();
@@ -278,8 +280,89 @@ async function main() {
   }
 
   const scoreEvents = await backfillScoreEvents(admin.id);
+  const { reports, notifications } = await seedReportsAndNotifications();
 
-  print({ projectCount, milestoneCount, scoreEvents });
+  print({ projectCount, milestoneCount, scoreEvents, reports, notifications });
+}
+
+/**
+ * Runs the real generator over the seeded history so the reporting screens
+ * open with genuine documents, then leaves a few notifications so the bell has
+ * something in it.
+ */
+async function seedReportsAndNotifications() {
+  await prisma.report.deleteMany({});
+  await prisma.notification.deleteMany({});
+
+  const now = new Date();
+
+  // Last week and last month have closed, so those are the periods a real
+  // agency would already be holding reports for.
+  const lastWeek = addDays(now, -7);
+  const lastMonth = addDays(now, -30);
+
+  const [weekly, monthly] = await Promise.all([
+    generateReports({ types: ["MEMBER_WEEKLY", "CLIENT_WEEKLY"], reference: lastWeek }),
+    generateReports({ types: ["MEMBER_MONTHLY"], reference: lastMonth }),
+  ]);
+
+  const reports =
+    weekly.memberWeekly + weekly.clientWeekly + monthly.memberMonthly;
+
+  // A handful of in-app notices across the team.
+  const members = await prisma.user.findMany({
+    where: { role: "MEMBER", isActive: true },
+    select: { id: true },
+  });
+
+  let notifications = await prisma.notification.count();
+
+  const upcoming = await prisma.milestone.findMany({
+    where: { assigneeId: { not: null }, status: { in: ["PENDING", "IN_PROGRESS"] } },
+    orderBy: { dueDate: "asc" },
+    take: 4,
+    select: { id: true, title: true, dueDate: true, assigneeId: true },
+  });
+
+  for (const milestone of upcoming) {
+    const created = await notify({
+      userId: milestone.assigneeId!,
+      type: "TASK_ASSIGNED",
+      title: "New milestone assigned to you",
+      body: `${milestone.title} — due ${formatDate(milestone.dueDate)}.`,
+      href: "/my-tasks",
+      milestoneId: milestone.id,
+    });
+    if (created) notifications += 1;
+  }
+
+  const approved = await prisma.milestone.findFirst({
+    where: { status: "COMPLETED", assigneeId: { not: null } },
+    orderBy: { completedAt: "desc" },
+    select: { id: true, title: true, assigneeId: true },
+  });
+
+  if (approved) {
+    const created = await notify({
+      userId: approved.assigneeId!,
+      type: "WORK_APPROVED",
+      title: "Your work was approved",
+      body: `${approved.title} is signed off.`,
+      href: "/my-tasks",
+      milestoneId: approved.id,
+    });
+    if (created) notifications += 1;
+  }
+
+  // Leave the first member's notices unread so the bell shows a count.
+  if (members.length > 1) {
+    await prisma.notification.updateMany({
+      where: { userId: { in: members.slice(1).map((m) => m.id) } },
+      data: { readAt: new Date() },
+    });
+  }
+
+  return { reports, notifications };
 }
 
 /**
@@ -420,7 +503,13 @@ function hash(value: string): number {
   return result;
 }
 
-function print(stats: { projectCount: number; milestoneCount: number; scoreEvents: number }) {
+function print(stats: {
+  projectCount: number;
+  milestoneCount: number;
+  scoreEvents: number;
+  reports: number;
+  notifications: number;
+}) {
   const line = "─".repeat(62);
   const row = (email: string, password: string, label: string) =>
     `  ${email.padEnd(24)} ${password.padEnd(11)} ${label}`;
@@ -439,6 +528,7 @@ function print(stats: { projectCount: number; milestoneCount: number; scoreEvent
     `  ${CLIENTS.length} clients · ${stats.projectCount} projects · ` +
       `${stats.milestoneCount} milestones · ${stats.scoreEvents} score events`,
   );
+  console.log(`  ${stats.reports} reports · ${stats.notifications} notifications`);
   console.log(`${line}\n`);
   console.log("  Sign in at http://localhost:3000/login\n");
 }

@@ -1,0 +1,602 @@
+import { prisma } from "@/lib/prisma";
+import {
+  addDays,
+  agencyYearMonth,
+  dueDeadline,
+  endOfAgencyMonth,
+  endOfAgencyWeek,
+  formatPeriod,
+  previousYearMonth,
+  startOfAgencyMonth,
+  startOfAgencyWeek,
+  toDateOnly,
+} from "@/lib/date";
+import { monthlyScore, scoreBand, type ScoreEventType } from "@/lib/scoring";
+import { narrateClientReport, narrateMemberReport } from "@/lib/narrative";
+import { notify } from "@/lib/notifications";
+import type { BadgeTone } from "@/components/ui/Badge";
+
+/**
+ * Report generation.
+ *
+ * A report is a statement about a period that has closed, so the payload is a
+ * frozen snapshot: reopening a milestone in October must not rewrite what
+ * August's report said. Everything the document renders comes out of that
+ * snapshot — the pages never re-query the live tables.
+ */
+
+export const REPORT_TYPES = ["MEMBER_WEEKLY", "MEMBER_MONTHLY", "CLIENT_WEEKLY"] as const;
+export type ReportType = (typeof REPORT_TYPES)[number];
+
+export const REPORT_TYPE_LABEL: Record<ReportType, string> = {
+  MEMBER_WEEKLY: "Weekly performance",
+  MEMBER_MONTHLY: "Monthly performance",
+  CLIENT_WEEKLY: "Client weekly",
+};
+
+export const REPORT_TYPE_TONE: Record<ReportType, BadgeTone> = {
+  MEMBER_WEEKLY: "info",
+  MEMBER_MONTHLY: "success",
+  CLIENT_WEEKLY: "neutral",
+};
+
+/** Bumped if the payload shape ever changes; old reports keep their version. */
+export const PAYLOAD_VERSION = 1 as const;
+
+export type MemberReportPayload = {
+  version: typeof PAYLOAD_VERSION;
+  kind: "MEMBER";
+  member: { id: string; name: string; jobTitle: string; avatarColor: string };
+  period: { start: string; end: string; label: string; phrase: string };
+  score: {
+    value: number;
+    bandKey: string;
+    bandLabel: string;
+    bandColor: string;
+    previous: number | null;
+    delta: number | null;
+  };
+  points: { gained: number; lost: number; net: number };
+  events: {
+    id: string;
+    type: ScoreEventType;
+    points: number;
+    reason: string;
+    at: string;
+    milestoneTitle: string | null;
+    clientName: string | null;
+  }[];
+  milestones: {
+    completed: number;
+    onTime: number;
+    late: number;
+    missed: number;
+    rejected: number;
+  };
+  onTimeRate: number;
+  narrative: { second: string; third: string };
+};
+
+export type ClientReportPayload = {
+  version: typeof PAYLOAD_VERSION;
+  kind: "CLIENT";
+  client: { id: string; name: string; industry: string | null };
+  period: { start: string; end: string; label: string };
+  project: {
+    id: string;
+    title: string;
+    startDate: string;
+    endDate: string;
+    completionPercent: number;
+    total: number;
+    done: number;
+  } | null;
+  completedThisPeriod: {
+    module: string;
+    title: string;
+    completedAt: string;
+    assignee: string | null;
+  }[];
+  plannedNextPeriod: {
+    module: string;
+    title: string;
+    dueDate: string;
+    assignee: string | null;
+  }[];
+  overdue: {
+    module: string;
+    title: string;
+    dueDate: string;
+    assignee: string | null;
+    daysLate: number;
+  }[];
+  narrative: string;
+};
+
+export type ReportPayload = MemberReportPayload | ClientReportPayload;
+
+/** Reports are keyed by what they describe, so regenerating is a no-op. */
+export function reportDedupeKey(
+  type: ReportType,
+  periodStart: Date,
+  subjectId: string,
+): string {
+  return `${type}:${toDateOnly(periodStart).toISOString().slice(0, 10)}:${subjectId}`;
+}
+
+export function parsePayload(raw: string): ReportPayload {
+  return JSON.parse(raw) as ReportPayload;
+}
+
+// ---------------------------------------------------------------------------
+// Member reports
+// ---------------------------------------------------------------------------
+
+const OPEN_STATUSES = ["PENDING", "IN_PROGRESS", "SUBMITTED"];
+
+async function buildMemberPayload(
+  userId: string,
+  periodStart: Date,
+  periodEnd: Date,
+  type: ReportType,
+): Promise<MemberReportPayload | null> {
+  const member = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { id: true, name: true, jobTitle: true, avatarColor: true },
+  });
+  if (!member) return null;
+
+  const weekly = type === "MEMBER_WEEKLY";
+  // The score cycle is monthly by definition, so a weekly report reports the
+  // score of the cycle its week sits in — not a "weekly score", which would be
+  // a different and undefined thing.
+  const cycle = agencyYearMonth(periodEnd);
+  const previousCycle = previousYearMonth(cycle);
+
+  const rangeEnd = new Date(periodEnd.getTime() + 24 * 60 * 60 * 1000);
+
+  const [cycleEvents, previousEvents, periodEvents, completed, missed] = await Promise.all([
+    prisma.scoreEvent.findMany({
+      where: { userId, year: cycle.year, month: cycle.month },
+      select: { points: true },
+    }),
+    prisma.scoreEvent.findMany({
+      where: { userId, year: previousCycle.year, month: previousCycle.month },
+      select: { points: true },
+    }),
+    prisma.scoreEvent.findMany({
+      where: { userId, createdAt: { gte: periodStart, lt: rangeEnd } },
+      orderBy: { createdAt: "desc" },
+      include: {
+        milestone: {
+          select: {
+            title: true,
+            module: {
+              select: {
+                name: true,
+                project: { select: { client: { select: { businessName: true } } } },
+              },
+            },
+          },
+        },
+      },
+    }),
+    prisma.milestone.findMany({
+      where: {
+        assigneeId: userId,
+        status: "COMPLETED",
+        completedAt: { gte: periodStart, lt: rangeEnd },
+      },
+      select: {
+        dueDate: true,
+        completedAt: true,
+        module: { select: { name: true } },
+      },
+    }),
+    prisma.milestone.findMany({
+      where: {
+        assigneeId: userId,
+        status: "MISSED",
+        dueDate: { gte: periodStart, lt: rangeEnd },
+      },
+      select: { module: { select: { name: true } } },
+    }),
+  ]);
+
+  const score = monthlyScore(cycleEvents.map((event) => event.points));
+  const previousScore =
+    previousEvents.length === 0 && cycleEvents.length === 0
+      ? null
+      : monthlyScore(previousEvents.map((event) => event.points));
+
+  const onTime = completed.filter(
+    (milestone) => milestone.completedAt! <= dueDeadline(milestone.dueDate),
+  ).length;
+
+  const lateCount = periodEvents.filter((event) => event.type === "LATE").length;
+  const rejectedCount = periodEvents.filter((event) => event.type === "REJECTED").length;
+
+  const gained = periodEvents
+    .filter((event) => event.points > 0)
+    .reduce((sum, event) => sum + event.points, 0);
+  const lost = periodEvents
+    .filter((event) => event.points < 0)
+    .reduce((sum, event) => sum + event.points, 0);
+
+  // Where the trouble was concentrated, for the narrative's last sentence.
+  const troubleArea = mostCommon(
+    periodEvents
+      .filter((event) => event.points < 0)
+      .map((event) => event.milestone?.module.name)
+      .filter((name): name is string => Boolean(name)),
+  );
+
+  const band = scoreBand(score);
+  const narrativeFacts = {
+    firstName: member.name.split(" ")[0],
+    periodPhrase: weekly ? "this week" : "this month",
+    previousPhrase: weekly ? "last week" : "last month",
+    completedTotal: completed.length,
+    completedOnTime: onTime,
+    lateCount,
+    missedCount: missed.length,
+    rejectedCount,
+    score,
+    delta: previousScore === null ? null : round(score - previousScore),
+    troubleArea,
+  };
+
+  return {
+    version: PAYLOAD_VERSION,
+    kind: "MEMBER",
+    member,
+    period: {
+      start: periodStart.toISOString(),
+      end: periodEnd.toISOString(),
+      label: formatPeriod(periodStart, periodEnd),
+      phrase: weekly ? "week" : "month",
+    },
+    score: {
+      value: score,
+      bandKey: band.key,
+      bandLabel: band.label,
+      bandColor: band.color,
+      previous: previousScore,
+      delta: previousScore === null ? null : round(score - previousScore),
+    },
+    points: { gained: round(gained), lost: round(lost), net: round(gained + lost) },
+    events: periodEvents.map((event) => ({
+      id: event.id,
+      type: event.type as ScoreEventType,
+      points: event.points,
+      reason: event.reason,
+      at: event.createdAt.toISOString(),
+      milestoneTitle: event.milestone?.title ?? null,
+      clientName: event.milestone?.module.project.client.businessName ?? null,
+    })),
+    milestones: {
+      completed: completed.length,
+      onTime,
+      late: lateCount,
+      missed: missed.length,
+      rejected: rejectedCount,
+    },
+    onTimeRate:
+      completed.length === 0 ? 0 : Math.round((onTime / completed.length) * 100),
+    narrative: {
+      second: narrateMemberReport(narrativeFacts, "second"),
+      third: narrateMemberReport(narrativeFacts, "third"),
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Client reports
+// ---------------------------------------------------------------------------
+
+async function buildClientPayload(
+  clientId: string,
+  periodStart: Date,
+  periodEnd: Date,
+): Promise<ClientReportPayload | null> {
+  const client = await prisma.client.findUnique({
+    where: { id: clientId },
+    select: { id: true, businessName: true, industry: true },
+  });
+  if (!client) return null;
+
+  const rangeEnd = new Date(periodEnd.getTime() + 24 * 60 * 60 * 1000);
+  const nextPeriodEnd = addDays(rangeEnd, 7);
+
+  // The engagement that covers this week, else the most recent one.
+  const project =
+    (await prisma.project.findFirst({
+      where: { clientId, startDate: { lte: periodEnd }, endDate: { gte: periodStart } },
+      orderBy: { startDate: "desc" },
+    })) ??
+    (await prisma.project.findFirst({ where: { clientId }, orderBy: { startDate: "desc" } }));
+
+  if (!project) {
+    return {
+      version: PAYLOAD_VERSION,
+      kind: "CLIENT",
+      client: { id: client.id, name: client.businessName, industry: client.industry },
+      period: {
+        start: periodStart.toISOString(),
+        end: periodEnd.toISOString(),
+        label: formatPeriod(periodStart, periodEnd),
+      },
+      project: null,
+      completedThisPeriod: [],
+      plannedNextPeriod: [],
+      overdue: [],
+      narrative: narrateClientReport({
+        clientName: client.businessName,
+        projectTitle: null,
+        completedThisPeriod: 0,
+        completionPercent: 0,
+        plannedNext: 0,
+        overdueCount: 0,
+      }),
+    };
+  }
+
+  const milestones = await prisma.milestone.findMany({
+    where: { module: { projectId: project.id } },
+    include: {
+      module: { select: { name: true } },
+      assignee: { select: { name: true } },
+    },
+    orderBy: [{ dueDate: "asc" }],
+  });
+
+  const done = milestones.filter((m) => m.status === "COMPLETED").length;
+  const completionPercent =
+    milestones.length === 0 ? 0 : Math.round((done / milestones.length) * 100);
+
+  const completedThisPeriod = milestones
+    .filter(
+      (m) =>
+        m.status === "COMPLETED" &&
+        m.completedAt &&
+        m.completedAt >= periodStart &&
+        m.completedAt < rangeEnd,
+    )
+    .map((m) => ({
+      module: m.module.name,
+      title: m.title,
+      completedAt: m.completedAt!.toISOString(),
+      assignee: m.assignee?.name ?? null,
+    }));
+
+  const plannedNextPeriod = milestones
+    .filter(
+      (m) =>
+        OPEN_STATUSES.includes(m.status) &&
+        m.dueDate >= rangeEnd &&
+        m.dueDate < nextPeriodEnd,
+    )
+    .map((m) => ({
+      module: m.module.name,
+      title: m.title,
+      dueDate: m.dueDate.toISOString(),
+      assignee: m.assignee?.name ?? null,
+    }));
+
+  const overdue = milestones
+    .filter((m) => m.status !== "COMPLETED" && dueDeadline(m.dueDate) < rangeEnd)
+    .map((m) => ({
+      module: m.module.name,
+      title: m.title,
+      dueDate: m.dueDate.toISOString(),
+      assignee: m.assignee?.name ?? null,
+      daysLate: Math.max(
+        0,
+        Math.floor((rangeEnd.getTime() - dueDeadline(m.dueDate).getTime()) / 86_400_000),
+      ),
+    }));
+
+  return {
+    version: PAYLOAD_VERSION,
+    kind: "CLIENT",
+    client: { id: client.id, name: client.businessName, industry: client.industry },
+    period: {
+      start: periodStart.toISOString(),
+      end: periodEnd.toISOString(),
+      label: formatPeriod(periodStart, periodEnd),
+    },
+    project: {
+      id: project.id,
+      title: project.title,
+      startDate: project.startDate.toISOString(),
+      endDate: project.endDate.toISOString(),
+      completionPercent,
+      total: milestones.length,
+      done,
+    },
+    completedThisPeriod,
+    plannedNextPeriod,
+    overdue,
+    narrative: narrateClientReport({
+      clientName: client.businessName,
+      projectTitle: project.title,
+      completedThisPeriod: completedThisPeriod.length,
+      completionPercent,
+      plannedNext: plannedNextPeriod.length,
+      overdueCount: overdue.length,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Generation
+// ---------------------------------------------------------------------------
+
+export type GenerationResult = {
+  memberWeekly: number;
+  memberMonthly: number;
+  clientWeekly: number;
+  skipped: number;
+  periods: { weekly: string; monthly: string };
+};
+
+/**
+ * Generate a batch of reports for the periods containing `reference`.
+ *
+ * Idempotent: the unique `dedupeKey` means a second run for the same period
+ * updates nothing and creates nothing. `regenerate` is the deliberate escape
+ * hatch for when a period's data was corrected after the fact.
+ */
+export async function generateReports(options: {
+  types: readonly ReportType[];
+  reference?: Date;
+  regenerate?: boolean;
+}): Promise<GenerationResult> {
+  const reference = options.reference ?? new Date();
+  const weekStart = startOfAgencyWeek(reference);
+  const weekEnd = endOfAgencyWeek(reference);
+  const monthStart = startOfAgencyMonth(reference);
+  const monthEnd = endOfAgencyMonth(reference);
+
+  const result: GenerationResult = {
+    memberWeekly: 0,
+    memberMonthly: 0,
+    clientWeekly: 0,
+    skipped: 0,
+    periods: {
+      weekly: formatPeriod(weekStart, weekEnd),
+      monthly: formatPeriod(monthStart, monthEnd),
+    },
+  };
+
+  const members = await prisma.user.findMany({
+    where: { role: "MEMBER", isActive: true },
+    select: { id: true },
+  });
+
+  for (const type of options.types) {
+    if (type === "MEMBER_WEEKLY" || type === "MEMBER_MONTHLY") {
+      const [start, end] =
+        type === "MEMBER_WEEKLY" ? [weekStart, weekEnd] : [monthStart, monthEnd];
+
+      for (const member of members) {
+        const payload = await buildMemberPayload(member.id, start, end, type);
+        if (!payload) continue;
+
+        const saved = await save({
+          type,
+          periodStart: start,
+          periodEnd: end,
+          userId: member.id,
+          clientId: null,
+          payload,
+          regenerate: options.regenerate,
+        });
+
+        if (saved.created) {
+          result[type === "MEMBER_WEEKLY" ? "memberWeekly" : "memberMonthly"] += 1;
+          await notify({
+            userId: member.id,
+            type: "REPORT_READY",
+            title: `Your ${type === "MEMBER_WEEKLY" ? "weekly" : "monthly"} report is ready`,
+            body: payload.narrative.second,
+            href: `/reports/${saved.id}`,
+            reportId: saved.id,
+            dedupeKey: `report:${saved.id}`,
+          });
+        } else {
+          result.skipped += 1;
+        }
+      }
+      continue;
+    }
+
+    // CLIENT_WEEKLY — only for clients actually being worked on.
+    const clients = await prisma.client.findMany({
+      where: { status: { in: ["ACTIVE", "PAUSED"] } },
+      select: { id: true },
+    });
+
+    for (const client of clients) {
+      const payload = await buildClientPayload(client.id, weekStart, weekEnd);
+      if (!payload) continue;
+
+      const saved = await save({
+        type,
+        periodStart: weekStart,
+        periodEnd: weekEnd,
+        userId: null,
+        clientId: client.id,
+        payload,
+        regenerate: options.regenerate,
+      });
+
+      if (saved.created) result.clientWeekly += 1;
+      else result.skipped += 1;
+    }
+  }
+
+  return result;
+}
+
+async function save(input: {
+  type: ReportType;
+  periodStart: Date;
+  periodEnd: Date;
+  userId: string | null;
+  clientId: string | null;
+  payload: ReportPayload;
+  regenerate?: boolean;
+}): Promise<{ id: string; created: boolean }> {
+  const subjectId = input.userId ?? input.clientId ?? "agency";
+  const dedupeKey = reportDedupeKey(input.type, input.periodStart, subjectId);
+
+  const existing = await prisma.report.findUnique({ where: { dedupeKey } });
+
+  if (existing && !input.regenerate) {
+    return { id: existing.id, created: false };
+  }
+
+  if (existing) {
+    const updated = await prisma.report.update({
+      where: { dedupeKey },
+      data: { payload: JSON.stringify(input.payload), generatedAt: new Date() },
+    });
+    return { id: updated.id, created: false };
+  }
+
+  const created = await prisma.report.create({
+    data: {
+      type: input.type,
+      periodStart: input.periodStart,
+      periodEnd: input.periodEnd,
+      userId: input.userId,
+      clientId: input.clientId,
+      payload: JSON.stringify(input.payload),
+      dedupeKey,
+    },
+  });
+
+  return { id: created.id, created: true };
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function mostCommon(values: string[]): string | null {
+  if (values.length === 0) return null;
+
+  const counts = new Map<string, number>();
+  for (const value of values) counts.set(value, (counts.get(value) ?? 0) + 1);
+
+  let best: string | null = null;
+  let bestCount = 0;
+  for (const [value, count] of counts) {
+    if (count > bestCount) {
+      best = value;
+      bestCount = count;
+    }
+  }
+  return best;
+}

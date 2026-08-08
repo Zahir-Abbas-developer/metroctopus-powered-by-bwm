@@ -195,6 +195,83 @@ export function dueUrgency(
   return "normal";
 }
 
+// ---------------------------------------------------------------------------
+// Reporting periods
+// ---------------------------------------------------------------------------
+
+/**
+ * The calendar date in agency time, as UTC midnight of that same day.
+ *
+ * Everything below works from this: take "what day is it in Karachi", then do
+ * plain UTC arithmetic. Doing it the other way round — arithmetic first,
+ * timezone second — is what produces off-by-one weeks near midnight.
+ */
+export function agencyDay(value: DateInput = new Date()): Date {
+  const iso = agencyToday(value);
+  return new Date(`${iso}T00:00:00.000Z`);
+}
+
+/** Monday of the week containing `value`, as a date-only value. */
+export function startOfAgencyWeek(value: DateInput = new Date()): Date {
+  const day = agencyDay(value);
+  // getUTCDay: 0 = Sunday. Shift so Monday is the first day of the week.
+  const offset = (day.getUTCDay() + 6) % 7;
+  return new Date(day.getTime() - offset * DAY_MS);
+}
+
+/** Sunday of the week containing `value`, as a date-only value. */
+export function endOfAgencyWeek(value: DateInput = new Date()): Date {
+  return addDays(startOfAgencyWeek(value), 6);
+}
+
+/** The 1st of the month containing `value`. */
+export function startOfAgencyMonth(value: DateInput = new Date()): Date {
+  const day = agencyDay(value);
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth(), 1));
+}
+
+/** The last day of the month containing `value`. */
+export function endOfAgencyMonth(value: DateInput = new Date()): Date {
+  const day = agencyDay(value);
+  // Day 0 of the next month is the last day of this one.
+  return new Date(Date.UTC(day.getUTCFullYear(), day.getUTCMonth() + 1, 0));
+}
+
+/** True when `value` falls on a Monday in agency time. */
+export function isAgencyMonday(value: DateInput = new Date()): boolean {
+  return agencyDay(value).getUTCDay() === 1;
+}
+
+/** True when `value` is the first of the month in agency time. */
+export function isAgencyFirstOfMonth(value: DateInput = new Date()): boolean {
+  return agencyDay(value).getUTCDate() === 1;
+}
+
+/** "4 – 10 Aug 2026" / "August 2026" — the label on a report header. */
+export function formatPeriod(start: DateInput, end: DateInput): string {
+  const from = toDateOnly(start);
+  const to = toDateOnly(end);
+
+  const sameMonth =
+    from.getUTCFullYear() === to.getUTCFullYear() &&
+    from.getUTCMonth() === to.getUTCMonth();
+
+  // A period covering a whole calendar month reads better as the month itself.
+  if (sameMonth && from.getUTCDate() === 1 && to.getUTCDate() === endOfAgencyMonth(from).getUTCDate()) {
+    return formatMonth(from);
+  }
+
+  if (sameMonth) {
+    const day = new Intl.DateTimeFormat("en-GB", {
+      timeZone: AGENCY_TIMEZONE,
+      day: "numeric",
+    }).format(from);
+    return `${day} – ${formatDate(to)}`;
+  }
+
+  return `${formatDate(from)} – ${formatDate(to)}`;
+}
+
 /** The calendar month a score cycle belongs to, in agency time. */
 export function agencyYearMonth(value: DateInput = new Date()): {
   year: number;

@@ -8,6 +8,7 @@ import { fieldErrors, transitionSchema } from "@/lib/validation";
 import { dueDeadline } from "@/lib/date";
 import { applyEvents } from "@/lib/score-service";
 import { evaluateCompletion, evaluateMissed, rejectionEvent } from "@/lib/scoring";
+import { notifyApproved, notifyRejected } from "@/lib/notifications";
 
 /**
  * The one place a milestone's status can change, because every scoring
@@ -105,13 +106,33 @@ export async function POST(
     let scored = 0;
 
     if (to === "COMPLETED") {
-      scored = await applyEvents(evaluateCompletion(facts), { at: now });
+      const proposals = evaluateCompletion(facts);
+      scored = await applyEvents(proposals, { at: now });
+
+      if (milestone.assigneeId) {
+        await notifyApproved({
+          id: milestone.id,
+          title: milestone.title,
+          assigneeId: milestone.assigneeId,
+          points: proposals.reduce((sum, event) => sum + event.points, 0),
+        });
+      }
     } else if (isRejection) {
       const event = rejectionEvent(
         { id: milestone.id, title: milestone.title, weight: milestone.weight, assigneeId: milestone.assigneeId },
         reason,
       );
       scored = event ? await applyEvents([event], { at: now, createdById: user.id }) : 0;
+
+      if (event) {
+        await notifyRejected({
+          id: milestone.id,
+          title: milestone.title,
+          assigneeId: event.userId,
+          reason,
+          points: event.points,
+        });
+      }
     } else if (to === "MISSED") {
       scored = await applyEvents(evaluateMissed({ ...facts, completedAt: null }), { at: now });
     }

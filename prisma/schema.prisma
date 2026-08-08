@@ -40,9 +40,11 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  milestones    Milestone[]  @relation("MilestoneAssignee")
-  scoreEvents   ScoreEvent[] @relation("ScoreEventSubject")
-  authoredScore ScoreEvent[] @relation("ScoreEventAuthor")
+  milestones    Milestone[]    @relation("MilestoneAssignee")
+  scoreEvents   ScoreEvent[]   @relation("ScoreEventSubject")
+  authoredScore ScoreEvent[]   @relation("ScoreEventAuthor")
+  reports       Report[]
+  notifications Notification[]
 
   @@index([role])
   @@index([isActive])
@@ -71,6 +73,7 @@ model Client {
   updatedAt     DateTime @updatedAt
 
   projects Project[]
+  reports  Report[]
 
   @@index([status])
   @@index([businessName])
@@ -219,21 +222,65 @@ model ScoreEvent {
 }
 
 // ---------------------------------------------------------------------------
-// PLANNED — Phase 4+
+// Phase 4 — Automated reporting and notifications
 // ---------------------------------------------------------------------------
 
-// /// Generated weekly / monthly performance reports.
-// model Report {
-//   id          String   @id @default(cuid())
-//   /// "WEEKLY" | "MONTHLY"
-//   period      String
-//   /// Null for the agency-wide report the owner sees.
-//   userId      String?
-//   periodStart DateTime
-//   periodEnd   DateTime
-//   score       Int
-//   tasksTotal  Int
-//   tasksOnTime Int
-//   summary     String
-//   createdAt   DateTime @default(now())
-// }
+/// A generated report.
+///
+/// The `payload` is a frozen snapshot taken at generation time. A report is a
+/// statement about a period that has closed, so it must never change when the
+/// underlying data does — reopening a milestone months later cannot be allowed
+/// to rewrite what August's report said.
+model Report {
+  id          String   @id @default(cuid())
+  /// "MEMBER_WEEKLY" | "MEMBER_MONTHLY" | "CLIENT_WEEKLY"
+  type        String
+  periodStart DateTime
+  periodEnd   DateTime
+  /// Set for member reports.
+  userId      String?
+  /// Set for client reports.
+  clientId    String?
+  generatedAt DateTime @default(now())
+  /// Serialized JSON. Stored as text rather than a Json column: SQLite has no
+  /// native Json type, and keeping this portable is the standing rule here.
+  /// lib/reports.ts owns the parse and the version field inside it.
+  payload     String
+  /// "<type>:<periodStart>:<subjectId>". A unique index on it is what makes
+  /// regeneration idempotent — the same period cannot produce two reports.
+  dedupeKey   String   @unique
+
+  user   User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([type, periodStart])
+  @@index([userId, type])
+  @@index([clientId, type])
+}
+
+/// An in-app notification. No email yet — that's a later phase.
+model Notification {
+  id     String @id @default(cuid())
+  userId String
+  /// "TASK_ASSIGNED" | "DUE_TOMORROW" | "OVERDUE" | "WORK_APPROVED"
+  /// | "WORK_REJECTED" | "REPORT_READY"
+  type   String
+  title  String
+  body   String
+  /// Where clicking it should take them.
+  href   String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  milestoneId String?
+  reportId    String?
+
+  /// Present for the ones a repeated job could otherwise duplicate
+  /// (due-tomorrow, overdue, report-ready); null for one-off events.
+  dedupeKey String? @unique
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@index([userId, createdAt])
+}

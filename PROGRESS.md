@@ -454,3 +454,126 @@ recording so the next suite avoids them:
 
 Only one behaviour changed as a result of this pass — the catalogue gap above.
 Everything else the brief asks for was already in place and is now proven.
+
+---
+
+## Phase 4 — Automated reporting and notifications (8 August 2026)
+
+Reports built on the Phase 3 ledger, and the in-app notifications that tell
+people something happened.
+
+### Reports are frozen snapshots
+
+`Report` stores `type`, `periodStart`, `periodEnd`, `userId?`, `clientId?`,
+`generatedAt` and a **`payload`** — the whole document, serialized at
+generation time.
+
+This is the central decision of the phase. A report is a statement about a
+period that has closed, so reopening a milestone in October must not rewrite
+what August's report said. The document pages render from the payload and never
+re-query the live tables. The acceptance suite proves it: it applies a −5 point
+manual adjustment after generation and asserts the existing report is
+byte-identical afterwards.
+
+The payload is `String`, not a `Json` column — SQLite has no native Json type,
+and portability is the standing rule. `parsePayload()` owns the boundary, and
+the payload carries a `version` so the shape can change without breaking old
+documents.
+
+Generation is idempotent through a unique `dedupeKey`
+(`"<type>:<periodStart>:<subjectId>"`), the same mechanism as `ScoreEvent`.
+Running it three times produced no second report. `regenerate: true` is the
+deliberate escape hatch for a period whose data was corrected after the fact,
+and the UI states plainly what it does.
+
+### Narratives
+
+`lib/narrative.ts` is pure and template-based — no model, no clock, no
+database. It only ever restates numbers it was handed, which is what keeps the
+prose honest and what makes 19 unit tests possible.
+
+Two voices are written and frozen into every member report:
+
+> **Member:** You completed 9 of 10 milestones on time this month. Your score of
+> 92 places you in the Excellent band, up 4 points from last month. Watch out: 1
+> late delivery in Google Ads reporting.
+>
+> **Owner:** Ayesha completed 9 of 10 milestones on time this month. Ayesha's
+> score of 92 sits in the Excellent band, up 4 points from last month. …
+
+Third person deliberately avoids naming the subject twice in one sentence, and
+no pronoun is ever guessed. The tests pin the exact sentence from the brief,
+cover every score direction, both period lengths, zero-completion periods,
+single-milestone periods, multi-warning lists, and assert the output is always
+two or three sentences.
+
+### Cadence
+
+`/api/cron/evaluate` now also generates: weekly reports on Mondays, monthly on
+the 1st, both in agency time. The owner can generate any period by hand from
+**Reports → Generate reports**. The same handler does both, so the manual path
+and the scheduled path cannot drift.
+
+### Client weekly
+
+Per client per week: what completed (grouped by workstream), overall project
+completion, what's planned next week, and anything overdue with how late it is.
+Same editorial treatment. Internal for now, but written as if the client will
+read it — which is what a portal would later reuse unchanged.
+
+### Print
+
+A print stylesheet in `globals.css` turns any report into a clean A4 document:
+`@page size: A4`, app chrome hidden, `print-color-adjust: exact` so the dark
+masthead survives, and `break-inside: avoid` on every section and row so a
+report never splits a row across pages.
+
+Verified by emulating print media and reading computed styles — the sidebar
+computes to `display: none`, the print button too, the masthead keeps
+`print-color-adjust: exact` — and by driving Chrome's own PDF printer, which
+produced a clean 2-page A4 document.
+
+### Notifications
+
+`Notification` with `type`, `title`, `body`, `href`, `readAt` and an optional
+`dedupeKey`. A bell sits in the top bar (added for desktop; the mobile bar
+already existed), showing an unread count, with per-item and mark-all-read.
+
+Six events raise one: work assigned to you, due tomorrow, overdue, approved,
+rejected (carrying the reason), and a new report. Deadline notices are keyed
+per milestone per day, so an hourly schedule warns once rather than nagging —
+three consecutive evaluation runs produced no duplicates.
+
+Emitters never throw into their caller: a notification failing to write must
+not roll back the approval that triggered it.
+
+### Routing
+
+`/reports` is the owner's index, but `/reports/[id]` must open for a member
+whose report it is. The nav map gained a `scope: "exact"` flag so the
+restriction covers the index without locking the subtree — the page itself then
+checks ownership, and a member requesting someone else's report gets a 404.
+
+### Verification
+
+- **58 unit tests** (39 scoring, 19 narrative), all passing.
+- **87 Phase 4 acceptance checks** against the production build: the model, all
+  nine required payload fields, idempotent generation, the frozen-snapshot
+  proof, every access-control boundary, both documents rendering, the print
+  behaviour under emulated print media, notification CRUD, and each of the six
+  events actually firing.
+- **216 earlier checks** re-run with no regressions (19 + 19 + 52 + 126).
+- `tsc`, `next lint` and the production build clean, now 30 routes.
+
+### Two things fixed while building
+
+1. The pluraliser wrote "2 late deliverys". Consonant + y takes -ies; the fix
+   covers every noun the module uses.
+2. The owner's narrative read "Ayesha's score of 100 places Ayesha in the
+   Excellent band" — the name three times in two sentences. Reworded, with a
+   test that fails if the subject is ever named twice in one sentence.
+
+### Next up
+
+Email delivery for the notifications that already exist, and a client-facing
+portal reusing the client weekly document.

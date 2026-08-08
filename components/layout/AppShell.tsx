@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 
 import { Sidebar, type SidebarUser } from "@/components/layout/Sidebar";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 
 /**
  * Fixed 240px rail on desktop; a slide-over drawer below `lg`. The drawer
@@ -41,7 +42,7 @@ export function AppShell({
       </aside>
 
       {/* Mobile top bar */}
-      <div className="sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
+      <div className="no-print sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-brand font-display text-xs font-extrabold text-paper">
             A
@@ -50,14 +51,17 @@ export function AppShell({
             AGENCY OS
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setDrawerOpen(true)}
-          aria-label="Open navigation"
-          className="rounded-[10px] border border-line p-2 text-ink/70 transition-colors hover:bg-cream"
-        >
-          <Menu className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <NotificationBell />
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            aria-label="Open navigation"
+            className="rounded-[10px] border border-line p-2 text-ink/70 transition-colors hover:bg-cream"
+          >
+            <Menu className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer */}
@@ -85,6 +89,12 @@ export function AppShell({
 
       {/* Content */}
       <div className="lg:pl-sidebar">
+        {/* Desktop top bar. Deliberately slim — it exists for the bell, and a
+            heavier header would fight the editorial page headings below it. */}
+        <div className="no-print sticky top-0 z-20 hidden justify-end border-b border-line bg-paper/90 px-10 py-3 backdrop-blur lg:flex">
+          <NotificationBell />
+        </div>
+
         <main className="mx-auto w-full max-w-shell px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
           {children}
         </main>

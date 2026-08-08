@@ -86,3 +86,82 @@
     background: transparent;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Print — "Save as PDF" from the browser should produce a clean A4 document.
+
+   The app chrome disappears, the dark masthead keeps its colour (browsers drop
+   backgrounds by default, hence print-color-adjust), and sections are kept off
+   page breaks so a report never splits a row across two pages.
+   --------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
+  /* Anything that is app furniture rather than document. */
+  .no-print,
+  aside,
+  nav,
+  header.sticky,
+  button {
+    display: none !important;
+  }
+
+  /* The shell reserves space for the fixed sidebar; the page doesn't. */
+  .lg\:pl-sidebar {
+    padding-left: 0 !important;
+  }
+
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .report-document {
+    /* Point sizes print more predictably than rem. */
+    font-size: 10.5pt;
+  }
+
+  .report-header {
+    /* Keep the dark masthead — it is the identity of the document. */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    border-radius: 6px !important;
+  }
+
+  .report-section,
+  .report-header,
+  .report-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    box-shadow: none !important;
+  }
+
+  .report-row {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Badges, rings and tints must keep their colour to stay legible. */
+  .report-document [class*="bg-brand"],
+  .report-document [class*="bg-danger"],
+  .report-document [class*="bg-warn"],
+  .report-document [class*="bg-info"],
+  .report-document [class*="bg-cream"],
+  .report-document svg {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  a[href]::after {
+    /* Printed links to internal routes are noise, not information. */
+    content: "";
+  }
+}

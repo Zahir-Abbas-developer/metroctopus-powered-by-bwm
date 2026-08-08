@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { createMilestoneSchema, fieldErrors } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
+import { clientNameForModule, notifyAssigned } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   const { response } = await requireAdminApi();
@@ -60,6 +61,17 @@ export async function POST(request: Request) {
         order: (last?.order ?? -1) + 1,
       },
     });
+
+    if (milestone.assigneeId) {
+      await notifyAssigned({
+        id: milestone.id,
+        title: milestone.title,
+        dueDate: milestone.dueDate,
+        assigneeId: milestone.assigneeId,
+        clientName: await clientNameForModule(workstream.id),
+      });
+    }
+
     return NextResponse.json({ milestone }, { status: 201 });
   } catch {
     return apiError("Couldn't add this milestone", 500);

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, updateMilestoneSchema } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
+import { clientNameForModule, notifyAssigned } from "@/lib/notifications";
 
 /** Field edits are the owner's alone. Status changes live in ./status. */
 export async function PATCH(
@@ -56,6 +57,18 @@ export async function PATCH(
       },
       include: { assignee: { select: { id: true, name: true, avatarColor: true } } },
     });
+    // Only on a genuine handover — re-saving the same assignee shouldn't ping
+    // them again.
+    if (assigneeId && assigneeId !== existing.assigneeId) {
+      await notifyAssigned({
+        id: milestone.id,
+        title: milestone.title,
+        dueDate: milestone.dueDate,
+        assigneeId,
+        clientName: await clientNameForModule(milestone.moduleId),
+      });
+    }
+
     return NextResponse.json({ milestone });
   } catch {
     return apiError("Couldn't save those changes", 500);

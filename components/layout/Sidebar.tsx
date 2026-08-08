@@ -7,6 +7,7 @@ import {
   BarChart3,
   Briefcase,
   CheckSquare,
+  FileText,
   Gauge,
   Layers,
   LayoutDashboard,
@@ -26,6 +27,7 @@ const ICONS: Record<NavKey, LucideIcon> = {
   projects: Layers,
   "my-tasks": CheckSquare,
   "my-performance": Gauge,
+  "my-reports": FileText,
   team: Users2,
   reports: BarChart3,
 };

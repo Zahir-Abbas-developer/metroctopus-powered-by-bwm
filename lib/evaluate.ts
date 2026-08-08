@@ -1,7 +1,14 @@
 import { prisma } from "@/lib/prisma";
-import { dueDeadline } from "@/lib/date";
+import {
+  agencyToday,
+  dueDeadline,
+  isAgencyFirstOfMonth,
+  isAgencyMonday,
+} from "@/lib/date";
 import { applyEvents } from "@/lib/score-service";
 import { evaluateCompletion, evaluateMissed, type MilestoneFacts } from "@/lib/scoring";
+import { notifyDueTomorrow, notifyOverdue } from "@/lib/notifications";
+import { generateReports, type GenerationResult, type ReportType } from "@/lib/reports";
 
 /**
  * The daily evaluation pass.
@@ -32,29 +39,81 @@ export type EvaluationResult = {
   projectsClosed: number;
   milestonesMissed: number;
   missedPointsApplied: number;
+  notificationsSent: number;
+  reports: GenerationResult | null;
 };
 
-export async function runEvaluation(now: Date = new Date()): Promise<EvaluationResult> {
-  const overdueOpen = await countOverdueOpen(now);
+export async function runEvaluation(
+  now: Date = new Date(),
+  options: { generateReports?: boolean } = {},
+): Promise<EvaluationResult> {
+  const deadlines = await raiseDeadlineNotices(now);
   const lateOrBonusApplied = await catchUpCompletions();
   const closeout = await closeOutEndedProjects(now);
 
+  // Reporting cadence: weekly on Mondays, monthly on the 1st, both in agency
+  // time. `generateReports: true` forces a run for a manual trigger.
+  const due: ReportType[] = [];
+  if (options.generateReports || isAgencyMonday(now)) {
+    due.push("MEMBER_WEEKLY", "CLIENT_WEEKLY");
+  }
+  if (options.generateReports || isAgencyFirstOfMonth(now)) {
+    due.push("MEMBER_MONTHLY");
+  }
+
+  const reports =
+    due.length > 0 ? await generateReports({ types: due, reference: now }) : null;
+
   return {
     ranAt: now.toISOString(),
-    overdueOpen,
+    overdueOpen: deadlines.overdueOpen,
     lateOrBonusApplied,
     ...closeout,
+    notificationsSent: deadlines.sent,
+    reports,
   };
 }
 
-/** Open milestones whose deadline has passed. Reported, not mutated. */
-async function countOverdueOpen(now: Date): Promise<number> {
+/**
+ * Counts open milestones past their deadline, and warns their owners — one
+ * notice per milestone per day, so an hourly schedule doesn't nag.
+ */
+async function raiseDeadlineNotices(now: Date): Promise<{ overdueOpen: number; sent: number }> {
   const open = await prisma.milestone.findMany({
     where: { status: { in: ["PENDING", "IN_PROGRESS", "SUBMITTED"] } },
-    select: { dueDate: true },
+    select: { id: true, title: true, dueDate: true, assigneeId: true },
   });
 
-  return open.filter((milestone) => dueDeadline(milestone.dueDate) < now).length;
+  const today = agencyToday(now);
+  const tomorrow = now.getTime() + 24 * 60 * 60 * 1000;
+  let overdueOpen = 0;
+  let sent = 0;
+
+  for (const milestone of open) {
+    const deadline = dueDeadline(milestone.dueDate).getTime();
+
+    if (deadline < now.getTime()) {
+      overdueOpen += 1;
+      if (milestone.assigneeId) {
+        const created = await notifyOverdue(
+          { ...milestone, assigneeId: milestone.assigneeId },
+          today,
+        );
+        if (created) sent += 1;
+      }
+      continue;
+    }
+
+    if (deadline <= tomorrow && milestone.assigneeId) {
+      const created = await notifyDueTomorrow(
+        { ...milestone, assigneeId: milestone.assigneeId },
+        today,
+      );
+      if (created) sent += 1;
+    }
+  }
+
+  return { overdueOpen, sent };
 }
 
 /** Charge (or credit) any approved milestone the ledger hasn't seen yet. */
