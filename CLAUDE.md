@@ -229,11 +229,16 @@ Any phase that touches a page, a query, a route or the schema ends by running:
 ```bash
 npm run smoke          # every route × every role, against the current database
 npm run smoke:empty    # the same, against a database with no business data
+npm run leaks          # owner-only values must not reach a non-owner
 npx tsc --noEmit
 npm test
 ```
 
-All four must be clean before the phase is committed. `npm run smoke:browser`
+All five must be clean before the phase is committed. `npm run leaks` reads
+every byte the server sends to each role and fails on a value the permission
+matrix forbids — and fails just as loudly when a role stops receiving something
+the matrix grants, because a deny-everything implementation passes a one-sided
+leak test while breaking the product. `npm run smoke:browser`
 additionally loads every page in a real browser and is the only check that
 catches a client component crashing after hydration — run it when a phase
 changed anything a page renders.
@@ -266,3 +271,71 @@ The error boundaries report to `/api/system-errors`, and the owner reads them at
 `/admin/errors` with an unseen count badged in the sidebar. When adding a new
 boundary or a new background job, log failures there too. The owner should
 never learn about a broken page from a team member's WhatsApp message.
+
+## Production Doctrine
+
+Governs the move from a working internal tool to a product the agency actually
+runs on. These three principles outrank anything earlier in this file that
+contradicts them, and the conflicts are named at the end rather than left for
+someone to trip over.
+
+### 1. Data visibility is enforced server-side
+
+Role-based field stripping happens in a **central serialization layer, before
+data leaves the server**. UI hiding alone is never sufficient — a hidden
+component still shipped the number to the browser, where it sits in the RSC
+payload or a JSON response for anyone who opens the network tab.
+
+The permission matrix below is law:
+
+| Data | ADMIN | SERVICE_LEAD | MEMBER |
+| --- | --- | --- | --- |
+| Client name, email, industry, country | full | full | full |
+| Client services & requirements/briefs | full | full | full (assigned clients) |
+| Client phone number | full | hidden | hidden |
+| Client monthlyBudget / retainer value | full | hidden | hidden |
+| Payment status, collections, MRR | full | hidden | hidden |
+| Pipeline deal $ values | full | hidden (unless BD) | own leads only (BD role) |
+| Client ad KPIs (spend, revenue, ROAS) | full | their services | assigned clients only |
+| Other members' scores/attendance | full | their pod | hidden (self only) |
+| Bonus amounts / incentive sums | full | hidden | hidden (sees own streak status only) |
+| Settings, audit, errors, backups | full | hidden | hidden |
+
+**Rationale:** operational numbers (ad spend/ROAS) go to the people doing the
+work; agency money (what clients pay us, MRR, bonuses) is owner-only.
+
+### 2. Nothing operational requires code
+
+Services, templates, team, clients, projects, scoring values, attendance rules
+and incentive rules are **all editable by the admin in the UI**. Changing how
+the agency runs must never require a developer, a deploy, or an edit to a
+constant in a file.
+
+### 3. Live by default
+
+Operational screens — the attendance board, dashboards, boards, notifications —
+**update automatically without a refresh**, and every live screen shows a subtle
+**"Updated Xs ago"** indicator.
+
+### Conflicts this overrides
+
+- **The Roles section** lists only ADMIN and MEMBER. `SERVICE_LEAD` is now a
+  first-class visibility tier in the matrix above. It is still not a database
+  role — it is a MEMBER with `ServiceLead` rows — so the serialization layer
+  resolves it per request rather than reading it off the session.
+- **Fairness principle 7** makes MRR, pipeline value and ROAS primary dashboard
+  metrics. Read it as *the owner's* dashboard: the matrix makes MRR and payment
+  data owner-only, and scopes ROAS to the services or clients a person works on.
+- **Fairness principle 3** requires a score to appear with On-Time Rate and
+  Workload "on the dashboard, the leaderboard, member profiles and every
+  report". The matrix limits *whose* scores a person sees; it does not relax the
+  rule about how a score is displayed once it is shown.
+- **`leaderboardVisibility = "TEAM_VISIBLE"`** directly contradicts "other
+  members' scores: MEMBER — hidden (self only)". The matrix wins, so that
+  setting either goes or narrows to something that shows rank without exposing
+  another member's numbers.
+- **Working hours** are described as "fixed for now, admin-configurable later".
+  Principle 2 makes that *now*.
+- **Attendance secrecy stands.** Live-updating screens must never send a
+  scheduled availability check before it fires. Principle 3 changes how often
+  the client asks, not what it is allowed to receive.

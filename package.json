@@ -22,7 +22,8 @@
     "db:reset": "node scripts/sync-db-provider.mjs && prisma db push --force-reset && npm run db:seed",
     "smoke": "node scripts/sync-db-provider.mjs && node --import tsx scripts/smoke.mjs",
     "smoke:empty": "node scripts/sync-db-provider.mjs && node --import tsx scripts/smoke.mjs --empty",
-    "smoke:browser": "node --import tsx scripts/smoke-browser.mjs"
+    "smoke:browser": "node --import tsx scripts/smoke-browser.mjs",
+    "leaks": "node scripts/sync-db-provider.mjs && node --import tsx scripts/leak-scan.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

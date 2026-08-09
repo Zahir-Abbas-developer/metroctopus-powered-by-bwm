@@ -42,6 +42,13 @@ model User {
   weeklyCapacityHours Int      @default(40)
   /// Hex colour used for the member's avatar chip, from AVATAR_COLORS.
   avatarColor         String   @default("#1A6B3A")
+  /// Carries the sales pipeline, and with it the right to see deal values.
+  ///
+  /// An explicit flag rather than a jobTitle match: the Production Doctrine
+  /// gates agency money on this, and a permission that turns on because
+  /// someone's free-text title happens to contain "Business Developer" is a
+  /// permission that changes when a title is edited for cosmetic reasons.
+  isBusinessDev       Boolean  @default(false)
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt

@@ -55,17 +55,26 @@ export type PipelineLead = {
 };
 
 type Payload = {
+  /**
+   * Money here is optional because the server strips it.
+   *
+   * Under the permission matrix, pipeline totals are the owner's. For everyone
+   * else these keys are absent from the response entirely — not zero, not
+   * null — so the type has to say so. It previously claimed they were always
+   * present, and `metrics.wonThisMonth.value` threw for every non-owner the
+   * moment the server started telling the truth.
+   */
   metrics: {
-    stages: { stage: LeadStage; count: number; value: number }[];
-    openValue: number;
+    stages: { stage: LeadStage; count: number; value?: number }[];
     openCount: number;
-    wonThisMonth: { count: number; value: number };
-    winRate: number | null;
-    averageDealSize: number | null;
+    openValue?: number;
+    wonThisMonth?: { count: number; value: number };
+    winRate?: number | null;
+    averageDealSize?: number | null;
   };
   owners: { id: string; name: string; avatarColor: string }[];
   services: { slug: string; name: string }[];
-  viewer: { id: string; isAdmin: boolean };
+  viewer: { id: string; isAdmin: boolean; canSeeDealValues?: boolean };
   leads: PipelineLead[];
 };
 
@@ -236,6 +245,11 @@ export function PipelineBoard() {
 
       {state === "ready" && data && metrics && (
         <>
+          {/* The money row, owner only. Absent rather than zeroed: a board
+              reading "0 open" is a statement about the business that happens
+              to be false. The stage columns and counts below render for
+              everyone, so the page is still useful without it. */}
+          {metrics.openValue !== undefined && metrics.wonThisMonth && (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
               label="Open pipeline"
@@ -253,11 +267,11 @@ export function PipelineBoard() {
             />
             <StatCard
               label="Win rate"
-              value={metrics.winRate === null ? "—" : metrics.winRate}
-              unit={metrics.winRate === null ? undefined : "%"}
+              value={metrics.winRate == null ? "—" : metrics.winRate}
+              unit={metrics.winRate == null ? undefined : "%"}
               icon={Target}
               tone={
-                metrics.winRate === null
+                metrics.winRate == null
                   ? "neutral"
                   : metrics.winRate >= 40
                     ? "success"
@@ -270,7 +284,7 @@ export function PipelineBoard() {
             <StatCard
               label="Average deal"
               value={
-                metrics.averageDealSize === null
+                metrics.averageDealSize == null
                   ? "—"
                   : formatMoney(metrics.averageDealSize, true)
               }
@@ -278,6 +292,7 @@ export function PipelineBoard() {
               hint="Across every deal ever won"
             />
           </div>
+          )}
 
           {data.owners.length > 1 && (
             <div className="max-w-[240px]">

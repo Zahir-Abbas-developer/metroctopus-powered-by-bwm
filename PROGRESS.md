@@ -1938,3 +1938,94 @@ run locally by design: `migration_lock.toml` is `postgresql` for deployment
 while local development uses SQLite, so Prisma refuses with P3019. The
 equivalent is `npm run db:reset` (`db push --force-reset` then seed), which is
 what was verified and what the README documents.
+
+---
+
+## Production Doctrine, principle 1 — server-side data visibility
+
+The permission matrix, enforced before data leaves the server, with a scanner
+that reads every byte the server sends and fails in both directions.
+
+### Evidence first
+
+The matrix was not implemented from the top down. A leak scanner was built
+first — sign in as each non-owner, request every page and every GET endpoint,
+and search the raw response for sentinel values pulled from the database.
+That produced a short, factual list instead of a guess about what might leak.
+
+**One real leak class:** `/api/leads` returned the entire pipeline to every
+signed-in person — per-stage totals, open value, average deal size, and a
+figure against every lead. A Shopify designer with no sales role received the
+value of every deal in the business. The board showed less than the response
+carried, which is not the same as the response carrying less.
+
+Two findings were the scanner lying, and both were fixed there rather than in
+the app:
+
+- **`3000` matched inside a cuid.** `cmskxqqc3000mvhgt…` contains a retainer
+  figure flanked by letters, so three clean endpoints were reported as leaking.
+  The numeric matcher excluded adjacent digits but not letters.
+- **A role was assumed from an email address.** `saad@agency.local` looks like
+  a member and is promoted to ADMIN by the seed as the Phase 11 backup owner,
+  so his entirely legitimate access to a client record was reported as a leak.
+  The scanner now reads roles from the database and skips owners by name.
+
+### What was built
+
+`lib/visibility.ts` is the matrix as a pure module — no Prisma, no session, no
+clock — so it can be tested exhaustively rather than sampled through the UI.
+`lib/viewer.ts` resolves a `Viewer` per request from the database rather than
+from the session, because revoking a service lead has to take effect on the
+next request rather than the next sign-in.
+
+Two decisions worth recording:
+
+- **Stripped fields are deleted, not nulled.** `monthlyBudget: null` still tells
+  a reader the field exists, invites a component to render "—" where a number
+  belongs, and leaves a leak test unable to tell "withheld" from "genuinely
+  empty".
+- **Pipeline totals return null rather than zeros.** A board reading "0 open" is
+  a statement about the business that happens to be false.
+
+**`isBusinessDev` is now an explicit column.** Deal visibility previously had no
+concept to hang on: "Business Developer" existed only as free text in a job
+title, and a permission that switches on because someone edits their title for
+cosmetic reasons is not a permission.
+
+### The crash this caused, and why that was the point
+
+Stripping the money broke `/pipeline` for every non-owner —
+`metrics.wonThisMonth.value` on an absent object. `npm run smoke:browser`
+caught it; the HTTP suite could not, because the page returned a healthy 200
+and failed after hydration. Making the money optional in the component's type
+then made TypeScript surface three more unguarded reads that had been invisible
+while the type claimed the fields were always present.
+
+The money row is now owner-only and absent for everyone else. Stage columns,
+counts and a person's own leads still render, so the page stays useful.
+
+### Verification
+
+- `npm run leaks` — 81 responses scanned against 17 sentinels, no owner-only
+  value reached a non-owner
+- `npm test` — 382 tests (26 added, every matrix row × every role, asserting
+  what each role *does* receive as well as what it does not)
+- `npm run smoke` 67 checks · `npm run smoke:empty` 58 · `npm run smoke:browser`
+  61 pages · `tsc` and lint clean · `db:reset` verified
+
+`npm run leaks` joins the stability gate in `CLAUDE.md`. It fails on a leak and
+equally on over-restriction — a deny-everything implementation passes a
+one-sided leak test while breaking the product.
+
+### Known gaps
+
+- **Only principle 1 is built.** Principle 2 (nothing operational requires code)
+  and principle 3 (live by default) are untouched.
+- **Only the leak found by evidence is fixed.** The matrix module covers client
+  phone, retainer, briefs, ad KPIs, member numbers and incentive amounts, but
+  the only call site rewired so far is `/api/leads` — the rest currently pass
+  because those routes are admin-only, not because they are filtered. Opening
+  client briefs to members, which the matrix requires, will need them.
+- **The BD path is unit-tested only.** The seed's sole business developer is
+  also the backup owner, so no non-owner BD exists to exercise "sees their own
+  deals" end to end. The scanner reports this rather than passing quietly.

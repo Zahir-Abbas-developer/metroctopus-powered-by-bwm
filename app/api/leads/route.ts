@@ -3,6 +3,12 @@ import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
+import { viewerFor } from "@/lib/viewer";
+import {
+  visibleLead,
+  visiblePipelineTotals,
+  visibleStageBreakdown,
+} from "@/lib/visibility";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { pipelineMetrics } from "@/lib/pipeline";
@@ -33,6 +39,13 @@ export async function GET(request: Request) {
   const user = await getCurrentUser();
   if (!user) return apiError("You must be signed in", 401);
 
+  /* Deal values are agency money. Before this, every signed-in person received
+     the whole pipeline — per-stage totals, open value, average deal size and a
+     figure against every lead — regardless of whether they had anything to do
+     with sales. The component showed less than the response carried, which is
+     not the same as the response carrying less. */
+  const viewer = await viewerFor(user);
+
   const { searchParams } = new URL(request.url);
   const ownerId = searchParams.get("ownerId");
   const includeClosed = searchParams.get("closed") === "1";
@@ -62,13 +75,23 @@ export async function GET(request: Request) {
     }),
   ]);
 
+  const { stages, ...totals } = metrics;
+
   return NextResponse.json({
-    metrics,
+    metrics: {
+      stages: visibleStageBreakdown(viewer, stages),
+      ...(visiblePipelineTotals(viewer, totals) ?? {}),
+    },
     owners,
     services,
-    viewer: { id: user.id, isAdmin: user.role === "ADMIN" },
-    leads: leads.map((lead) => ({
+    viewer: {
+      id: user.id,
+      isAdmin: user.role === "ADMIN",
+      canSeeDealValues: viewer.role === "ADMIN" || viewer.isBusinessDev,
+    },
+    leads: leads.map((lead) => visibleLead(viewer, {
       id: lead.id,
+      ownerId: lead.ownerId,
       businessName: lead.businessName,
       contactName: lead.contactName,
       email: lead.email,

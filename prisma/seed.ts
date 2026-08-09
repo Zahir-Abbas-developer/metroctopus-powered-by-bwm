@@ -38,6 +38,9 @@ const TEAM = [
     name: "Saad Tariq",
     email: "saad@agency.local",
     jobTitle: "Business Developer",
+    // Gates deal values. An explicit flag, not a title match — see the
+    // isBusinessDev comment on the User model.
+    isBusinessDev: true,
   },
   {
     name: "Shahnawaz",
@@ -192,6 +195,7 @@ async function main() {
         role: "MEMBER",
         jobTitle: member.jobTitle,
         avatarColor: avatarColorFor(member.email),
+        isBusinessDev: "isBusinessDev" in member ? member.isBusinessDev : false,
         isActive: true,
       },
       create: {
