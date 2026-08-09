@@ -229,12 +229,15 @@ Any phase that touches a page, a query, a route or the schema ends by running:
 ```bash
 npm run smoke          # every route × every role, against the current database
 npm run smoke:empty    # the same, against a database with no business data
+npm run permtest       # forbidden fields absent, forbidden mutations refused
 npm run leaks          # owner-only values must not reach a non-owner
 npx tsc --noEmit
 npm test
 ```
 
-All five must be clean before the phase is committed. `npm run leaks` reads
+All six must be clean before the phase is committed. **`npm run permtest` and
+`npm run smoke` are part of the definition of done for every phase from Phase
+12 onwards** — a feature is not finished while either is red. `npm run leaks` reads
 every byte the server sends to each role and fails on a value the permission
 matrix forbids — and fails just as loudly when a role stops receiving something
 the matrix grants, because a deny-everything implementation passes a one-sided

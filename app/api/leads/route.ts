@@ -4,11 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { viewerFor } from "@/lib/viewer";
-import {
-  visibleLead,
-  visiblePipelineTotals,
-  visibleStageBreakdown,
-} from "@/lib/visibility";
+import { serializeLead, serializePipelineMetrics } from "@/lib/serializers";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { pipelineMetrics } from "@/lib/pipeline";
@@ -75,13 +71,8 @@ export async function GET(request: Request) {
     }),
   ]);
 
-  const { stages, ...totals } = metrics;
-
   return NextResponse.json({
-    metrics: {
-      stages: visibleStageBreakdown(viewer, stages),
-      ...(visiblePipelineTotals(viewer, totals) ?? {}),
-    },
+    metrics: serializePipelineMetrics(metrics, viewer),
     owners,
     services,
     viewer: {
@@ -89,7 +80,7 @@ export async function GET(request: Request) {
       isAdmin: user.role === "ADMIN",
       canSeeDealValues: viewer.role === "ADMIN" || viewer.isBusinessDev,
     },
-    leads: leads.map((lead) => visibleLead(viewer, {
+    leads: leads.map((lead) => serializeLead({
       id: lead.id,
       ownerId: lead.ownerId,
       businessName: lead.businessName,
@@ -101,14 +92,14 @@ export async function GET(request: Request) {
       interestedServices: splitSlugs(lead.interestedServices),
       estimatedMonthlyValue: lead.estimatedMonthlyValue,
       stage: lead.stage,
-      stageChangedAt: lead.stageChangedAt.toISOString(),
+      stageChangedAt: lead.stageChangedAt,
       lostReason: lead.lostReason,
       lostNote: lead.lostNote,
       owner: lead.owner,
       activityCount: lead._count.activities,
       convertedClientId: lead.convertedClientId,
-      createdAt: lead.createdAt.toISOString(),
-    })),
+      createdAt: lead.createdAt,
+    }, viewer)),
   });
 }
 

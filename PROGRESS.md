@@ -2029,3 +2029,90 @@ one-sided leak test while breaking the product.
 - **The BD path is unit-tested only.** The seed's sole business developer is
   also the backup owner, so no non-owner BD exists to exercise "sees their own
   deals" end to end. The scanner reports this rather than passing quietly.
+
+---
+
+## Phase 12, Pillar 1 — iron-clad permissions
+
+Server-enforced, field-level RBAC: a serializer layer, one authorization
+function, and a test suite that has been proven to fail.
+
+### The serializer layer
+
+`/lib/serializers/` holds one serializer per entity — client, lead, user, kpi,
+project, money — and its `index.ts` carries the convention as a comment at the
+top of the file, where someone adding a field will actually read it: **a Prisma
+row must not reach a route response or a server component's props except
+through `serializeX(row, viewer)`**.
+
+Stripped means the key is absent, never null and never masked in the browser. A
+null still tells a reader the field exists, invites a component to render "—"
+where a number belongs, and leaves a leak test unable to distinguish "withheld"
+from "genuinely empty".
+
+Where an entity *is* money — a payment row, an MRR snapshot — the serializer
+returns null rather than an emptied object, because a chart drawn from an empty
+object says the agency earned nothing.
+
+### One authorization question
+
+`lib/authz.ts` answers `can(viewer, action, resource)` and is what every
+mutation and every admin-only section calls. It deliberately does **not**
+restate the delegated-approval rules: `lib/permissions.ts` still owns who may
+decide a milestone, rule on a dispute or excuse a check, because those depend
+on the specific row and carry their own refusal messages. Two definitions of a
+lead's authority would drift; this one delegates.
+
+Visibility and authorization are separate modules because the answers differ. A
+service lead sees every client's brief and may still not edit a client. A
+member sees their own score and may never adjust it.
+
+### The test suite, proven
+
+`npm run permtest` does two things over a live server:
+
+- **Forbidden keys are absent.** Every entity endpoint, as each non-owner role,
+  with the JSON walked recursively for `monthlyBudget`, `paymentStatus`,
+  `openValue`, bonus amounts and another member's score. Present-but-null
+  fails.
+- **Forbidden mutations are refused.** A member editing settings, creating a
+  service, assigning service leads, approving a milestone; a lead deciding
+  their own work. Sent as raw requests, because "the button is hidden" is
+  precisely the defence that does not hold.
+
+Roles come from the database, never from an email address — the seed promotes
+the business developer to owner as the backup, and scanning him as a member
+reports his legitimate access as a violation.
+
+**The suite was verified by breaking the app on purpose.** A `monthlyBudget`
+was injected into `/api/board`, which members do receive; permtest failed with
+three findings naming the exact JSON path, and passed again when it was
+reverted. A permission test that has only ever been green is not evidence.
+
+Serializer snapshots live in `tests/serializers.test.ts` and assert the **exact
+key set** per role, not a subset. Adding a column breaks a test, and fixing the
+test means writing down who may see the new field — a subset assertion would
+let a new column ship to everyone by being forgotten.
+
+### Verification
+
+`npm run permtest` 164 checks · `npm test` 405 tests (23 added) · `npm run
+smoke` 67 · `npm run leaks` clean · `tsc` and lint clean.
+
+`permtest` joins the stability gate, and `CLAUDE.md` now states that permtest
+and smoke are part of the definition of done for every phase from 12 onwards.
+
+### Scope: Pillars 2 and 3 are NOT built
+
+This commit is Pillar 1 only. Pillar 2 (SSE live updates, optimistic UI,
+production seed, de-demo sweep, first-run checklist, identity polish) and
+Pillar 3 (services CRUD, the database-backed template editor, the settings
+centre, team management extensions, client/project editability audit) have not
+been started. They are recorded here so the gap is visible rather than
+discovered later.
+
+The one piece of Pillar 1 that remains: only `/api/leads` was rewired through
+the serializers. The other routes carrying these entities are admin-gated at
+the door, so they pass today because non-owners never reach them — not because
+they are filtered. Opening client briefs to members, which the matrix requires,
+will need them rewired first.
