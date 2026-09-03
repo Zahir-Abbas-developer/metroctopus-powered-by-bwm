@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { fileOutage, outageQuotaFor } from "@/lib/outages";
 import { OUTAGE_TYPES } from "@/lib/fairness-windows";
+import { hasAdminPower } from "@/lib/constants";
 
 const fileSchema = z.object({
   type: z.enum(OUTAGE_TYPES),
@@ -27,7 +28,7 @@ export async function GET() {
   const user = await getCurrentUser();
   if (!user) return apiError("You must be signed in", 401);
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
 
   const reports = await prisma.outageReport.findMany({
     where: isAdmin ? {} : { userId: user.id },

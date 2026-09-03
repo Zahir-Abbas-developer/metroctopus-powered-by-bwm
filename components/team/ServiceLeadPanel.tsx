@@ -12,6 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/utils";
+import { hasAdminPower } from "@/lib/constants";
 
 type Payload = {
   leads: {
@@ -133,9 +134,9 @@ export function ServiceLeadPanel() {
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-2 truncate text-[13px] font-medium text-ink">
                     {member.name}
-                    {member.role === "ADMIN" && (
+                    {hasAdminPower(member.role) && (
                       <Badge size="sm" tone="info">
-                        Owner
+                        {member.role === "SUPPORT_ADMIN" ? "Support" : "Owner"}
                       </Badge>
                     )}
                   </p>

@@ -6,6 +6,7 @@ import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { BLOCK_REASONS, blockMilestone, unblockMilestone } from "@/lib/blocking";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Blocking and unblocking. Separate from the status route because the clock
@@ -54,7 +55,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   // Members block their own work — that is the point of the feature. They
   // should not need to ask permission to stop a clock they cannot advance.
-  if (user.role !== "ADMIN" && milestone.assigneeId !== user.id) {
+  if (!hasAdminPower(user.role) && milestone.assigneeId !== user.id) {
     return apiError("You can only block milestones assigned to you", 403);
   }
 
@@ -93,7 +94,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
   });
   if (!milestone) return apiError("That milestone no longer exists", 404);
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
   if (!isAdmin && milestone.assigneeId !== user.id) {
     return apiError("You can only unblock milestones assigned to you", 403);
   }

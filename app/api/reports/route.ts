@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { REPORT_TYPES, generateReports, parsePayload } from "@/lib/reports";
 import { parseDateInput } from "@/lib/date";
+import { hasAdminPower } from "@/lib/constants";
 
 /** Members only ever see their own; admins see everything, filterable. */
 export async function GET(request: Request) {
@@ -18,7 +19,7 @@ export async function GET(request: Request) {
   const userId = searchParams.get("userId");
   const period = searchParams.get("period");
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
 
   try {
     const reports = await prisma.report.findMany({

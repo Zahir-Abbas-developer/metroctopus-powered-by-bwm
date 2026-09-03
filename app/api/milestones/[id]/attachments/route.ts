@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import { recordAttachment } from "@/lib/activity";
 import { MAX_UPLOAD_BYTES, isAllowedType, save } from "@/lib/uploads";
 import { formatBytes } from "@/lib/utils";
+import { hasAdminPower } from "@/lib/constants";
 
 /** Upload a file against a milestone. */
 export async function POST(
@@ -21,7 +22,7 @@ export async function POST(
   });
   if (!milestone) return apiError("That milestone no longer exists", 404);
 
-  if (user.role !== "ADMIN" && milestone.assigneeId !== user.id) {
+  if (!hasAdminPower(user.role) && milestone.assigneeId !== user.id) {
     return apiError("You can only attach files to your own milestones", 403);
   }
 

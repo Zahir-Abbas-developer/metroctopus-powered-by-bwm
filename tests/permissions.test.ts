@@ -13,13 +13,13 @@ import {
 
 const OWNER: Actor = { id: "owner", role: "ADMIN", leadServiceIds: [] };
 const BACKUP_OWNER: Actor = { id: "backup", role: "ADMIN", leadServiceIds: ["shopify"] };
-const SHOPIFY_LEAD: Actor = { id: "shahnawaz", role: "MEMBER", leadServiceIds: ["shopify"] };
+const SHOPIFY_LEAD: Actor = { id: "claire", role: "MEMBER", leadServiceIds: ["shopify"] };
 const ADS_LEAD: Actor = {
-  id: "subtain",
+  id: "tayyaba",
   role: "MEMBER",
   leadServiceIds: ["google-ads", "meta-ads"],
 };
-const PLAIN_MEMBER: Actor = { id: "shahzaib", role: "MEMBER", leadServiceIds: [] };
+const PLAIN_MEMBER: Actor = { id: "cheryl", role: "MEMBER", leadServiceIds: [] };
 
 describe("canDecideMilestone", () => {
   it("lets the owner decide anything", () => {
@@ -30,7 +30,7 @@ describe("canDecideMilestone", () => {
 
   it("lets a lead decide inside their service", () => {
     const decision = canDecideMilestone(SHOPIFY_LEAD, {
-      assigneeId: "shahzaib",
+      assigneeId: "cheryl",
       serviceId: "shopify",
     });
     assert.equal(decision.allowed, true);
@@ -40,7 +40,7 @@ describe("canDecideMilestone", () => {
   it("lets a lead of several services decide in any of them", () => {
     for (const serviceId of ["google-ads", "meta-ads"]) {
       assert.equal(
-        canDecideMilestone(ADS_LEAD, { assigneeId: "shahzaib", serviceId }).allowed,
+        canDecideMilestone(ADS_LEAD, { assigneeId: "cheryl", serviceId }).allowed,
         true,
         serviceId,
       );
@@ -49,7 +49,7 @@ describe("canDecideMilestone", () => {
 
   it("refuses a lead outside their service", () => {
     const decision = canDecideMilestone(SHOPIFY_LEAD, {
-      assigneeId: "shahzaib",
+      assigneeId: "cheryl",
       serviceId: "google-ads",
     });
     assert.equal(decision.allowed, false);
@@ -127,14 +127,14 @@ describe("canDecideAttendance", () => {
   });
 
   it("lets a lead excuse someone in their pod", () => {
-    const decision = canDecideAttendance(ADS_LEAD, { userId: "shahzaib", inPod: true });
+    const decision = canDecideAttendance(ADS_LEAD, { userId: "cheryl", inPod: true });
     assert.equal(decision.allowed, true);
     assert.equal(decision.as, "LEAD");
   });
 
   it("refuses a lead outside their pod", () => {
     assert.equal(
-      canDecideAttendance(ADS_LEAD, { userId: "shahnawaz", inPod: false }).allowed,
+      canDecideAttendance(ADS_LEAD, { userId: "claire", inPod: false }).allowed,
       false,
     );
   });
@@ -154,7 +154,7 @@ describe("canDecideAttendance", () => {
 });
 
 describe("canResolveDispute", () => {
-  const base = { subjectId: "shahzaib", inPod: true, eventAuthorId: "owner" };
+  const base = { subjectId: "cheryl", inPod: true, eventAuthorId: "owner" };
 
   it("lets the owner rule on anything", () => {
     assert.equal(canResolveDispute(OWNER, base).allowed, true);
@@ -199,11 +199,11 @@ describe("canViewPodMetrics", () => {
   });
 
   it("lets a lead see their pod", () => {
-    assert.equal(canViewPodMetrics(ADS_LEAD, "shahzaib", true).allowed, true);
+    assert.equal(canViewPodMetrics(ADS_LEAD, "cheryl", true).allowed, true);
   });
 
   it("refuses a lead outside their pod", () => {
-    assert.equal(canViewPodMetrics(ADS_LEAD, "shahnawaz", false).allowed, false);
+    assert.equal(canViewPodMetrics(ADS_LEAD, "claire", false).allowed, false);
   });
 
   it("refuses a plain member looking at a colleague", () => {
@@ -219,18 +219,18 @@ describe("leadsService", () => {
 
 describe("routeReview", () => {
   const base = {
-    assigneeId: "shahzaib",
+    assigneeId: "cheryl",
     serviceId: "shopify",
-    serviceLeadIds: ["shahnawaz"],
+    serviceLeadIds: ["claire"],
     adminIds: ["owner"],
     escalationHours: 24,
   };
 
   it("routes to the service lead first", () => {
     const route = routeReview({ ...base, waitingHours: 2 });
-    assert.equal(route.leadUserId, "shahnawaz");
+    assert.equal(route.leadUserId, "claire");
     assert.equal(route.escalated, false);
-    assert.deepEqual(route.reviewerIds, ["shahnawaz"]);
+    assert.deepEqual(route.reviewerIds, ["claire"]);
   });
 
   it("adds the owner after the escalation window rather than removing the lead", () => {
@@ -238,7 +238,7 @@ describe("routeReview", () => {
     // lead off it would punish them for a busy Tuesday.
     const route = routeReview({ ...base, waitingHours: 30 });
     assert.equal(route.escalated, true);
-    assert.deepEqual([...route.reviewerIds].sort(), ["owner", "shahnawaz"]);
+    assert.deepEqual([...route.reviewerIds].sort(), ["claire", "owner"]);
   });
 
   it("escalates exactly at the threshold", () => {
@@ -250,7 +250,7 @@ describe("routeReview", () => {
     // Otherwise it sits in a queue nobody may legitimately clear.
     const route = routeReview({
       ...base,
-      assigneeId: "shahnawaz",
+      assigneeId: "claire",
       waitingHours: 1,
     });
     assert.equal(route.leadUserId, null);
@@ -288,9 +288,9 @@ describe("routeReview", () => {
   it("handles several leads on one service", () => {
     const route = routeReview({
       ...base,
-      serviceLeadIds: ["shahnawaz", "subtain"],
+      serviceLeadIds: ["claire", "tayyaba"],
       waitingHours: 1,
     });
-    assert.deepEqual([...route.reviewerIds].sort(), ["shahnawaz", "subtain"]);
+    assert.deepEqual([...route.reviewerIds].sort(), ["claire", "tayyaba"]);
   });
 });

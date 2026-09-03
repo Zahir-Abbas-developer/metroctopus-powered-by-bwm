@@ -1,5 +1,5 @@
 /**
- * Agency OS service worker.
+ * BWM service worker.
  *
  * Two jobs, and deliberately no third:
  *
@@ -14,7 +14,7 @@
  * showing yesterday's numbers with no way to tell.
  */
 
-const VERSION = "agency-os-v1";
+const VERSION = "bwm-v1";
 const SHELL = [`/offline.html`, `/icons/icon-192.png`];
 
 self.addEventListener("install", (event) => {
@@ -42,13 +42,34 @@ self.addEventListener("fetch", (event) => {
   if (request.mode !== "navigate") return;
 
   event.respondWith(
-    fetch(request).catch(() => caches.match("/offline.html").then((page) => page ?? Response.error())),
+    fetch(request).catch(async (error) => {
+      /* A failed fetch is not the same as being offline.
+       *
+       * This used to serve the offline page on any rejection, which meant a
+       * restarted dev server, a deploy swapping instances, or a navigation the
+       * user aborted all produced a full-screen "You're offline" — while the
+       * connection was fine. Telling someone they have no internet when they
+       * do is worse than showing nothing: it sends them to check their router
+       * instead of reloading.
+       *
+       * `navigator.onLine` is only trustworthy in the negative direction — true
+       * means "has a network interface", which is not proof of reachability,
+       * but false is reliably offline. That is exactly the direction needed
+       * here, so the offline page is shown only when the browser is certain,
+       * and every other failure is passed through as the error it was.
+       */
+      if (self.navigator.onLine === false) {
+        const page = await caches.match("/offline.html");
+        if (page) return page;
+      }
+      throw error;
+    }),
   );
 });
 
 self.addEventListener("push", (event) => {
   let payload = {
-    title: "Agency OS",
+    title: "BWM",
     body: "You have a new notification.",
     url: "/dashboard",
   };
@@ -64,7 +85,7 @@ self.addEventListener("push", (event) => {
       body: payload.body,
       icon: "/icons/icon-192.png",
       badge: "/icons/icon-192.png",
-      tag: payload.tag ?? "agency-os",
+      tag: payload.tag ?? "bwm",
       // Availability checks stay on screen until acted on; everything else
       // behaves normally.
       requireInteraction: Boolean(payload.requireInteraction),

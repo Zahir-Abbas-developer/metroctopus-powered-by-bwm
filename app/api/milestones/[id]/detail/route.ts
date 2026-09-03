@@ -5,6 +5,7 @@ import { liveBlockedMinutes } from "@/lib/blocking";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import type { ActivityType } from "@/lib/activity";
+import { hasAdminPower } from "@/lib/constants";
 
 /** Everything the milestone drawer renders, in one request. */
 export async function GET(
@@ -55,7 +56,7 @@ export async function GET(
   if (!milestone) return apiError("That milestone no longer exists", 404);
 
   // Members may open their own work. Anything else is not theirs to read.
-  if (user.role !== "ADMIN" && milestone.assigneeId !== user.id) {
+  if (!hasAdminPower(user.role) && milestone.assigneeId !== user.id) {
     return apiError("That milestone isn't assigned to you", 403);
   }
 

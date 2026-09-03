@@ -17,12 +17,18 @@ import {
   type ProjectStatus,
 } from "@/lib/constants";
 import { daysUntil, dueDeadline, formatDate } from "@/lib/date";
+import { moduleGate } from "@/lib/module-guard";
 
 export const metadata: Metadata = {
   title: "Projects",
 };
 
 export default async function ProjectsPage() {
+  // Parked module: the nav entry is already gone, so this guards a
+  // bookmark or a typed URL rather than a link.
+  const gate = await moduleGate("retainerProjects");
+  if (gate) return gate;
+
   await requireAdmin();
 
   const projects = await prisma.project.findMany({
@@ -55,7 +61,7 @@ export default async function ProjectsPage() {
             icon={Layers}
             eyebrow="Nothing running"
             title="No engagements yet"
-            description="Onboard a client and Agency OS lays out their first month of work automatically."
+            description="Onboard a client and BWM lays out their first month of work automatically."
             action={
               <Link href="/clients" className={buttonClasses("primary", "md")}>
                 Go to clients

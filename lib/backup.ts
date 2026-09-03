@@ -90,7 +90,7 @@ export async function runBackup(now = new Date()): Promise<BackupResult> {
     await mkdir(dir, { recursive: true });
 
     const stamp = now.toISOString().replace(/[:.]/g, "-");
-    const file = join(dir, `agency-os-${stamp}.dump`);
+    const file = join(dir, `bwm-${stamp}.dump`);
 
     // Custom format: compressed, and restorable selectively with pg_restore.
     await run("pg_dump", [

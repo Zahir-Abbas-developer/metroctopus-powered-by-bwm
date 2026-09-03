@@ -21,6 +21,38 @@ import { readdirSync, statSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * Lift the forced first-password change for the accounts under test.
+ *
+ * Every seeded account ships with mustChangePassword set, and the app shell
+ * redirects such a session to /change-password before any page renders. Left
+ * in place, every route in this scan would return the same password screen —
+ * which passes a leak test perfectly while checking nothing at all.
+ *
+ * This is a development database the harness already writes to.
+ */
+async function clearForcedPasswordChange(prisma, emails) {
+  if (emails.length === 0) return;
+  await prisma.user.updateMany({
+    where: { email: { in: emails } },
+    data: { mustChangePassword: false },
+  });
+}
+
+
+/**
+ * Roles carrying full administrative capability. Mirrors ADMIN_ROLES in
+ * lib/constants.ts — SUPPORT_ADMIN is the maintainer and has the same reach as
+ * the owner, so treating it as a non-owner here would report every legitimate
+ * admin payload it receives as a leak.
+ */
+const ADMIN_ROLES = ["ADMIN", "SUPPORT_ADMIN"];
+const isAdminRole = (role) => ADMIN_ROLES.includes(role);
+
+/** Seeded accounts share one placeholder password; SEED_PASSWORD overrides it. */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "bwm-change-me";
+
+
 loadEnv();
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -58,7 +90,7 @@ async function main() {
   });
 
   /* Roles are read from the database, never assumed from an address.
-     saad@agency.local looks like a member and is promoted to ADMIN by the seed
+     cam@bwm.local looks like a member and is promoted to ADMIN by the seed
      as the backup owner — scanning him as a member reported his entirely
      legitimate access to a client record as a leak. An owner cannot leak to
      themselves, so owners are excluded and said so out loud. */
@@ -120,8 +152,10 @@ async function main() {
     .filter((r) => r !== "/login" && r !== "/");
   const apis = discoverApiRoutes().sort();
 
-  const owners = accounts.filter((a) => a.role === "ADMIN");
-  const nonOwners = accounts.filter((a) => a.role !== "ADMIN");
+  const owners = accounts.filter((a) => isAdminRole(a.role));
+  const nonOwners = accounts.filter((a) => !isAdminRole(a.role));
+
+  await clearForcedPasswordChange(prisma, accounts.map((a) => a.email));
 
   const roles = nonOwners.map((account) => ({
     name:
@@ -131,7 +165,7 @@ async function main() {
           ? "MEMBER(BD)"
           : "MEMBER",
     email: account.email,
-    password: "member123",
+    password: SEED_PASSWORD,
     isBd: account.isBusinessDev,
   }));
 

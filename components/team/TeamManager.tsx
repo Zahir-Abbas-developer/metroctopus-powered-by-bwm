@@ -40,6 +40,9 @@ import { TeamMemberModal } from "@/components/team/TeamMemberModal";
 import { formatDate } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/types";
+import { hasAdminPower } from "@/lib/constants";
+import { departmentTone } from "@/components/settings/DepartmentsManager";
+import { MemberDepartmentsModal } from "@/components/team/MemberDepartmentsModal";
 
 type Status = "loading" | "ready" | "error";
 /**
@@ -55,6 +58,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [view, setView] = useState<"roster" | "leads" | "utilization">("roster");
+  const [editingDepartments, setEditingDepartments] = useState<TeamMember | null>(null);
   const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({
     key: "onTime",
     desc: true,
@@ -90,7 +94,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
   }
 
   const active = members.filter((member) => member.isActive);
-  const admins = active.filter((member) => member.role === "ADMIN");
+  const admins = active.filter((member) => hasAdminPower(member.role));
 
   const sorted = useMemo(() => {
     const rows = [...members];
@@ -237,7 +241,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                     onClick={() => toggleSort("name")}
                   />
                 </TH>
-                <TH>Job title</TH>
+                <TH>Departments</TH>
                 <TH aria-sort={sort.key === "score" ? (sort.desc ? "descending" : "ascending") : "none"}>
                   <SortHeader
                     label="Score"
@@ -303,7 +307,50 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                       </Link>
                     </TD>
 
-                    <TD className="text-ink/70">{member.jobTitle}</TD>
+                    {/* Departments replace the old job title column.
+                        Membership is the real mapping now — a title was a
+                        free-text guess at the same thing. */}
+                    <TD>
+                      {member.departments.length === 0 ? (
+                        <button
+                          type="button"
+                          onClick={() => setEditingDepartments(member)}
+                          className="text-[13px] text-ink/40 underline decoration-line hover:text-ink/70"
+                        >
+                          None — assign
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setEditingDepartments(member)}
+                          aria-label={`Edit ${member.name}'s departments`}
+                          className="group/dept max-w-[260px] text-left"
+                        >
+                          <span className="flex flex-wrap gap-1">
+                            {member.departments.map((dept) => (
+                              <Badge
+                                key={dept.departmentId}
+                                tone={departmentTone(dept.colorToken)}
+                                size="sm"
+                              >
+                                {dept.shortLabel}
+                                {dept.roleInDept === "LEAD" && " · Lead"}
+                              </Badge>
+                            ))}
+                          </span>
+                          {(() => {
+                            const skills = Array.from(
+                              new Set(member.departments.flatMap((d) => d.skills)),
+                            );
+                            return skills.length > 0 ? (
+                              <span className="mt-1 block truncate text-[12px] text-ink/45 group-hover/dept:text-ink/65">
+                                {skills.join(" · ")}
+                              </span>
+                            ) : null;
+                          })()}
+                        </button>
+                      )}
+                    </TD>
 
                     {/* Score, on-time and load are three columns rather than
                         one cell, so the triple is legible down the page as
@@ -361,8 +408,12 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                     </TD>
 
                     <TD>
-                      <Badge tone={member.role === "ADMIN" ? "info" : "neutral"}>
-                        {member.role === "ADMIN" ? "Owner" : "Member"}
+                      <Badge tone={hasAdminPower(member.role) ? "info" : "neutral"}>
+                        {member.role === "ADMIN"
+                          ? "Owner"
+                          : member.role === "SUPPORT_ADMIN"
+                            ? "Support"
+                            : "Member"}
                       </Badge>
                     </TD>
 
@@ -423,6 +474,15 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
       )}
         </>
       )}
+
+      <MemberDepartmentsModal
+        member={editingDepartments}
+        onClose={() => setEditingDepartments(null)}
+        onSaved={() => {
+          setEditingDepartments(null);
+          void load();
+        }}
+      />
 
       <TeamMemberModal
         open={formOpen}

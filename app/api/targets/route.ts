@@ -9,6 +9,7 @@ import { getSettings } from "@/lib/settings";
 import { bucketCounts, targetConfig, weekWindow } from "@/lib/pipeline";
 import { evaluateWeek } from "@/lib/targets";
 import { ACTIVITY_BUCKETS, type ActivityBucket } from "@/lib/pipeline-types";
+import { hasAdminPower } from "@/lib/constants";
 
 const saveSchema = z.object({
   userId: z.string().min(1),
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const requested = searchParams.get("userId");
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
   if (requested && requested !== user.id && !isAdmin) {
     return apiError("You can only see your own targets", 403);
   }

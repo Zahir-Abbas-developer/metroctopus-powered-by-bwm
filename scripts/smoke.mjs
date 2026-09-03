@@ -30,6 +30,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * Roles carrying full administrative capability. Mirrors ADMIN_ROLES in
+ * lib/constants.ts — SUPPORT_ADMIN is the maintainer and has the same reach as
+ * the owner, so treating it as a non-owner here would report every legitimate
+ * admin payload it receives as a leak.
+ */
+const ADMIN_ROLES = ["ADMIN", "SUPPORT_ADMIN"];
+const isAdminRole = (role) => ADMIN_ROLES.includes(role);
+
+/** Seeded accounts share one placeholder password; SEED_PASSWORD overrides it. */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "bwm-change-me";
+
+
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
@@ -54,9 +67,9 @@ const PORT = Number(process.env.SMOKE_PORT ?? (EMPTY ? 3011 : 3010));
 const BASE = process.env.SMOKE_BASE ?? `http://localhost:${PORT}`;
 const EXTERNAL = Boolean(process.env.SMOKE_BASE);
 
-export const ADMIN = { email: "smoke-admin@agency.local", password: "smoke-admin-123" };
-export const MEMBER = { email: "smoke-member@agency.local", password: "smoke-member-123" };
-export const LEAD = { email: "smoke-lead@agency.local", password: "smoke-lead-123" };
+export const ADMIN = { email: "smoke-admin@bwm.local", password: "smoke-admin-123" };
+export const MEMBER = { email: "smoke-member@bwm.local", password: "smoke-member-123" };
+export const LEAD = { email: "smoke-lead@bwm.local", password: "smoke-lead-123" };
 
 /* ---------------------------------------------------------------- routes -- */
 
@@ -242,7 +255,7 @@ async function main() {
   let tempDir = null;
 
   if (EMPTY) {
-    tempDir = mkdtempSync(path.join(tmpdir(), "agencyos-smoke-"));
+    tempDir = mkdtempSync(path.join(tmpdir(), "bwm-smoke-"));
     databaseUrl = `file:${path.join(tempDir, "smoke.db")}`;
     console.log("Building an empty database (roster only, no business data)…");
     const push = spawn("npx", ["prisma", "db", "push", "--skip-generate", "--accept-data-loss"], {
@@ -272,7 +285,7 @@ async function main() {
   // The same module the middleware and the sidebar use, so "who may open
   // what" has exactly one definition. Its only import is `import type`, which
   // tsx erases — nothing here needs the @/ alias resolved at runtime.
-  const { navItemsForRole, isAdminRoute } = await import("../lib/routes.ts");
+  const { navItemsForRole, isAdminRoute, NAV_ITEMS } = await import("../lib/routes.ts");
 
   // Guard the guard: if the boundary's headline is edited, every assertion
   // below silently stops detecting anything. Fail loudly instead.
@@ -332,18 +345,40 @@ async function main() {
          else's, and the only correct outcome is a refusal. Asserting that is
          more useful than skipping: it is the check that would catch one
          member being able to read another's review. */
-      if (route === "/reports/[id]" && role.role !== "ADMIN") {
+      if (route === "/reports/[id]" && !isAdminRole(role.role)) {
         if (res.status === 200) {
           failures.push(`${role.name} ${url}: could open another member's report`);
         }
         continue;
       }
 
-      if (adminOnly && role.role !== "ADMIN") {
+      if (adminOnly && !isAdminRole(role.role)) {
         // Being turned away is the correct outcome — but it has to be a
         // redirect, not a crash and not a silent 200.
         if (!redirected) {
           failures.push(`${role.name} ${url}: expected a redirect away, got ${res.status}`);
+        }
+        continue;
+      }
+
+      /* Two routes redirect by design rather than rendering.
+         
+         /settings is an index with no screen of its own and forwards to its
+         first tab. /change-password only shows the forced password form while
+         the flag is set, and sends everyone else on — the smoke accounts have
+         already got real passwords, so being forwarded is the correct result
+         and asserting it is what proves the gate lifts once it is satisfied. */
+      const REDIRECTS_BY_DESIGN = {
+        "/settings": "/settings/",
+        "/change-password": "/dashboard",
+      };
+      const expectedTarget = REDIRECTS_BY_DESIGN[route];
+      if (expectedTarget) {
+        const location = res.headers.get("location") ?? "";
+        if (!redirected || !location.includes(expectedTarget)) {
+          failures.push(
+            `${role.name} ${url}: expected a redirect to ${expectedTarget}, got ${res.status} ${location}`,
+          );
         }
         continue;
       }
@@ -374,6 +409,70 @@ async function main() {
     }
 
     console.log(`  ${role.name.padEnd(13)} ${routes.length} routes checked`);
+  }
+
+  /* Doctrine 5: a parked module must be *absent*, not merely empty.
+     
+     Two things are asserted for every module that is switched off: that none
+     of its nav entries appear in the rail, and that its routes still answer
+     with the disabled screen rather than the live feature or a crash. The
+     first is the one that regresses quietly — a nav item is easy to leave
+     behind, and nobody notices until a member clicks it. */
+  {
+    const { MODULES } = await import("../lib/modules.ts");
+    const { PrismaClient } = await import("@prisma/client");
+    const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+
+    let row;
+    try {
+      row = await prisma.settings.upsert({
+        where: { id: "singleton" },
+        update: {},
+        create: { id: "singleton" },
+      });
+    } finally {
+      await prisma.$disconnect();
+    }
+
+    const session = new Session("MODULES");
+    await session.signIn(ADMIN.email, ADMIN.password);
+    const railHtml = await (await session.fetch("/dashboard")).text();
+
+    for (const mod of MODULES) {
+      const enabled = Boolean(row[mod.field]);
+      checks += 1;
+      if (enabled) continue;
+
+      for (const key of mod.navKeys) {
+        const item = NAV_ITEMS.find((i) => i.key === key);
+        if (item && railHtml.includes(`href="${item.href}"`)) {
+          failures.push(
+            `module ${mod.key} is off but the rail still links ${item.href}`,
+          );
+        }
+      }
+
+      for (const prefix of mod.routePrefixes) {
+        const res = await session.fetch(prefix);
+        checks += 1;
+        if (res.status !== 200) {
+          failures.push(`module ${mod.key} is off: ${prefix} returned HTTP ${res.status}`);
+          continue;
+        }
+        const html = await res.text();
+        if (looksBroken(html)) {
+          failures.push(`module ${mod.key} is off: ${prefix} rendered the error boundary`);
+        } else if (!html.includes("Module disabled")) {
+          failures.push(
+            `module ${mod.key} is off but ${prefix} rendered the live feature`,
+          );
+        }
+      }
+    }
+
+    console.log(
+      `  ${"MODULES".padEnd(13)} ${MODULES.filter((m) => !row[m.field]).length} parked module(s) verified absent`,
+    );
   }
 
   /* An API route frozen at build time serves the same stale body for the life

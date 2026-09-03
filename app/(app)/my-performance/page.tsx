@@ -6,12 +6,18 @@ import { currentCycle, ledgerFor, onTimeRateFor, performanceContext, scoresForCy
 import { monthlyScore, scoreBand } from "@/lib/scoring";
 import { PerformanceProfile } from "@/components/performance/PerformanceProfile";
 import { qualityForCycle } from "@/lib/quality-service";
+import { moduleGate } from "@/lib/module-guard";
 
 export const metadata: Metadata = {
   title: "My performance",
 };
 
 export default async function MyPerformancePage() {
+  // Parked module: the nav entry is already gone, so this guards a
+  // bookmark or a typed URL rather than a link.
+  const gate = await moduleGate("scoring");
+  if (gate) return gate;
+
   const user = await requireUser();
   const cycle = currentCycle();
 

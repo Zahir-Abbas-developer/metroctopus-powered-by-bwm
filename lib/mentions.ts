@@ -41,7 +41,7 @@ export function findMentions(
   for (let index = 0; index < body.length; index += 1) {
     if (body[index] !== "@") continue;
 
-    // "email@agency.local" is an address, not a mention.
+    // "email@bwm.local" is an address, not a mention.
     if (index > 0 && /[\w.]/.test(body[index - 1])) continue;
 
     const rest = body.slice(index + 1);

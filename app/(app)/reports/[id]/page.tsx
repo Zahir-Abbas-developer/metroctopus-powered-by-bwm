@@ -9,6 +9,7 @@ import { parsePayload, REPORT_TYPE_LABEL, type ReportType } from "@/lib/reports"
 import { MemberReportDocument } from "@/components/reports/MemberReportDocument";
 import { ClientReportDocument } from "@/components/reports/ClientReportDocument";
 import { PrintButton } from "@/components/reports/PrintButton";
+import { hasAdminPower } from "@/lib/constants";
 
 export async function generateMetadata({
   params,
@@ -34,7 +35,7 @@ export default async function ReportPage({ params }: { params: { id: string } })
 
   // A member may open their own reports and nothing else. Client reports are
   // internal to the owner for now.
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
   if (!isAdmin && report.userId !== user.id) notFound();
 
   const payload = parsePayload(report.payload);

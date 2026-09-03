@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { liveBlockedMinutes } from "@/lib/blocking";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Every milestone the viewer is allowed to see, shaped for the board.
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   const assigneeId = searchParams.get("assigneeId");
   const serviceId = searchParams.get("serviceId");
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
   const now = new Date();
 
   try {

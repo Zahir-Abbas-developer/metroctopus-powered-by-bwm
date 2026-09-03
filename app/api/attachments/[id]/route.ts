@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
+import { hasAdminPower } from "@/lib/constants";
 
 /** Remove an attachment. The uploader or the owner may do it. */
 export async function DELETE(
@@ -18,7 +19,7 @@ export async function DELETE(
   });
   if (!attachment) return apiError("That file no longer exists", 404);
 
-  if (user.role !== "ADMIN" && attachment.uploaderId !== user.id) {
+  if (!hasAdminPower(user.role) && attachment.uploaderId !== user.id) {
     return apiError("You can only remove files you uploaded", 403);
   }
 

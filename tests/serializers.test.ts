@@ -117,7 +117,7 @@ const LEAD_ROW = {
   stageChangedAt: new Date("2026-08-01T00:00:00Z"),
   lostReason: null,
   lostNote: null,
-  owner: { id: "bd", name: "Saad", avatarColor: "#1A6B3A" },
+  owner: { id: "bd", name: "Cam", avatarColor: "#1A6B3A" },
   activityCount: 3,
   convertedClientId: null,
   createdAt: new Date("2026-07-01T00:00:00Z"),
@@ -165,8 +165,8 @@ describe("serializePipelineMetrics", () => {
 describe("serializeUser", () => {
   const row = {
     id: "member",
-    name: "Shahnawaz",
-    email: "shahnawaz@agency.local",
+    name: "Claire",
+    email: "claire@bwm.local",
     role: "MEMBER",
     jobTitle: "Shopify Designer",
     avatarColor: "#1A6B3A",
@@ -190,7 +190,7 @@ describe("serializeUser", () => {
     assert.equal("score" in result, false);
     assert.equal("onTimeRate" in result, false);
     // Identity still travels — you cannot collaborate with someone invisible.
-    assert.equal(result.name, "Shahnawaz");
+    assert.equal(result.name, "Claire");
     assert.equal(result.jobTitle, "Shopify Designer");
   });
 

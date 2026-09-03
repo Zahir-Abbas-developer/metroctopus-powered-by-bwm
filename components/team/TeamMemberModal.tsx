@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
-import { JOB_TITLES, ROLES, ROLE_LABEL } from "@/lib/constants";
+import { JOB_TITLES, ROLES, ROLE_LABEL, hasAdminPower } from "@/lib/constants";
 import {
   MIN_PASSWORD_LENGTH,
   createUserSchema,
@@ -168,7 +168,7 @@ export function TeamMemberModal({
         <Input
           label="Full name"
           requiredMark
-          placeholder="Saad Tariq"
+          placeholder="Cam Tariq"
           value={draft.name}
           onChange={(event) => set("name", event.target.value)}
           error={errors.name}
@@ -180,7 +180,7 @@ export function TeamMemberModal({
           type="email"
           requiredMark
           autoComplete="off"
-          placeholder="saad@agency.local"
+          placeholder="cam@bwm.local"
           value={draft.email}
           onChange={(event) => set("email", event.target.value)}
           error={errors.email}
@@ -214,7 +214,7 @@ export function TeamMemberModal({
             onChange={(event) => set("role", event.target.value)}
             error={errors.role}
             disabled={saving}
-            hint={draft.role === "ADMIN" ? "Full access to everything" : undefined}
+            hint={hasAdminPower(draft.role) ? "Full access to everything" : undefined}
           />
         </div>
 

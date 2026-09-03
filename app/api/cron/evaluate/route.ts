@@ -5,6 +5,7 @@ import { authorizeCron } from "@/lib/cron-auth";
 import { runEvaluation } from "@/lib/evaluate";
 import { sendOverdueAlert } from "@/lib/email/dispatch";
 import { beginJob } from "@/lib/ops";
+import { getModuleFlags } from "@/lib/modules";
 
 /**
  * The daily pass: deadline notices, catch-up scoring, project close-out, and
@@ -17,6 +18,19 @@ import { beginJob } from "@/lib/ops";
 export async function POST(request: Request) {
   const auth = await authorizeCron(request);
   if (!auth.ok) return auth.response;
+
+  // Everything this pass does — renewal cycles, attendance marking, catch-up
+  // scoring, incentive close-out — belongs to a parked module. With all three
+  // off it must do nothing at all rather than run and write zeroes: a job that
+  // keeps firing for a disabled feature is the same defect as a nav item that
+  // keeps rendering for one.
+  const flags = await getModuleFlags();
+  if (!flags.scoring && !flags.attendance && !flags.retainerProjects) {
+    return NextResponse.json({
+      status: "skipped",
+      reason: "scoring, attendance and retainer projects are all disabled",
+    });
+  }
 
   const finish = await beginJob("evaluate");
 

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { authOptions } from "@/lib/auth";
 import { DEFAULT_LANDING, LOGIN_ROUTE } from "@/lib/routes";
+import { hasAdminPower } from "@/lib/constants";
 
 /** The signed-in user, or null. Safe to call anywhere on the server. */
 export async function getCurrentUser() {
@@ -24,6 +25,6 @@ export async function requireUser() {
 /** Same, plus an ADMIN role check. */
 export async function requireAdmin() {
   const user = await requireUser();
-  if (user.role !== "ADMIN") redirect(DEFAULT_LANDING);
+  if (!hasAdminPower(user.role)) redirect(DEFAULT_LANDING);
   return user;
 }

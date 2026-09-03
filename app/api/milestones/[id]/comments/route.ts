@@ -8,6 +8,7 @@ import { fieldErrors } from "@/lib/validation";
 import { mentionedUserIds } from "@/lib/mentions";
 import { notify } from "@/lib/notifications";
 import { recordComment } from "@/lib/activity";
+import { hasAdminPower } from "@/lib/constants";
 
 const commentSchema = z.object({
   body: z
@@ -44,7 +45,7 @@ export async function POST(
   });
   if (!milestone) return apiError("That milestone no longer exists", 404);
 
-  if (user.role !== "ADMIN" && milestone.assigneeId !== user.id) {
+  if (!hasAdminPower(user.role) && milestone.assigneeId !== user.id) {
     return apiError("You can only comment on your own milestones", 403);
   }
 

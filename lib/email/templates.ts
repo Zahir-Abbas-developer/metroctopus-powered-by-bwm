@@ -73,7 +73,7 @@ function shell({ eyebrow, title, intro, body, cta, footnote }: ShellOptions): st
 
         <tr><td style="border-top:1px solid ${LINE};background:${CREAM};padding:18px 32px;">
           <p style="margin:0;font-size:12px;line-height:1.6;color:rgba(12,12,10,0.45);">
-            Agency OS${footnote ? ` · ${escape(footnote)}` : ""}<br />
+            BWM${footnote ? ` · ${escape(footnote)}` : ""}<br />
             All times ${AGENCY_TIMEZONE.replace("/", " / ")}.
           </p>
         </td></tr>
@@ -118,18 +118,18 @@ export function welcomeEmail(input: {
 }): Email {
   const body = `
     <p style="margin:0 0 18px;font-size:15px;line-height:1.65;">
-      You've been added to Agency OS as <strong>${escape(input.jobTitle)}</strong>.
+      You've been added to BWM as <strong>${escape(input.jobTitle)}</strong>.
       This is where your milestones, deadlines and monthly performance live.
     </p>
     <div style="background:${BRAND_TINT};border:1px solid rgba(26,107,58,0.2);border-radius:10px;padding:16px 18px;margin:0 0 18px;">
       ${table(row("Email", input.email) + row("Temporary password", input.password))}
     </div>
     <p style="margin:0;font-size:13px;line-height:1.65;color:rgba(12,12,10,0.55);">
-      Change your password once you're in. If you weren't expecting this, tell the agency owner.
+      Change your password once you're in. If you weren't expecting this, tell your administrator.
     </p>`;
 
   return {
-    subject: "Your Agency OS account",
+    subject: "Your BWM account",
     html: shell({
       eyebrow: "Welcome",
       title: `Hello ${input.name.split(" ")[0]}`,
@@ -140,7 +140,7 @@ export function welcomeEmail(input: {
     text: [
       `Hello ${input.name.split(" ")[0]},`,
       "",
-      `You've been added to Agency OS as ${input.jobTitle}.`,
+      `You've been added to BWM as ${input.jobTitle}.`,
       "",
       `Email: ${input.email}`,
       `Temporary password: ${input.password}`,

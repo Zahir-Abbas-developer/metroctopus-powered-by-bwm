@@ -33,6 +33,7 @@ import { PageHeader } from "@/components/ui/PageHeader";
 import { ProgressBar } from "@/components/ui/ProgressBar";
 import { ScoreRing } from "@/components/ui/ScoreRing";
 import { StatCard } from "@/components/ui/StatCard";
+import { getModuleFlags } from "@/lib/modules";
 import { WeightDots } from "@/components/ui/WeightDots";
 import { RunEvaluationButton } from "@/components/dashboard/RunEvaluationButton";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
@@ -57,7 +58,7 @@ import { clientsAtRisk } from "@/lib/client-health-service";
 import { actorFor } from "@/lib/permissions-service";
 import { TargetBar } from "@/components/pipeline/TargetBar";
 import { formatMoney } from "@/lib/pipeline-types";
-import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus } from "@/lib/constants";
+import { MILESTONE_STATUS_LABEL, MILESTONE_STATUS_TONE, type MilestoneStatus, hasAdminPower } from "@/lib/constants";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -71,7 +72,11 @@ export default async function DashboardPage({
   searchParams: { denied?: string };
 }) {
   const user = await requireUser();
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
+  // Doctrine 5: a parked module's cards must be absent, not empty. Each
+  // section below is gated on its own module rather than on one blanket
+  // flag, so switching one on brings back only its own surface.
+  const flags = await getModuleFlags();
   // Who can hold a review queue: the owner, or a lead inside their own lines.
   const hasReviewQueue = isAdmin || (await actorFor(user)).leadServiceIds.length > 0;
   const firstName = (user.name ?? "there").split(" ")[0];
@@ -280,7 +285,7 @@ export default async function DashboardPage({
       )}
 
       {/* The day itself, before anything about the month. */}
-      {!isAdmin && <AttendanceCard />}
+      {!isAdmin && flags.attendance && <AttendanceCard />}
 
       {/* Business development, for anyone with weekly targets. Renders
           nothing at all for a member who has none — no targets set is not
@@ -301,9 +306,11 @@ export default async function DashboardPage({
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
           <h2 className="font-display text-lg font-bold tracking-tight text-ink">
-            {isAdmin ? "Agency at a glance" : "Your month"}
+            {isAdmin ? "BWM at a glance" : "Your month"}
           </h2>
-          {isAdmin && <RunEvaluationButton />}
+          {isAdmin && (flags.scoring || flags.attendance || flags.retainerProjects) && (
+            <RunEvaluationButton />
+          )}
         </div>
 
         <div
@@ -313,7 +320,7 @@ export default async function DashboardPage({
         >
           {/* MRR spans two columns and carries its own trend — it is the one
               figure where six months of shape says more than today's value. */}
-          {isAdmin && mrr && (
+          {isAdmin && flags.clientKpis && mrr && (
             <MrrCard
               current={mrr.current}
               activeClients={mrr.activeClients}
@@ -342,6 +349,7 @@ export default async function DashboardPage({
             tone="info"
             hint="On a live monthly retainer"
           />
+          {flags.retainerProjects && (
           <StatCard
             label="Open milestones"
             value={openMilestones}
@@ -349,6 +357,8 @@ export default async function DashboardPage({
             tone={openMilestones === 0 ? "neutral" : "warning"}
             hint={isAdmin ? "Across every engagement" : "Assigned to you"}
           />
+          )}
+          {flags.retainerProjects && (
           <StatCard
             label="On-time rate"
             value={onTimeRate}
@@ -367,6 +377,8 @@ export default async function DashboardPage({
             // scoped to the cycle its score belongs to.
             hint={`${onTimeCount} of ${completed.length} approved by deadline, all time`}
           />
+          )}
+          {flags.scoring && (
           <StatCard
             label={isAdmin ? "Avg team score" : "Your score"}
             value={isAdmin ? avgScore : ownScore}
@@ -381,7 +393,8 @@ export default async function DashboardPage({
             }
             hint="Starts at 100 each month"
           />
-          {isAdmin && (
+          )}
+          {isAdmin && flags.attendance && (
             <StatCard
               label="Team present today"
               value={presentToday}
@@ -407,8 +420,10 @@ export default async function DashboardPage({
         </div>
       </section>
 
+      {(flags.retainerProjects || flags.scoring) && (
       <section className="grid gap-5 lg:grid-cols-2">
-        {/* At risk */}
+        {/* At risk — milestone deadlines, so it belongs to retainer projects */}
+        {flags.retainerProjects && (
         <Card padded={false}>
           <CardHeader
             title="At risk"
@@ -488,9 +503,10 @@ export default async function DashboardPage({
             </p>
           )}
         </Card>
+        )}
 
         {/* Leaderboard (owner) or personal standing (member) */}
-        {leaderboardVisible ? (
+        {flags.scoring && leaderboardVisible ? (
           <Card padded={false}>
             <CardHeader
               title="Team performance"
@@ -586,10 +602,11 @@ export default async function DashboardPage({
           </Card>
         )}
       </section>
+      )}
 
       {/* Money and risk, side by side: what hasn't arrived, and who might
           stop sending it. */}
-      {isAdmin && money && clientsNeedingAttention && (
+      {isAdmin && flags.clientKpis && money && clientsNeedingAttention && (
         <section className="grid gap-5 lg:grid-cols-2">
           <CollectionsCard collections={money} />
           <AtRiskClients
@@ -611,9 +628,14 @@ export default async function DashboardPage({
             title="Activity"
             description="The last 20 things that happened across the workspace"
             action={
-              <Link href="/board" className={buttonClasses("ghost", "sm")}>
-                Open the board
-              </Link>
+              // The board is the retainer-projects surface. With the module
+              // parked this must not render: a link into a disabled feature is
+              // the same defect as a nav item for one.
+              flags.retainerProjects ? (
+                <Link href="/board" className={buttonClasses("ghost", "sm")}>
+                  Open the board
+                </Link>
+              ) : undefined
             }
           />
           <ActivityFeed activity={activity} />
@@ -621,7 +643,7 @@ export default async function DashboardPage({
       )}
 
       {/* Member's next deadlines */}
-      {!isAdmin && atRiskRows.length === 0 && (
+      {!isAdmin && flags.retainerProjects && atRiskRows.length === 0 && (
         <Card padded={false}>
           <CardHeader title="Next up" description="Your closest deadlines" />
           <MemberUpcoming userId={user.id} />

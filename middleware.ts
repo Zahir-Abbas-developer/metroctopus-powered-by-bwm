@@ -2,6 +2,7 @@ import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
 import { DEFAULT_LANDING, LOGIN_ROUTE, isAdminRoute } from "@/lib/routes";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Two gates:
@@ -12,7 +13,7 @@ export default withAuth(
   function middleware(req) {
     const { token } = req.nextauth;
 
-    if (isAdminRoute(req.nextUrl.pathname) && token?.role !== "ADMIN") {
+    if (isAdminRoute(req.nextUrl.pathname) && !hasAdminPower(String(token?.role ?? ""))) {
       const url = req.nextUrl.clone();
       url.pathname = DEFAULT_LANDING;
       url.search = "?denied=admin";
@@ -43,6 +44,9 @@ export default withAuth(
 export const config = {
   matcher: [
     "/",
+    // Authenticated, but deliberately outside the app shell — the forced
+    // password change must be reachable while it is still forced.
+    "/change-password",
     "/dashboard/:path*",
     "/clients/:path*",
     "/projects/:path*",

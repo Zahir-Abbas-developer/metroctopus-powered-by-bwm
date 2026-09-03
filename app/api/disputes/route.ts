@@ -9,6 +9,7 @@ import { fileDispute, monthlyDisputeStats } from "@/lib/disputes";
 import { canResolveDispute } from "@/lib/permissions";
 import { actorFor, podMemberIds } from "@/lib/permissions-service";
 import { getSettings } from "@/lib/settings";
+import { hasAdminPower } from "@/lib/constants";
 
 const fileSchema = z.object({
   scoreEventId: z.string().min(1),
@@ -68,7 +69,7 @@ export async function GET() {
   return NextResponse.json({
     slaHours: settings.disputeSlaHours,
     windowDays: settings.disputeWindowDays,
-    stats: user.role === "ADMIN" ? await monthlyDisputeStats() : null,
+    stats: hasAdminPower(user.role) ? await monthlyDisputeStats() : null,
     disputes: visible.map((dispute) => ({
       id: dispute.id,
       status: dispute.status,

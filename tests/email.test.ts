@@ -20,7 +20,7 @@ describe("escape", () => {
 describe("welcomeEmail", () => {
   const email = welcomeEmail({
     name: "Ayesha Khan",
-    email: "ayesha@agency.local",
+    email: "ayesha@bwm.local",
     password: "s3cret-temp-pass",
     jobTitle: "Shopify Developer",
     signInUrl: "https://agency.example.com/login",
@@ -32,7 +32,7 @@ describe("welcomeEmail", () => {
   });
 
   it("carries the credentials", () => {
-    assert.match(email.html, /ayesha@agency\.local/);
+    assert.match(email.html, /ayesha@bwm\.local/);
     assert.match(email.html, /s3cret-temp-pass/);
   });
 

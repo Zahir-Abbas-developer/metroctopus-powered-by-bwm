@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { read } from "@/lib/uploads";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Serves an uploaded file.
@@ -25,7 +26,7 @@ export async function GET(
   });
   if (!attachment) return apiError("That file no longer exists", 404);
 
-  if (user.role !== "ADMIN" && attachment.milestone.assigneeId !== user.id) {
+  if (!hasAdminPower(user.role) && attachment.milestone.assigneeId !== user.id) {
     return apiError("That file isn't yours to open", 403);
   }
 

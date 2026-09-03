@@ -23,6 +23,7 @@ export type NavKey =
   | "errors"
   | "scoring"
   | "team"
+  | "settings"
   | "reports";
 
 export type NavItem = {
@@ -42,66 +43,86 @@ export type NavItem = {
   scope?: "prefix" | "exact";
   /** Rendered as a visible-but-inert link until the phase that builds it. */
   comingSoon?: boolean;
+  /**
+   * Reachable and still role-gated, but not shown in the rail.
+   *
+   * The audit and error logs live under Settings rather than as top-level
+   * entries. They stay in this list because it is what grants them admin-only
+   * protection — dropping them would make /admin/audit a route nobody guards.
+   */
+  hidden?: boolean;
 };
 
+/**
+ * SUPPORT_ADMIN reaches everything ADMIN reaches. Spelling it out per item
+ * would mean every future nav entry silently locking the maintainer out, so
+ * the two admin roles are written once here.
+ */
+const ADMINS: readonly Role[] = ["ADMIN", "SUPPORT_ADMIN"];
+const EVERYONE: readonly Role[] = ["ADMIN", "SUPPORT_ADMIN", "MEMBER"];
+
 export const NAV_ITEMS: readonly NavItem[] = [
-  { key: "dashboard", label: "Dashboard", href: "/dashboard", roles: ["ADMIN", "MEMBER"] },
-  { key: "board", label: "Board", href: "/board", roles: ["ADMIN", "MEMBER"] },
-  { key: "pipeline", label: "Pipeline", href: "/pipeline", roles: ["ADMIN", "MEMBER"] },
-  { key: "clients", label: "Clients", href: "/clients", roles: ["ADMIN"] },
-  { key: "projects", label: "Projects", href: "/projects", roles: ["ADMIN"] },
-  { key: "my-tasks", label: "My tasks", href: "/my-tasks", roles: ["ADMIN", "MEMBER"] },
+  { key: "dashboard", label: "Dashboard", href: "/dashboard", roles: EVERYONE },
+  { key: "board", label: "Board", href: "/board", roles: EVERYONE },
+  { key: "pipeline", label: "Pipeline", href: "/pipeline", roles: EVERYONE },
+  { key: "clients", label: "Clients", href: "/clients", roles: ADMINS },
+  { key: "projects", label: "Projects", href: "/projects", roles: ADMINS },
+  { key: "my-tasks", label: "Tasks", href: "/my-tasks", roles: EVERYONE },
   {
     key: "my-attendance",
     label: "My attendance",
     href: "/my-attendance",
-    roles: ["ADMIN", "MEMBER"],
+    roles: EVERYONE,
   },
-  { key: "attendance", label: "Attendance", href: "/attendance", roles: ["ADMIN"] },
+  { key: "attendance", label: "Attendance", href: "/attendance", roles: ADMINS },
   {
     key: "my-performance",
     label: "My performance",
     href: "/my-performance",
-    roles: ["ADMIN", "MEMBER"],
+    roles: EVERYONE,
   },
   {
     key: "my-reports",
     label: "My reports",
     href: "/my-reports",
-    roles: ["ADMIN", "MEMBER"],
+    roles: EVERYONE,
   },
   {
     key: "disputes",
     label: "Disputes",
     href: "/disputes",
-    roles: ["ADMIN", "MEMBER"],
+    roles: EVERYONE,
   },
-  { key: "incentives", label: "Incentives", href: "/incentives", roles: ["ADMIN"] },
-  { key: "team", label: "Team", href: "/team", roles: ["ADMIN"] },
+  { key: "incentives", label: "Incentives", href: "/incentives", roles: ADMINS },
+  { key: "team", label: "Team", href: "/team", roles: ADMINS },
   {
     key: "scoring",
     label: "How scoring works",
     href: "/scoring",
-    roles: ["ADMIN", "MEMBER"],
+    roles: EVERYONE,
   },
-  { key: "audit", label: "Audit log", href: "/admin/audit", roles: ["ADMIN"] },
-  { key: "errors", label: "Error log", href: "/admin/errors", roles: ["ADMIN"] },
+  { key: "settings", label: "Settings", href: "/settings", roles: ADMINS },
+  { key: "audit", label: "Audit log", href: "/admin/audit", roles: ADMINS, hidden: true },
+  { key: "errors", label: "Error log", href: "/admin/errors", roles: ADMINS, hidden: true },
   {
     key: "reports",
     label: "Reports",
     href: "/reports",
-    roles: ["ADMIN"],
+    roles: ADMINS,
     // Members open their own report at /reports/<id>; the page checks that it
     // belongs to them.
     scope: "exact",
   },
 ];
 
-const ADMIN_ONLY = NAV_ITEMS.filter(
-  (item) => item.roles.length === 1 && item.roles[0] === "ADMIN",
-);
+/**
+ * Admin-only means "a MEMBER may not open it" — not "exactly one role is
+ * listed". Deriving it from the absence of MEMBER is what lets SUPPORT_ADMIN
+ * be added to an item without that item quietly losing its guard.
+ */
+const ADMIN_ONLY = NAV_ITEMS.filter((item) => !item.roles.includes("MEMBER"));
 
-/** Route prefixes only an ADMIN may open, subtree included. */
+/** Route prefixes only an admin may open, subtree included. */
 export const ADMIN_ROUTE_PREFIXES = ADMIN_ONLY.filter(
   (item) => item.scope !== "exact",
 ).map((item) => item.href);
@@ -119,8 +140,17 @@ export function isAdminRoute(pathname: string): boolean {
   );
 }
 
-export function navItemsForRole(role: Role): NavItem[] {
-  return NAV_ITEMS.filter((item) => item.roles.includes(role));
+/**
+ * The rail's contents for one person.
+ *
+ * `hiddenKeys` carries the nav entries belonging to a disabled module. They are
+ * filtered here rather than in the component so that the rail, and anything
+ * else that lists navigation, cannot disagree about what is switched off.
+ */
+export function navItemsForRole(role: Role, hiddenKeys: readonly NavKey[] = []): NavItem[] {
+  return NAV_ITEMS.filter(
+    (item) => item.roles.includes(role) && !item.hidden && !hiddenKeys.includes(item.key),
+  );
 }
 
 /** Where a user lands after signing in. */

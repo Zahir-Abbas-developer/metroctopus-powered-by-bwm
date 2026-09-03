@@ -87,6 +87,9 @@ export const clientDetailsSchema = z.object({
     .min(2, "Contact name must be at least 2 characters")
     .max(80, "Contact name must be 80 characters or fewer"),
   email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  /// The business line this client belongs to. Required at creation: a client
+  /// with no department is invisible to every department-scoped query.
+  departmentId: z.string().min(1, "Pick a department"),
   phone: z.string().trim().max(40, "Phone must be 40 characters or fewer").optional(),
   country: z.string().trim().max(60, "Country must be 60 characters or fewer").optional(),
   industry: z.string().trim().max(60, "Industry must be 60 characters or fewer").optional(),

@@ -78,7 +78,7 @@ export function ActivityFeed({ activity }: { activity: ActivityRow[] }) {
                     <span className="font-medium text-ink">{entry.actor.name}</span>
                   </span>
                 ) : (
-                  <span className="font-medium text-ink">Agency OS</span>
+                  <span className="font-medium text-ink">BWM</span>
                 )}{" "}
                 {entry.summary}
               </p>

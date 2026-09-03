@@ -398,7 +398,7 @@ export function MemberReportDocument({
 
       <footer className="report-footer flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-[12px] text-ink/40">
         <span>
-          Agency OS · {REPORT_TYPE_LABEL[type]} · {payload.period.label}
+          BWM · {REPORT_TYPE_LABEL[type]} · {payload.period.label}
         </span>
         <span>Generated {formatDateTime(generatedAt)} · Asia/Karachi</span>
       </footer>

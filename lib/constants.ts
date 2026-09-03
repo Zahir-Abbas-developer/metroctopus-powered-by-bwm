@@ -9,13 +9,71 @@ import type { BadgeTone } from "@/components/ui/Badge";
  * Postgres later requires no change to any of it.
  */
 
-export const ROLES = ["ADMIN", "MEMBER"] as const;
+export const ROLES = ["ADMIN", "SUPPORT_ADMIN", "MEMBER"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_LABEL: Record<Role, string> = {
   ADMIN: "Owner",
+  SUPPORT_ADMIN: "Support",
   MEMBER: "Team member",
 };
+
+/**
+ * Roles carrying full administrative capability.
+ *
+ * SUPPORT_ADMIN is the system maintainer. It is deliberately identical to
+ * ADMIN in what it may do, and differs only in what the UI calls it, so the
+ * maintainer stays distinguishable from the business owner in audit logs and
+ * user lists.
+ *
+ * Every authority check must go through `hasAdminPower` rather than comparing
+ * against "ADMIN" directly. A stray `role === "ADMIN"` silently locks the
+ * maintainer out of the thing it guards, and does so quietly enough that
+ * nobody finds out until they need it.
+ */
+export const ADMIN_ROLES: readonly Role[] = ["ADMIN", "SUPPORT_ADMIN"];
+
+/**
+ * A person's role *inside* one department. Distinct from the global Role: a
+ * department lead runs that business line, but that grants no admin power
+ * anywhere else in the app.
+ */
+export const DEPT_ROLES = ["LEAD", "MEMBER"] as const;
+export type DeptRole = (typeof DEPT_ROLES)[number];
+
+export const DEPT_ROLE_LABEL: Record<DeptRole, string> = {
+  LEAD: "Department lead",
+  MEMBER: "Member",
+};
+
+/**
+ * Tones a department may be tagged with.
+ *
+ * Deliberately the exact BadgeTone union rather than a parallel palette: a
+ * department picks an existing tone, so its pill is the same pill used
+ * everywhere else and no translation layer can drift. A department cannot
+ * introduce a colour the design system does not already have.
+ */
+export const DEPARTMENT_COLOR_TOKENS = [
+  "success",
+  "info",
+  "warning",
+  "danger",
+  "neutral",
+] as const;
+export type DepartmentColorToken = (typeof DEPARTMENT_COLOR_TOKENS)[number];
+
+export const DEPARTMENT_COLOR_LABEL: Record<DepartmentColorToken, string> = {
+  success: "Green",
+  info: "Blue",
+  warning: "Amber",
+  danger: "Red",
+  neutral: "Neutral",
+};
+
+export function hasAdminPower(role: Role | string): boolean {
+  return role === "ADMIN" || role === "SUPPORT_ADMIN";
+}
 
 /**
  * Suggestions in the team form — the field stays free text so the owner can
@@ -63,7 +121,7 @@ export type AvatarColor = (typeof AVATAR_COLORS)[number];
  *
  * FNV-1a with an avalanche fold. A plain `hash * 31` rolling sum puts almost
  * no entropy in the low bits, and since every address here shares the same
- * `@agency.local` suffix, that collapsed the whole team onto one or two
+ * `@bwm.local` suffix, that collapsed the whole team onto one or two
  * colours. The fold mixes the high bits down before the modulo.
  */
 export function avatarColorFor(seed: string): string {
@@ -237,7 +295,7 @@ export function allowedTransitions(
   role: Role,
   from: MilestoneStatus,
 ): MilestoneStatus[] {
-  return role === "ADMIN" ? ADMIN_TRANSITIONS[from] : MEMBER_TRANSITIONS[from];
+  return hasAdminPower(role) ? ADMIN_TRANSITIONS[from] : MEMBER_TRANSITIONS[from];
 }
 
 export function canTransition(

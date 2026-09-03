@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Actor } from "@/lib/permissions";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * The database side of delegation: who leads what, and who is in whose pod.
@@ -21,7 +22,7 @@ export async function actorFor(user: {
 
   return {
     id: user.id,
-    role: user.role === "ADMIN" ? "ADMIN" : "MEMBER",
+    role: hasAdminPower(user.role) ? "ADMIN" : "MEMBER",
     leadServiceIds: leads.map((lead) => lead.serviceId),
   };
 }

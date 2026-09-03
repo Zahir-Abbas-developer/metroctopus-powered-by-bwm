@@ -9,8 +9,12 @@ import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { pipelineMetrics } from "@/lib/pipeline";
 import { LEAD_SOURCES } from "@/lib/pipeline-types";
+import { hasAdminPower } from "@/lib/constants";
 
 const leadSchema = z.object({
+  // The business line this deal belongs to. Also decides which pipeline
+  // stages are valid for it.
+  departmentId: z.string().min(1, "Pick a department"),
   businessName: z.string().trim().min(2, "Give the business a name").max(120),
   contactName: z.string().trim().min(2, "Who are we talking to?").max(120),
   email: z.string().trim().email("That doesn't look like an email").or(z.literal("")).nullish(),
@@ -77,7 +81,7 @@ export async function GET(request: Request) {
     services,
     viewer: {
       id: user.id,
-      isAdmin: user.role === "ADMIN",
+      isAdmin: hasAdminPower(user.role),
       canSeeDealValues: viewer.role === "ADMIN" || viewer.isBusinessDev,
     },
     leads: leads.map((lead) => serializeLead({
@@ -121,8 +125,19 @@ export async function POST(request: Request) {
 
   const data = parsed.data;
 
+  // A departmentId that does not resolve would otherwise surface as a foreign
+  // key error and a 500. Checked here so the caller gets a field-level 422.
+  const department = await prisma.department.findFirst({
+    where: { id: data.departmentId, isActive: true },
+    select: { id: true },
+  });
+  if (!department) {
+    return apiError("Pick a department", 422, { departmentId: "That department no longer exists" });
+  }
+
   const lead = await prisma.lead.create({
     data: {
+      departmentId: department.id,
       businessName: data.businessName,
       contactName: data.contactName,
       email: data.email || null,

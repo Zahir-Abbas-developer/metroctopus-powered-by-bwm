@@ -6,6 +6,7 @@ import { getCurrentUser } from "@/lib/session";
 import { settleChecks } from "@/lib/attendance";
 import { visibleChecks, visibleTally } from "@/lib/attendance-visibility";
 import { karachiDateString } from "@/lib/attendance-time";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * A member's month, for the calendar.
@@ -28,7 +29,7 @@ export async function GET(request: Request) {
   }
 
   const requested = searchParams.get("userId");
-  const userId = user.role === "ADMIN" && requested ? requested : user.id;
+  const userId = hasAdminPower(user.role) && requested ? requested : user.id;
 
   await settleChecks({ userId, now });
 

@@ -5,6 +5,7 @@ import { getSettings } from "@/lib/settings";
 import { Card } from "@/components/ui/Card";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { RATES, EARLY_BONUS_POINTS, MONTHLY_BASELINE } from "@/lib/scoring";
+import { moduleGate } from "@/lib/module-guard";
 
 export const metadata: Metadata = { title: "How scoring works" };
 
@@ -17,6 +18,11 @@ export const metadata: Metadata = { title: "How scoring works" };
  * are folklore, and folklore is what people argue about.
  */
 export default async function ScoringPage() {
+  // Parked module: the nav entry is already gone, so this guards a
+  // bookmark or a typed URL rather than a link.
+  const gate = await moduleGate("scoring");
+  if (gate) return gate;
+
   await requireUser();
   const settings = await getSettings();
 

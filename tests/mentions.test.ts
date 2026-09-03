@@ -44,7 +44,7 @@ describe("findMentions", () => {
   });
 
   it("ignores an email address", () => {
-    assert.deepEqual(mentionedUserIds("mail bilal@agency.local about it", TEAM), []);
+    assert.deepEqual(mentionedUserIds("mail bilal@bwm.local about it", TEAM), []);
   });
 
   it("does not match a name embedded in a longer word", () => {

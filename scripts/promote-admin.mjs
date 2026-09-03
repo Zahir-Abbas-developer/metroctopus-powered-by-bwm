@@ -5,8 +5,8 @@
  * only a UI button for one reason: the situation you most need a backup owner
  * in is the one where the only existing owner cannot sign in.
  *
- *   npm run promote -- someone@agency.local
- *   npm run promote -- someone@agency.local --demote
+ *   npm run promote -- someone@bwm.local
+ *   npm run promote -- someone@bwm.local --demote
  *   npm run promote -- --list
  *
  * Refuses to remove the last active owner, which is the same guard the team

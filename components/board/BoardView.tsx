@@ -27,8 +27,7 @@ import {
   MILESTONE_STATUS_LABEL,
   canTransition,
   type MilestoneStatus,
-  type Role,
-} from "@/lib/constants";
+  type Role, hasAdminPower } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 export type BoardMilestone = {
@@ -92,7 +91,7 @@ export function BoardView({ role, userId }: { role: Role; userId: string }) {
     () => searchParams.get("milestone"),
   );
 
-  const isAdmin = role === "ADMIN";
+  const isAdmin = hasAdminPower(role);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -388,7 +387,7 @@ function Column({
                 key={milestone.id}
                 milestone={milestone}
                 draggable={canTransition(role, milestone.status, "IN_PROGRESS") ||
-                  role === "ADMIN"}
+                  hasAdminPower(role)}
                 onOpen={() => onOpen(milestone.id)}
               />
             ))

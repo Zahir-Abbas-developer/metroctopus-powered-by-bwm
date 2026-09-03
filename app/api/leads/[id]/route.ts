@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { moveStage } from "@/lib/pipeline";
 import { LEAD_SOURCES, LEAD_STAGES, LOST_REASONS } from "@/lib/pipeline-types";
+import { hasAdminPower } from "@/lib/constants";
 
 const patchSchema = z.object({
   businessName: z.string().trim().min(2).max(120).optional(),
@@ -58,7 +59,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
         user: activity.user,
       })),
     },
-    canEdit: user.role === "ADMIN" || lead.ownerId === user.id,
+    canEdit: hasAdminPower(user.role) || lead.ownerId === user.id,
   });
 }
 
@@ -81,7 +82,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   const lead = await prisma.lead.findUnique({ where: { id: params.id } });
   if (!lead) return apiError("That lead no longer exists", 404);
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
   if (!isAdmin && lead.ownerId !== user.id) {
     return apiError("You can only edit leads you own", 403);
   }
@@ -153,7 +154,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 export async function DELETE(_request: Request, { params }: { params: { id: string } }) {
   const user = await getCurrentUser();
   if (!user) return apiError("You must be signed in", 401);
-  if (user.role !== "ADMIN") return apiError("Only the agency owner can delete a lead", 403);
+  if (!hasAdminPower(user.role)) return apiError("Only the agency owner can delete a lead", 403);
 
   const lead = await prisma.lead.findUnique({
     where: { id: params.id },

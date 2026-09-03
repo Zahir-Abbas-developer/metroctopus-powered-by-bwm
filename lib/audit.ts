@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
  * The record of who exercised authority.
  *
  * Distinct from `lib/activity.ts`, and the distinction matters. Activity is a
- * milestone's story, written for the team and rendered in a feed: "Subtain
+ * milestone's story, written for the team and rendered in a feed: "Tayyaba
  * moved Campaign launch to Submitted". This is written for the person asking
  * "who did that, and what was it before?" — score adjustments, dispute
  * rulings, role changes, settings edits, excusals.
@@ -28,6 +28,10 @@ export const AUDIT_ACTIONS = [
   "SETTINGS_EDITED",
   "INCENTIVE_ACTIONED",
   "LEAVE_REVIEWED",
+  "DEPARTMENT_CREATED",
+  "DEPARTMENT_UPDATED",
+  "DEPARTMENT_MEMBERS_CHANGED",
+  "MODULE_TOGGLED",
 ] as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
@@ -46,6 +50,10 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   SETTINGS_EDITED: "Edited settings",
   INCENTIVE_ACTIONED: "Actioned an incentive",
   LEAVE_REVIEWED: "Reviewed leave",
+  DEPARTMENT_CREATED: "Created a department",
+  DEPARTMENT_UPDATED: "Edited a department",
+  DEPARTMENT_MEMBERS_CHANGED: "Changed department members",
+  MODULE_TOGGLED: "Switched a module on or off",
 };
 
 export type AuditInput = {

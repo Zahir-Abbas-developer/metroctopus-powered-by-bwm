@@ -114,7 +114,7 @@ async function main() {
 
   const line = "─".repeat(58);
   console.log(`\n${line}`);
-  console.log("  AGENCY OS — production seed");
+  console.log("  BWM — production seed");
   console.log(line);
   console.log(`  Owner       ${owner.email}`);
   console.log(`  Password    ${existing ? "unchanged (account already existed)" : "as provided"}`);

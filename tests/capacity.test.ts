@@ -129,7 +129,7 @@ describe("overloadWarning", () => {
 describe("suggestAssignee", () => {
   const candidate = (over: Partial<Candidate> = {}): Candidate => ({
     userId: "u1",
-    name: "Subtain Ahmed",
+    name: "Tayyaba Rahman",
     jobTitle: "Performance Marketer",
     percent: 50,
     hours: 20,
@@ -144,7 +144,7 @@ describe("suggestAssignee", () => {
     const suggestion = suggestAssignee(
       [
         candidate({ userId: "busy", qualified: true, hours: 30 }),
-        candidate({ userId: "idle", qualified: false, hours: 0, name: "Shahnawaz Ali" }),
+        candidate({ userId: "idle", qualified: false, hours: 0, name: "Claire Bennett" }),
       ],
       4,
     );
@@ -172,7 +172,7 @@ describe("suggestAssignee", () => {
   it("flags a suggestion that would still push someone over", () => {
     const suggestion = suggestAssignee([candidate({ hours: 38 })], 6);
     assert.equal(suggestion?.projectedPercent, 110);
-    assert.match(suggestion?.reason ?? "", /would take Subtain to 110%/);
+    assert.match(suggestion?.reason ?? "", /would take Tayyaba to 110%/);
   });
 
   it("returns nothing when there is nobody to suggest", () => {

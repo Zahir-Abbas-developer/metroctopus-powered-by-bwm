@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, updateUserSchema } from "@/lib/validation";
+import { hasAdminPower } from "@/lib/constants";
 
 const SELECT = {
   id: true,
@@ -52,7 +53,7 @@ export async function PATCH(
   }
 
   // Nor can the agency be left with nobody who can administer it.
-  if (target.role === "ADMIN" && (rest.role === "MEMBER" || rest.isActive === false)) {
+  if (hasAdminPower(target.role) && (rest.role === "MEMBER" || rest.isActive === false)) {
     const otherAdmins = await prisma.user.count({
       where: { role: "ADMIN", isActive: true, id: { not: target.id } },
     });

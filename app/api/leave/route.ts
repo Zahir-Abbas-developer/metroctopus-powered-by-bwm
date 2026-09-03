@@ -8,6 +8,7 @@ import { fieldErrors } from "@/lib/validation";
 import { parseDateInput } from "@/lib/date";
 import { karachiDateString, karachiDay } from "@/lib/attendance-time";
 import { notify } from "@/lib/notifications";
+import { hasAdminPower } from "@/lib/constants";
 
 const leaveSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date"),
@@ -24,7 +25,7 @@ export async function GET() {
   if (!user) return apiError("You must be signed in", 401);
 
   const requests = await prisma.leaveRequest.findMany({
-    where: user.role === "ADMIN" ? {} : { userId: user.id },
+    where: hasAdminPower(user.role) ? {} : { userId: user.id },
     orderBy: [{ status: "asc" }, { date: "desc" }],
     take: 200,
     include: {

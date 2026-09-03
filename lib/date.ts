@@ -1,5 +1,5 @@
 /**
- * The single date utility for Agency OS (CLAUDE.md convention).
+ * The single date utility for BWM (CLAUDE.md convention).
  *
  * Everything is stored in UTC and displayed in the agency's working timezone,
  * Asia/Karachi. No component should call `toLocaleDateString` or construct a

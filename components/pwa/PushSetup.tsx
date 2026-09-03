@@ -17,7 +17,7 @@ import { useToast } from "@/components/ui/Toast";
  * after they opt in, and silence afterwards either way.
  */
 
-const ASKED_KEY = "agencyos:push-asked";
+const ASKED_KEY = "bwm:push-asked";
 
 export function PushSetup() {
   const toast = useToast();
@@ -32,6 +32,36 @@ export function PushSetup() {
     let cancelled = false;
 
     void (async () => {
+      /* No service worker in development.
+       *
+       * Its job is to survive a network that has gone away, and in development
+       * the network "going away" is the dev server restarting — which happens
+       * every few minutes. The worker turned each restart into a full-screen
+       * "You're offline", and because a registration outlives the page that
+       * created it, it kept doing so long after the server came back.
+       *
+       * Unregistering rather than merely skipping registration is the part
+       * that matters: anyone who loaded the app before this change still has
+       * the old worker installed, and it would go on serving them the offline
+       * page forever. This actively removes it and drops its caches.
+       */
+      if (process.env.NODE_ENV !== "production") {
+        const registrations = await navigator.serviceWorker.getRegistrations().catch(() => []);
+        await Promise.all(registrations.map((registration) => registration.unregister()));
+        if ("caches" in window) {
+          const keys = await caches.keys().catch(() => [] as string[]);
+          await Promise.all(
+            // "agency-os" is the pre-rebrand prefix. An install that predates
+            // the rename still holds caches under it, and dropping the old
+            // prefix here would strand them on the device permanently.
+            keys
+              .filter((key) => key.startsWith("bwm") || key.startsWith("agency-os"))
+              .map((key) => caches.delete(key)),
+          );
+        }
+        return;
+      }
+
       try {
         await navigator.serviceWorker.register("/sw.js", { scope: "/" });
       } catch {

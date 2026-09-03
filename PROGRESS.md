@@ -2116,3 +2116,274 @@ the serializers. The other routes carrying these entities are admin-gated at
 the door, so they pass today because non-owners never reach them — not because
 they are filtered. Opening client briefs to members, which the matrix requires,
 will need them rewired first.
+
+---
+
+# BWM FORK — transformation begins (2 September 2026)
+
+**Everything above this line is Agency OS history.** It is kept as the record of
+how the codebase got here, not as a description of what it is becoming. Where an
+entry above describes agency business logic — retainer cycles, the scoring
+engine, availability checks, ROAS panels — treat it as archaeology.
+
+## What changed in this commit
+
+Documentation only. **No code, schema or seed has been touched yet.**
+
+`CLAUDE.md` was rewritten for **Building Wealth Mindset (BWM)** — a
+department-based CRM and internal business operating system:
+
+- All agency business context replaced: the business, the roster, the problem,
+  the solution, working hours, attendance philosophy, the Fairness & Leverage
+  Doctrine and the agency permission matrix are gone.
+- **Tech Stack and Design Language were preserved byte-for-byte** (verified by
+  checksum). The visual design is client-approved and is law.
+- Added the six-point **Core Doctrine**: design is frozen · department-aware
+  everything · data-driven configuration · no demo smell · feature flags off by
+  default · timezone as a company setting.
+- Added the 4 departments, the 6-person roster, and the `SUPPORT_ADMIN` role.
+- Recorded the inherited modules to be parked behind flags rather than deleted.
+
+## Verified gaps — what the fork actually has to build
+
+Checked against the current code rather than assumed:
+
+- `Department` does not exist anywhere — no model, no constant, no relation.
+- `ROLES` is `["ADMIN", "MEMBER"]` in `lib/constants.ts`; `SUPPORT_ADMIN` is new.
+- `User.mustChangePassword` does not exist.
+- `Settings` carries no boolean feature flags; all four parked modules need one.
+- `User.jobTitle` is required and drives auto-assignment in `lib/templates.ts`;
+  department membership is meant to replace that mapping.
+- The old roster and demo data (5 users, 5 clients, 4 projects, 10 leads) live in
+  `prisma/seed.ts` and must go.
+- Timezone is hardcoded `Asia/Karachi` in `lib/date.ts`; it becomes a company
+  setting defaulting to `America/New_York`.
+
+## Carried forward from the fork
+
+The stability gate (`smoke`, `smoke:empty`, `permtest`, `leaks`, `tsc`, `test`),
+the empty-state rule, and server-side enforcement of data visibility all survive
+the fork — but the scripts were written against agency roles and fixtures. Until
+they are re-pointed at departments and the new roster, **a green run does not
+mean what it used to.**
+
+## Deliberately unspecified
+
+Field-level visibility *within* a department. The inherited matrix made money
+fields owner-only, but BWM's departments are sales-driven and members may need
+to see their own deal values. Left as an open question for the client rather
+than guessed at.
+
+---
+
+## BWM Phase 1 — foundation: departments, roles, seed (2 September 2026)
+
+Schema and seed only. **No UI was added or changed** — the design is frozen, and
+nothing in this phase renders anything new.
+
+### Schema
+
+- **`Department`** — slug, name, description, sortOrder, isActive. Four seeded;
+  nothing in code assumes that number or those names.
+- **`DepartmentMember`** — the team-department-skill mapping, with an optional
+  free-text `skill`. Unique on `(userId, departmentId)`.
+- **`PipelineStage`** — per-department funnel stages, with `isWon` / `isLost`
+  flags so the app reads terminal state instead of string-matching "WON".
+- **`ClientFieldDef`** / **`ClientFieldValue`** — per-department custom client
+  fields. Values are stored as text so retyping a field is not a migration.
+- **`Client.departmentId`** and **`Lead.departmentId`** are **required**, with
+  indexes on `(departmentId, status)` and `(departmentId, stage)`.
+- **`User.mustChangePassword`**.
+- **`Settings.timezone`** (default `America/New_York`) and four parked-module
+  flags, all `false`.
+
+### Roles
+
+`ROLES` becomes `["ADMIN", "SUPPORT_ADMIN", "MEMBER"]` with
+`hasAdminPower()` in `lib/constants.ts` as the single authority check. 33 files
+were moved off bare `role === "ADMIN"` comparisons. The two role *mappers*
+(`lib/viewer.ts`, `lib/permissions-service.ts`) collapse SUPPORT_ADMIN into the
+existing owner tier, so everything reading a mapped Viewer/Actor inherited the
+change without edits. UI labels SUPPORT_ADMIN as "Support"; existing "Owner" and
+"Member" wording is untouched.
+
+### Seed
+
+`prisma/seed.ts` rewritten: 4 departments, 21 pipeline stages, 10 client fields,
+6 users, `mustChangePassword` on all of them, and **zero demo business data**.
+The agency seed is preserved as `prisma/seed.agency.archive` (a non-`.ts`
+extension so it stays out of the build).
+
+### Two real bugs found and fixed
+
+- **The gate scripts treated SUPPORT_ADMIN as a non-owner.** `permtest` and
+  `leak-scan` filtered owners with `role === "ADMIN"`, so every legitimate admin
+  payload reaching Raja Zain would have been reported as a leak. They also
+  hardcoded the old `member123` password. Both fixed; they now read
+  `SEED_PASSWORD` and share an `isAdminRole` helper.
+
+- **`.env.production.local` broke every production run.** Created during the
+  earlier deploy prep with `REPLACE_ME` placeholders. Next.js auto-loads that
+  filename during `next start`, where it overrode `.env` and pointed the server
+  at `postgresql://REPLACE_ME`. Every login returned a bare 401 with nothing in
+  the log, because NextAuth swallows the Prisma connect error and reports it as
+  a rejected credential. Renamed to `.env.vercel.local`, which Next does not
+  load and `.gitignore` still covers. `DEPLOY.md` records why.
+
+### Stability gate — all six green
+
+```
+npm run smoke        ✓ every route rendered for every role (58 checks)
+npm run smoke:empty  ✓ every route rendered for every role
+npm run permtest     ✓ no forbidden field or mutation reached a non-owner (171 checks)
+npm run leaks        ✓ no owner-only value reached a non-owner (104 responses)
+npx tsc --noEmit     ✓ clean
+npm test             ✓ 405/405
+```
+
+`permtest` and `leaks` now correctly skip two owners — `coachd@bwm.local` and
+`rajazain@bwm.local`. The `/clients/[id]`, `/projects/[id]` and `/reports/[id]`
+skips are correct: there is no demo data to open, which is the point.
+
+### What this phase deliberately did NOT do
+
+Department scoping is **declared, not enforced** — the columns exist, but no
+query filters by them yet, so a MEMBER still sees every department. Likewise
+`mustChangePassword` is stored but not enforced, the parked-module flags are
+stored but not read, and `lib/date.ts` still hardcodes `Asia/Karachi`. These are
+listed under *Fork status* in `CLAUDE.md`. Nothing here should be mistaken for
+Doctrine 2 or Doctrine 5 being satisfied.
+
+---
+
+## BWM Phase T1 — identity, departments and the new team (3 September 2026)
+
+Design untouched. Every screen added here is composed from existing components,
+and the frozen Tech Stack / Design Language block in `CLAUDE.md` still matches
+its original checksum (`ec6e2dc0…`).
+
+### 1. Rebrand sweep
+
+Zero references to the old agency name or roster survive in code. Swept: app
+metadata and title template, PWA manifest (name, short_name, description, and
+its home-screen shortcuts, which pointed into the now-parked attendance
+module), `package.json` + `package-lock.json` name, sidebar and mobile
+wordmarks, service-worker cache version and notification tag, email templates,
+report footers, activity-feed system actor, `tailwind.config.ts`, and every
+test fixture.
+
+The **login page keeps its exact layout** — same dark editorial panel, same
+classes. Only text changed: the wordmark, the three-line headline, the business
+lines replacing the old service list, and the demo-credentials block, which was
+printing `subtain@agency.local / member123` in plain text and is now a note
+that seeded accounts must change their password.
+
+### 2. Department foundation
+
+- `Department` gains `shortLabel`, `colorToken` and `order`.
+- `DepartmentMember` becomes **`DepartmentMembership`** with `roleInDept`
+  (LEAD | MEMBER) and `skills`.
+- Seeded exactly to the roster matrix — 17 memberships: Coach D in all 4,
+  Tayyaba 2, Claire 3, Cam 3, Cheryl 1, Raja Zain 4 (support access).
+- Per-member, per-department skills seeded from responsibilities
+  (Coach D: sales/dispatch/closing…, Cam in Affiliates: affiliates/referrals/
+  commissions, and so on).
+- **Settings → Departments**: create, edit, reorder, deactivate; per-department
+  team and skill editing. Deactivating a department that still owns clients or
+  leads is **refused with a 409 unless an explicit destination is chosen**, and
+  the records are moved in a transaction — a department-scoped query returning
+  nothing with no explanation is worse than a blocked toggle.
+- Ordering is arrow-driven rather than pointer-drag: it is edited rarely, and a
+  keyboard-reachable control that works on a phone beats a drag handle needing
+  a mouse plus a fallback. The whole ordered list is sent, so the server never
+  infers what moved.
+
+### 3. Team replacement
+
+- **Forced password change.** `mustChangePassword` is now enforced in the app
+  shell before any surface renders, redirecting to `/change-password` — a page
+  deliberately outside the `(app)` group, since one inside it would redirect to
+  itself forever. The flag is read from the database, not the session token, so
+  a stale token can neither bypass nor re-trigger the gate. The current password
+  is required even on the forced change: the account is reachable by anyone
+  holding the shared placeholder.
+- **Team roster** replaces the legacy "Job title" column with **Departments** —
+  badges plus the union of that person's skills, clickable to edit inline. Same
+  column count, so the table layout is unchanged.
+- `SUPPORT_ADMIN` reaches every admin route and renders as **"Support"**.
+
+### 4. Parked modules
+
+`lib/modules.ts` is one registry owning every surface a module reaches: nav
+keys, route prefixes, API prefixes and jobs. With a flag off the module is
+**absent**, not empty:
+
+- nav entries filtered server-side (never in the client rail, so a parked
+  module cannot flicker into view while a fetch resolves)
+- **dashboard cards gated per module** — attendance card, at-risk milestones,
+  leaderboard, MRR/collections/ROAS, member deadlines, and the stat cards for
+  open milestones, on-time rate, team score and presence
+- the Activity card's "Open the board" link removed with the module
+- the evaluate cron returns `{status: "skipped"}` when all three of its modules
+  are off
+- routes answer with a `ModuleDisabled` screen built from `EmptyState`
+
+The rail after this phase is exactly: **Dashboard · Pipeline · Clients · Tasks ·
+Team · Reports · Settings**. Audit and error logs moved under Settings as tabs
+— still role-gated, because they stay in `NAV_ITEMS` marked `hidden`, which is
+what grants them that guard.
+
+### Bugs found and fixed
+
+- **`NAV_ITEMS` had no `SUPPORT_ADMIN`.** Raja Zain would have seen an *empty
+  sidebar*. Worse, `ADMIN_ONLY` was derived from `roles.length === 1`, so simply
+  adding the role would have silently stripped admin protection from every
+  admin route. Now derived from the absence of `MEMBER`.
+- **Smoke's new module assertion immediately caught a real Doctrine 5
+  violation**: the dashboard still linked `/board` with retainer projects off,
+  and in fact read no module flags at all — so every parked module's cards were
+  still rendering.
+- **The password gate broke the harnesses.** Every seeded account has the flag
+  set, so permtest and leaks would have received the change-password screen for
+  every route — passing a leak scan perfectly while checking nothing. Both now
+  clear the flag for accounts under test, with a comment saying why.
+- **My own rebrand sweep broke 3 tests.** It renamed fixtures but missed an
+  assertion whose regex escaped the dot (`agency\.local` never matched
+  `agency.local`), flipped a sorted expectation when `shahnawaz`→`claire`
+  changed alphabetical position, and over-reached onto "Ayesha"/"Bilal" — generic
+  mention-parser fixtures that were never agency roster names. All three fixed.
+
+### Stability gate — all six green
+
+```
+npm run smoke        ✓ every route rendered for every role (82 checks)
+                     ✓ 4 parked modules verified absent
+npm run smoke:empty  ✓ every route rendered for every role
+npm run permtest     ✓ no forbidden field reached a non-owner (171 checks)
+npm run leaks        ✓ no owner-only value reached a non-owner (104 responses)
+npx tsc --noEmit     ✓ clean
+npm test             ✓ 405/405
+```
+
+### Walkthrough
+
+As **Coach D**: forced to change password, then the rail shows all seven items.
+As **Cheryl**: forced to change password, then Dashboard · Pipeline · Tasks
+(admin-only entries correctly absent). Both: zero parked-module links anywhere
+on the page, zero stale agency strings. As **Raja Zain**: reaches every admin
+route, labelled "Support".
+
+### Deviation from spec
+
+`skills` is a comma-separated `String`, not `String[]`. Prisma has no array
+column on SQLite and `CLAUDE.md` forbids array columns to keep the schema
+Postgres-portable. `lib/skills.ts` owns parse/serialize; the API and UI both
+work in `string[]`, so only the storage differs.
+
+### Not done — do not mistake this for Doctrine 2 being satisfied
+
+Department **scoping is still not enforced**. The columns, the memberships and
+`departmentIdsForUser()` all exist, but no list or detail query filters by
+department, so a MEMBER still sees every department's records. Also outstanding:
+`lib/date.ts` still hardcodes `Asia/Karachi` despite `Settings.timezone`, and
+the dynamic field engine (`ClientFieldDef`) is seeded but read by nothing.

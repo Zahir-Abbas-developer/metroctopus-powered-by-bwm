@@ -1,14 +1,17 @@
 {
-  "name": "Agency OS",
-  "short_name": "Agency OS",
-  "description": "Delivery, deadlines and availability for a remote marketing agency.",
+  "name": "Building Wealth Mindset",
+  "short_name": "BWM",
+  "description": "Leads, clients, deals and follow-ups across every BWM business line.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#FAFAF7",
   "theme_color": "#0C0C0A",
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",
@@ -37,12 +40,12 @@
   ],
   "shortcuts": [
     {
-      "name": "My attendance",
-      "url": "/my-attendance",
-      "description": "Clock in, answer a check, take a break"
+      "name": "Pipeline",
+      "url": "/pipeline",
+      "description": "Deals by stage"
     },
     {
-      "name": "My tasks",
+      "name": "Tasks",
       "url": "/my-tasks",
       "description": "What's assigned to you"
     }

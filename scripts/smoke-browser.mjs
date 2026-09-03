@@ -20,6 +20,19 @@
  */
 import { connect, launch, findBrowser } from "./cdp.mjs";
 import {
+
+/**
+ * Roles carrying full administrative capability. Mirrors ADMIN_ROLES in
+ * lib/constants.ts — SUPPORT_ADMIN is the maintainer and has the same reach as
+ * the owner, so treating it as a non-owner here would report every legitimate
+ * admin payload it receives as a leak.
+ */
+const ADMIN_ROLES = ["ADMIN", "SUPPORT_ADMIN"];
+const isAdminRole = (role) => ADMIN_ROLES.includes(role);
+
+/** Seeded accounts share one placeholder password; SEED_PASSWORD overrides it. */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "bwm-change-me";
+
   ADMIN,
   LEAD,
   MEMBER,
@@ -147,7 +160,7 @@ async function main() {
     for (const route of routes) {
       // A member is correctly refused another member's report; the HTTP suite
       // asserts that refusal, so there is no page to render here.
-      if (route === "/reports/[id]" && role.role !== "ADMIN") continue;
+      if (route === "/reports/[id]" && !isAdminRole(role.role)) continue;
       const url = urlFor(route);
       if (!url) continue;
 

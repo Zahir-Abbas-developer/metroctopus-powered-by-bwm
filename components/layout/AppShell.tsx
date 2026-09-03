@@ -8,6 +8,7 @@ import { Sidebar, type SidebarUser } from "@/components/layout/Sidebar";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { CommandPalette } from "@/components/layout/CommandPalette";
 import { AvailabilityBanner } from "@/components/attendance/AvailabilityBanner";
+import type { NavKey } from "@/lib/routes";
 
 /**
  * Fixed 240px rail on desktop; a slide-over drawer below `lg`. The drawer
@@ -17,11 +18,21 @@ export function AppShell({
   user,
   children,
   errorBadge = 0,
+  hiddenNavKeys = [],
+  attendanceEnabled = false,
 }: {
   user: SidebarUser;
   children: ReactNode;
   /** Unseen error-log entries, counted server-side. Owner only. */
   errorBadge?: number;
+  /** Nav entries belonging to a disabled module, resolved on the server. */
+  hiddenNavKeys?: readonly NavKey[];
+  /**
+   * The availability banner is the attendance module's most intrusive surface
+   * — it sits above every page. With the module off it must not render at all,
+   * rather than render and find nothing to show.
+   */
+  attendanceEnabled?: boolean;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
@@ -43,17 +54,17 @@ export function AppShell({
     <div className="min-h-screen bg-paper">
       {/* Desktop rail */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-sidebar lg:block">
-        <Sidebar user={user} errorBadge={errorBadge} />
+        <Sidebar user={user} errorBadge={errorBadge} hiddenNavKeys={hiddenNavKeys} />
       </aside>
 
       {/* Mobile top bar */}
       <div className="no-print sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-brand font-display text-xs font-extrabold text-paper">
-            A
+            B
           </span>
           <span className="font-display text-sm font-extrabold tracking-[-0.01em] text-ink">
-            AGENCY OS
+            BWM
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -82,6 +93,7 @@ export function AppShell({
             <Sidebar
               user={user}
               errorBadge={errorBadge}
+              hiddenNavKeys={hiddenNavKeys}
               onNavigate={() => setDrawerOpen(false)}
             />
             <button
@@ -106,8 +118,8 @@ export function AppShell({
         </div>
 
         {/* Above everything: a check is worthless if it can be missed by being
-            on the wrong screen. */}
-        <AvailabilityBanner />
+            on the wrong screen. Absent entirely while attendance is parked. */}
+        {attendanceEnabled && <AvailabilityBanner />}
 
         <main className="mx-auto w-full max-w-shell px-5 py-8 sm:px-8 sm:py-10 lg:px-10 lg:py-12">
           {children}

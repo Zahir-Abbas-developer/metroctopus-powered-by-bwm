@@ -30,7 +30,9 @@ model User {
   name                String
   email               String   @unique
   passwordHash        String
-  /// "ADMIN" | "MEMBER" — see Role in lib/constants.ts
+  /// "ADMIN" | "SUPPORT_ADMIN" | "MEMBER" — see Role in lib/constants.ts.
+  /// SUPPORT_ADMIN is the maintainer: same capability as ADMIN, labelled
+  /// "Support" in the UI. Authority checks go through hasAdminPower().
   role                String   @default("MEMBER")
   /// Delivery specialism, e.g. "Shopify Developer", "Media Buyer".
   jobTitle            String
@@ -49,38 +51,43 @@ model User {
   /// someone's free-text title happens to contain "Business Developer" is a
   /// permission that changes when a title is edited for cosmetic reasons.
   isBusinessDev       Boolean  @default(false)
+  /// Seeded accounts ship with a placeholder password. While this is true the
+  /// app forces a change before anything else is reachable, so a placeholder
+  /// credential cannot survive first contact with a real user.
+  mustChangePassword  Boolean  @default(false)
   isActive            Boolean  @default(true)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 
-  milestones     Milestone[]        @relation("MilestoneAssignee")
-  scoreEvents    ScoreEvent[]       @relation("ScoreEventSubject")
-  authoredScore  ScoreEvent[]       @relation("ScoreEventAuthor")
+  milestones     Milestone[]            @relation("MilestoneAssignee")
+  scoreEvents    ScoreEvent[]           @relation("ScoreEventSubject")
+  authoredScore  ScoreEvent[]           @relation("ScoreEventAuthor")
   reports        Report[]
   notifications  Notification[]
   comments       Comment[]
   mentions       CommentMention[]
   attachments    Attachment[]
-  activity       Activity[]         @relation("ActivityActor")
+  activity       Activity[]             @relation("ActivityActor")
   attendance     AttendanceDay[]
-  leaveRequests  LeaveRequest[]     @relation("LeaveSubject")
-  leaveReviews   LeaveRequest[]     @relation("LeaveReviewer")
-  outages        OutageReport[]     @relation("OutageSubject")
-  outageReviews  OutageReport[]     @relation("OutageReviewer")
+  leaveRequests  LeaveRequest[]         @relation("LeaveSubject")
+  leaveReviews   LeaveRequest[]         @relation("LeaveReviewer")
+  outages        OutageReport[]         @relation("OutageSubject")
+  outageReviews  OutageReport[]         @relation("OutageReviewer")
   breaks         BreakSession[]
   pushSubs       PushSubscription[]
-  blocksRaised   BlockPeriod[]      @relation("BlockAuthor")
-  blocksCleared  BlockPeriod[]      @relation("BlockReleaser")
-  leads          Lead[]             @relation("LeadOwner")
+  blocksRaised   BlockPeriod[]          @relation("BlockAuthor")
+  blocksCleared  BlockPeriod[]          @relation("BlockReleaser")
+  leads          Lead[]                 @relation("LeadOwner")
   salesActivity  SalesActivity[]
   targets        ActivityTarget[]
-  kpiEntries     ClientKpiEntry[]   @relation("KpiAuthor")
+  kpiEntries     ClientKpiEntry[]       @relation("KpiAuthor")
   leadsServices  ServiceLead[]
-  disputes       Dispute[]          @relation("DisputeSubject")
+  disputes       Dispute[]              @relation("DisputeSubject")
   disputeFiles   DisputeFile[]
-  disputeRulings Dispute[]          @relation("DisputeResolver")
-  auditEntries   AuditLog[]         @relation("AuditActor")
+  disputeRulings Dispute[]              @relation("DisputeResolver")
+  auditEntries   AuditLog[]             @relation("AuditActor")
   incentives     IncentiveAward[]
+  departments    DepartmentMembership[]
 
   @@index([role])
   @@index([isActive])
@@ -93,6 +100,10 @@ model User {
 /// An e-commerce business on a monthly retainer.
 model Client {
   id            String   @id @default(cuid())
+  /// The business line this client belongs to. Required: a client with no
+  /// department is invisible to department-scoped queries, which is a silent
+  /// data-loss bug rather than a display one.
+  departmentId  String
   businessName  String
   contactName   String
   email         String
@@ -114,11 +125,14 @@ model Client {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  projects Project[]
-  reports  Report[]
-  lead     Lead?
-  kpis     ClientKpiEntry[]
+  department  Department         @relation(fields: [departmentId], references: [id])
+  projects    Project[]
+  reports     Report[]
+  lead        Lead?
+  kpis        ClientKpiEntry[]
+  fieldValues ClientFieldValue[]
 
+  @@index([departmentId, status])
   @@index([status])
   @@index([businessName])
 }
@@ -824,6 +838,9 @@ model BreakSession {
 /// milestones a lead must never accidentally acquire. Winning one converts.
 model Lead {
   id                    String    @id @default(cuid())
+  /// The business line this deal belongs to. Also decides which PipelineStage
+  /// rows are valid for `stage`.
+  departmentId          String
   businessName          String
   contactName           String
   email                 String?
@@ -853,10 +870,12 @@ model Lead {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
+  department      Department      @relation(fields: [departmentId], references: [id])
   owner           User?           @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   convertedClient Client?         @relation(fields: [convertedClientId], references: [id], onDelete: SetNull)
   activities      SalesActivity[]
 
+  @@index([departmentId, stage])
   @@index([stage, stageChangedAt])
   @@index([ownerId, stage])
 }
@@ -1094,6 +1113,22 @@ model Settings {
   /// Hours since the last successful backup before the owner is warned.
   backupWarnHours Int @default(26)
 
+  // --- BWM fork: company settings ------------------------------------------
+  /// IANA timezone the whole app reasons in: due dates, "today", the boundary
+  /// of a day. A setting rather than a constant because the fork inherited
+  /// Asia/Karachi and BWM operates US-based.
+  timezone String @default("America/New_York")
+
+  // --- BWM fork: parked module flags ---------------------------------------
+  /// Modules inherited from the agency fork that BWM did not request. All
+  /// default off, and off means the feature *disappears* — no nav item, no
+  /// dashboard card, no cron run, no reachable route — rather than rendering
+  /// an empty panel. The code stays so a flag can switch it back on.
+  featureAttendance     Boolean @default(false)
+  featureScoring        Boolean @default(false)
+  featureRetainerCycles Boolean @default(false)
+  featureClientKpis     Boolean @default(false)
+
   updatedAt DateTime @updatedAt
 }
 
@@ -1129,4 +1164,157 @@ model SystemError {
 
   @@index([createdAt])
   @@index([seenAt])
+}
+
+// ---------------------------------------------------------------------------
+// BWM fork — departments
+//
+// A department is a business line. BWM seeds four, but nothing in the schema,
+// a constant or a component may assume that number or those names: departments
+// are records an admin edits, and the seed is BWM's starting shape rather than
+// the system's definition.
+// ---------------------------------------------------------------------------
+
+model Department {
+  id          String  @id @default(cuid())
+  /// Stable machine key, e.g. "pilot-cars". Referenced by seeds, imports and
+  /// URLs, so it survives the display name being reworded.
+  slug        String  @unique
+  name        String
+  /// Compact name for badges, pills and narrow table columns, where the full
+  /// "BWM — Pilot Cars Sales & Dispatch" will not fit.
+  shortLabel  String
+  /// Semantic token name from theme (e.g. "brand", "info"), never a raw hex.
+  /// Null renders the neutral tone, so a department without a colour is a
+  /// normal state rather than a broken badge.
+  colorToken  String?
+  description String?
+  /// Order in nav, dropdowns and dashboards. Admin-draggable.
+  order       Int     @default(0)
+  /// Deactivating hides a department without deleting its history. Rows keep
+  /// pointing at it, so nothing orphans.
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships  DepartmentMembership[]
+  stages       PipelineStage[]
+  clientFields ClientFieldDef[]
+  clients      Client[]
+  leads        Lead[]
+
+  @@index([isActive, order])
+}
+
+/// Which departments a person works in, and what they do there.
+///
+/// This is the team-department-skill mapping the doctrine requires to be data.
+/// ADMIN and SUPPORT_ADMIN see every department regardless of these rows; they
+/// exist to scope a MEMBER.
+model DepartmentMembership {
+  id           String @id @default(cuid())
+  userId       String
+  departmentId String
+  /// "LEAD" | "MEMBER" — see DEPT_ROLES in lib/constants.ts. A department lead
+  /// runs that business line; it is scoping and display, not a global role.
+  roleInDept   String @default("MEMBER")
+  /// Skills inside this department, comma-separated and free text.
+  ///
+  /// Not a String[]: SQLite has no array column and the schema is kept
+  /// Postgres-portable, so this follows the same comma-separated convention as
+  /// Lead.interestedServices. Always read and written through
+  /// parseSkills()/serializeSkills() in lib/skills.ts, which own the trimming
+  /// and de-duplication — nothing should split this string by hand.
+  skills       String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, departmentId])
+  @@index([departmentId])
+}
+
+/// One stage of one department's pipeline.
+///
+/// Departments sell different things and do not share a funnel: dispatch
+/// scheduling and insurance qualification have no stage in common. Stages are
+/// therefore per-department records rather than a shared union in code.
+model PipelineStage {
+  id           String  @id @default(cuid())
+  departmentId String
+  /// Stable machine key, unique within the department.
+  key          String
+  label        String
+  sortOrder    Int     @default(0)
+  /// Terminal stages. A department should have exactly one of each; the app
+  /// reads these rather than string-matching "WON" or "LOST".
+  isWon        Boolean @default(false)
+  isLost       Boolean @default(false)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+
+  @@unique([departmentId, key])
+  @@index([departmentId, sortOrder])
+}
+
+/// A field a department needs on its clients that other departments do not.
+///
+/// Pilot Cars needs dispatch details, Insurance needs policy details,
+/// Affiliates needs commission terms. Rather than widening the Client table
+/// with every department's columns, each department declares its own fields
+/// and the values land in ClientFieldValue.
+model ClientFieldDef {
+  id           String  @id @default(cuid())
+  departmentId String
+  /// Stable machine key, unique within the department.
+  key          String
+  label        String
+  /// "TEXT" | "NUMBER" | "DATE" | "SELECT" | "BOOLEAN" — see
+  /// CLIENT_FIELD_TYPES in lib/constants.ts.
+  type         String  @default("TEXT")
+  /// Options when type is SELECT, comma-separated. Comma-separated rather than
+  /// an array column so this ports to Postgres unchanged.
+  options      String  @default("")
+  helpText     String?
+  required     Boolean @default(false)
+  sortOrder    Int     @default(0)
+  isActive     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  values     ClientFieldValue[]
+
+  @@unique([departmentId, key])
+  @@index([departmentId, sortOrder])
+}
+
+/// One client's answer to one of its department's custom fields.
+///
+/// Stored as text whatever the declared type: the definition owns parsing and
+/// validation, so changing a field from TEXT to SELECT does not require a
+/// column migration.
+model ClientFieldValue {
+  id       String @id @default(cuid())
+  clientId String
+  fieldId  String
+  value    String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  client Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  field  ClientFieldDef @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, fieldId])
+  @@index([fieldId])
 }

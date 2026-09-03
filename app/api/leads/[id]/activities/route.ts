@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { logActivity } from "@/lib/pipeline";
 import { ACTIVITY_TYPES } from "@/lib/pipeline-types";
+import { hasAdminPower } from "@/lib/constants";
 
 const activitySchema = z.object({
   type: z.enum(ACTIVITY_TYPES),
@@ -106,7 +107,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
 
   // Own work only, unless you're the owner. Activity counts feed scoring, so
   // deleting someone else's log would be editing their score.
-  if (user.role !== "ADMIN" && activity.userId !== user.id) {
+  if (!hasAdminPower(user.role) && activity.userId !== user.id) {
     return apiError("You can only remove your own logged activity", 403);
   }
 

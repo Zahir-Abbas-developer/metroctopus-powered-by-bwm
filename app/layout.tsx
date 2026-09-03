@@ -22,18 +22,18 @@ const dmSans = DM_Sans({
 
 export const metadata: Metadata = {
   title: {
-    default: "Agency OS",
-    template: "%s · Agency OS",
+    default: "Building Wealth Mindset",
+    template: "%s · BWM",
   },
   description:
-    "Operations platform for a remote 360° digital marketing agency — clients, milestones, tasks and team performance in one place.",
+    "Department-based CRM and internal business operating system for Building Wealth Mindset — leads, clients, deals, tasks and follow-ups across every business line.",
   // Installable, so an availability check can reach a phone's notification
   // tray rather than depending on a browser tab being open.
   manifest: "/manifest.webmanifest",
-  applicationName: "Agency OS",
+  applicationName: "Building Wealth Mindset",
   appleWebApp: {
     capable: true,
-    title: "Agency OS",
+    title: "BWM",
     statusBarStyle: "black-translucent",
   },
   icons: {

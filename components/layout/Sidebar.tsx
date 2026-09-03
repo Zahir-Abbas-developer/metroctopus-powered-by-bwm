@@ -18,6 +18,7 @@ import {
   LogOut,
   BookOpen,
   Scale,
+  Settings as SettingsIcon,
   ShieldCheck,
   Trophy,
   Users2,
@@ -47,6 +48,7 @@ const ICONS: Record<NavKey, LucideIcon> = {
   audit: ShieldCheck,
   errors: AlertTriangle,
   team: Users2,
+  settings: SettingsIcon,
   reports: BarChart3,
 };
 
@@ -61,6 +63,7 @@ export function Sidebar({
   user,
   onNavigate,
   errorBadge = 0,
+  hiddenNavKeys = [],
 }: {
   user: SidebarUser;
   /** Lets the mobile drawer close itself when a link is tapped. */
@@ -71,9 +74,15 @@ export function Sidebar({
    * moment a client-side fetch is least trustworthy.
    */
   errorBadge?: number;
+  /**
+   * Nav entries belonging to a parked module. Resolved on the server — reading
+   * the flags here would mean a client fetch deciding what the rail contains,
+   * and a flicker of a module that is switched off.
+   */
+  hiddenNavKeys?: readonly NavKey[];
 }) {
   const pathname = usePathname();
-  const items = navItemsForRole(user.role);
+  const items = navItemsForRole(user.role, hiddenNavKeys);
 
   return (
     <div className="surface-dark flex h-full w-full flex-col overflow-hidden">
@@ -86,10 +95,10 @@ export function Sidebar({
             className="flex items-center gap-2.5 rounded-[10px]"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand font-display text-sm font-extrabold text-paper">
-              A
+              B
             </span>
             <span className="font-display text-[15px] font-extrabold tracking-[-0.01em] text-paper">
-              AGENCY OS
+              BWM
             </span>
           </Link>
         </div>

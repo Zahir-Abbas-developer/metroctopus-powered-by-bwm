@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/session";
 import { ProjectPlanner } from "@/components/projects/ProjectPlanner";
 import type { MilestoneStatus, ProjectStatus } from "@/lib/constants";
+import { hasAdminPower } from "@/lib/constants";
+import { moduleGate } from "@/lib/module-guard";
 
 export async function generateMetadata({
   params,
@@ -22,6 +24,11 @@ export async function generateMetadata({
 }
 
 export default async function ProjectPage({ params }: { params: { id: string } }) {
+  // Parked module: the nav entry is already gone, so this guards a
+  // bookmark or a typed URL rather than a link.
+  const gate = await moduleGate("retainerProjects");
+  if (gate) return gate;
+
   const user = await requireUser();
 
   const project = await prisma.project.findUnique({
@@ -49,7 +56,7 @@ export default async function ProjectPage({ params }: { params: { id: string } }
 
   // Members reach a project through their own task list; the planner itself is
   // the owner's tool. Anyone else lands back on their tasks rather than a 403.
-  if (user.role !== "ADMIN") redirect("/my-tasks");
+  if (!hasAdminPower(user.role)) redirect("/my-tasks");
 
   const members = await prisma.user.findMany({
     where: { isActive: true },

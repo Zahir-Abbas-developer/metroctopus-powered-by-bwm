@@ -65,7 +65,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         type="email"
         name="email"
         autoComplete="email"
-        placeholder="you@agency.local"
+        placeholder="you@bwm.local"
         icon={<Mail className="h-4 w-4" />}
         value={email}
         onChange={(event) => setEmail(event.target.value)}

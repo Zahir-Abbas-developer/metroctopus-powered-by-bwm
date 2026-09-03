@@ -1,7 +1,7 @@
 import type { Config } from "tailwindcss";
 
 /**
- * Agency OS design tokens.
+ * BWM design tokens.
  *
  * The palette is fixed by CLAUDE.md — every colour below maps 1:1 to a token
  * documented there. No extra hues are invented: secondary text uses opacity

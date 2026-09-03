@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { createUserSchema, fieldErrors } from "@/lib/validation";
 import { avatarColorFor } from "@/lib/constants";
+import { parseSkills } from "@/lib/skills";
 import { currentCycle, performanceContext, scoresForCycle } from "@/lib/score-service";
 import { MONTHLY_BASELINE } from "@/lib/scoring";
 import { sendWelcome } from "@/lib/email/dispatch";
@@ -19,6 +20,14 @@ const SELECT = {
   avatarColor: true,
   isActive: true,
   createdAt: true,
+  departments: {
+    select: {
+      departmentId: true,
+      roleInDept: true,
+      skills: true,
+      department: { select: { shortLabel: true, colorToken: true, order: true, isActive: true } },
+    },
+  },
 } as const;
 
 export async function GET() {
@@ -46,6 +55,18 @@ export async function GET() {
         const score = scores.get(member.id);
         return {
           ...member,
+          // Departments come out in display order, and an inactive one is
+          // dropped rather than shown as a dead badge.
+          departments: member.departments
+            .filter((m) => m.department.isActive)
+            .sort((a, b) => a.department.order - b.department.order)
+            .map((m) => ({
+              departmentId: m.departmentId,
+              shortLabel: m.department.shortLabel,
+              colorToken: m.department.colorToken,
+              roleInDept: m.roleInDept as "LEAD" | "MEMBER",
+              skills: parseSkills(m.skills),
+            })),
           score: score?.score ?? MONTHLY_BASELINE,
           trend: score?.trend ?? null,
           // Null, not 0, when nothing has come due — the doctrine's triple has

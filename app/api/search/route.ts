@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { containsInsensitive } from "@/lib/db-features";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Command palette search across clients, projects, milestones and members.
@@ -21,7 +22,7 @@ export async function GET(request: Request) {
   const query = new URL(request.url).searchParams.get("q")?.trim() ?? "";
   if (query.length < 2) return NextResponse.json({ results: [] });
 
-  const isAdmin = user.role === "ADMIN";
+  const isAdmin = hasAdminPower(user.role);
 
   try {
     const [clients, projects, milestones, members] = await Promise.all([

@@ -27,6 +27,38 @@
  */
 import { loadEnv, Session } from "./smoke.mjs";
 
+/**
+ * Lift the forced first-password change for the accounts under test.
+ *
+ * Every seeded account ships with mustChangePassword set, and the app shell
+ * redirects such a session to /change-password before any page renders. Left
+ * in place, every route in this scan would return the same password screen —
+ * which passes a leak test perfectly while checking nothing at all.
+ *
+ * This is a development database the harness already writes to.
+ */
+async function clearForcedPasswordChange(prisma, emails) {
+  if (emails.length === 0) return;
+  await prisma.user.updateMany({
+    where: { email: { in: emails } },
+    data: { mustChangePassword: false },
+  });
+}
+
+
+/**
+ * Roles carrying full administrative capability. Mirrors ADMIN_ROLES in
+ * lib/constants.ts — SUPPORT_ADMIN is the maintainer and has the same reach as
+ * the owner, so treating it as a non-owner here would report every legitimate
+ * admin payload it receives as a leak.
+ */
+const ADMIN_ROLES = ["ADMIN", "SUPPORT_ADMIN"];
+const isAdminRole = (role) => ADMIN_ROLES.includes(role);
+
+/** Seeded accounts share one placeholder password; SEED_PASSWORD overrides it. */
+const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "bwm-change-me";
+
+
 loadEnv();
 
 const BASE = process.env.PERMTEST_BASE ?? "http://localhost:3000";
@@ -93,13 +125,14 @@ async function main() {
 
   // A milestone the member does not own, for the "approve someone else's
   // work" attempt, and one they do, for "decide your own".
-  const owners = accounts.filter((a) => a.role === "ADMIN");
-  const nonOwners = accounts.filter((a) => a.role !== "ADMIN");
+  const owners = accounts.filter((a) => isAdminRole(a.role));
+  const nonOwners = accounts.filter((a) => !isAdminRole(a.role));
 
   const roleOf = (a) =>
     a.leadsServices.length > 0 ? "SERVICE_LEAD" : a.isBusinessDev ? "MEMBER(BD)" : "MEMBER";
 
   const subjects = nonOwners.map((a) => ({ ...a, label: roleOf(a) }));
+  await clearForcedPasswordChange(prisma, accounts.map((a) => a.email));
 
   const ownMilestone = await prisma.milestone.findFirst({
     where: { assigneeId: { in: subjects.map((s) => s.id) }, status: { not: "COMPLETED" } },
@@ -135,7 +168,7 @@ async function main() {
 
   for (const subject of subjects) {
     const session = new Session(subject.label, BASE);
-    await session.signIn(subject.email, "member123");
+    await session.signIn(subject.email, SEED_PASSWORD);
 
     for (const endpoint of endpoints) {
       const res = await session.fetch(endpoint);
@@ -198,7 +231,7 @@ async function main() {
 
   if (member) {
     const session = new Session("MEMBER", BASE);
-    await session.signIn(member.email, "member123");
+    await session.signIn(member.email, SEED_PASSWORD);
 
     const settings = await session.fetch("/api/settings", {
       method: "PATCH",
@@ -249,7 +282,7 @@ async function main() {
 
   if (leadSubject && ownMilestone && ownMilestone.assigneeId === leadSubject.id) {
     const session = new Session("SERVICE_LEAD", BASE);
-    await session.signIn(leadSubject.email, "member123");
+    await session.signIn(leadSubject.email, SEED_PASSWORD);
     const approve = await session.fetch(`/api/milestones/${ownMilestone.id}/status`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

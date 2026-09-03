@@ -53,7 +53,7 @@ export default function GlobalError({
               color: "rgba(12,12,10,0.45)",
             }}
           >
-            Agency OS
+            BWM
           </p>
           <h1 style={{ margin: "12px 0 0", fontSize: "22px", fontWeight: 700, letterSpacing: "-0.02em" }}>
             The app didn&rsquo;t start

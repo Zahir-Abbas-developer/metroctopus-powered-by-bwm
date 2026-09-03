@@ -1,51 +1,116 @@
-# Agency OS
+# Building Wealth Mindset (BWM)
 
-Internal management platform for a remote 360° digital marketing agency.
+A department-based CRM and internal business operating system.
+
+Forked from an agency OS codebase. **All previous agency branding, roster and
+business logic are being replaced.** Where this file and the code disagree, this
+file is the intent and the code is the backlog — but see *Design is frozen*
+below, which is the one place the existing code outranks any new idea.
+
+## Core Doctrine
+
+Six rules. They outrank everything else in this file and every convention
+inherited from the fork.
+
+### 1. Design is frozen
+
+The existing layout, sidebar, header, cards, tables, forms, colours,
+typography, components, navigation, responsiveness and animations are
+**client-approved and are law**. New features are composed from **existing
+components in the existing style**.
+
+Redesigning anything is a defect. If a feature seems to need a new visual
+pattern, the answer is almost always an existing component used differently —
+and if it genuinely is not, that is a question for the client, not a decision to
+make while building.
+
+### 2. Department-aware everything
+
+Every lead, client, deal, task, activity and metric **belongs to exactly one
+department**. Views, dropdowns, dashboards and permissions respect department
+membership. A user sees their departments; an admin sees all of them.
+
+There is no such thing as a department-less record. A query that forgets to
+scope by department is a data-leak bug, not a display bug.
+
+### 3. Data-driven configuration
+
+Departments, their client field definitions, their pipeline stages, and
+team-department-skill mappings are **database records editable by admins in
+Settings — never hardcoded**.
+
+**BWM's requirements are the SEED, not the code.** The four departments below
+are seed data. Nothing in a component, a constant or a type may assume there are
+four of them, or that they are named what they are named today.
+
+### 4. No demo smell
+
+Every number on every screen derives from a real database query. No hardcoded
+stats, no fake buttons, no placeholder functionality. **Full CRUD or it doesn't
+ship.**
+
+### 5. Feature flags for everything BWM did not ask for
+
+Inherited modules BWM did not request are gated behind Settings feature flags,
+**all OFF by default** — see *Parked modules* below. When a flag is off the
+feature **fully disappears**: no nav item, no dashboard card, no cron job, no
+orphan heading, no empty page, no error. **Do not delete their code.**
+
+### 6. Timezone is a company setting
+
+BWM is US-based. App timezone is a **Company setting, default
+`America/New_York`**, and it drives all due dates and all "today" logic. It is
+not a constant and it is not the server's locale.
 
 ## The Business
 
-The agency provides end-to-end services to e-commerce clients:
+BWM operates multiple business lines under one roof. The CRM manages leads,
+clients, deals, tasks, follow-ups and team performance across **4 departments**:
 
-- Shopify store design & development
-- Google Ads
-- Meta (Facebook/Instagram) Ads
-- Creative research & design
-- Full funnel management, from website to sales
-
-Clients work on **monthly retainers**. The team is **fully remote**: 1 owner/admin + 4 team members.
-
-### The team
-
-| Name | Role | Job title |
+| # | Department | Covers |
 | --- | --- | --- |
-| Raja Zain | ADMIN | Founder · Client Acquisition & Scaling |
-| Subtain | MEMBER | Performance Marketer |
-| Saad Tariq | MEMBER | Business Developer |
-| Shahnawaz | MEMBER | Shopify Designer · AI Websites · Product Hunting |
-| Shahzaib | MEMBER | Ecommerce Marketplaces · Sourcing · AI SEO |
+| 1 | **BWM — Pilot Cars Sales & Dispatch** | Sales, quotes, dispatch coordination, scheduling, job management |
+| 2 | **BWM — Life & Health Insurance** | Insurance leads, qualification, policies, conversion |
+| 3 | **BWM — Affiliates** | Partner onboarding, referral tracking, commission tracking |
+| 4 | **Culture Plus Network** | Sales, Cam, Life & Health Insurance |
 
-People wear more than one hat here, so a job title covers several
-specialisms rather than one. Anything that maps work to a person — the
-auto-assignment defaults in `lib/templates.ts`, for instance — has to match
-against these titles, not against single-discipline labels.
+> In department 4, **"Cam" is a sales/service category, not the team member.**
+> Cam the person is on the roster below and is not a member of Culture Plus
+> Network. Do not conflate them anywhere — not in a seed, a label, a filter or a
+> report.
 
-## The Problem Being Solved
+Departments differ in what they track. Pilot Cars carries dispatch and
+scheduling; Insurance carries policies and qualification; Affiliates carries
+referrals and commission. That variation is expressed as **per-department client
+field definitions and pipeline stages held in the database** (Doctrine 3), not
+as four hardcoded shapes.
 
-Everything is currently managed manually over chat. The owner must personally message team members to start work. There is:
+## The team
 
-- No visibility into who is doing what
-- No deadline enforcement
-- No objective way to measure team performance
+These six are the **only** users. The previous agency roster is fully removed.
 
-## The Solution
+| Name | Role | Departments |
+| --- | --- | --- |
+| **Coach D** | ADMIN | All 4 |
+| **Tayyaba** | MEMBER | Pilot Cars · Life & Health Insurance |
+| **Claire** | MEMBER | Pilot Cars · Life & Health Insurance · Culture Plus Network |
+| **Cam** | MEMBER | Pilot Cars · Life & Health Insurance · Affiliates |
+| **Cheryl** | MEMBER | Culture Plus Network |
+| **Raja Zain** | SUPPORT_ADMIN | System maintainer — full admin capability, labelled **"Support"** in the UI |
 
-A web app where:
+Seed emails follow a placeholder pattern — `coachd@bwm.local`, `tayyaba@bwm.local`,
+and so on — and every seeded account carries **`mustChangePassword = true`**, so
+the first real login forces a password change. Placeholder credentials must never
+survive first contact with a real user.
 
-1. Clients are onboarded with their required services.
-2. Each client's monthly engagement is broken into **modules** and **milestones** with deadlines.
-3. Tasks are **auto-assigned** to dedicated team members.
-4. An automatic **performance scoring engine** starts every team member at **100 points per month** and deducts points for missed deadlines and quality issues.
-5. **Weekly and monthly performance reports** are generated for the owner and for each team member.
+## Roles
+
+- **ADMIN** — Coach D. Sees and manages everything across all departments.
+- **SUPPORT_ADMIN** — Raja Zain. Identical capability to ADMIN; differs only in
+  that the UI labels it **"Support"**. It exists so the maintainer is
+  distinguishable from the business owner in audit logs and user lists.
+- **MEMBER** — scoped to the departments they belong to. Sees leads, clients,
+  deals, tasks and metrics for those departments only.
 
 ## Tech Stack
 
@@ -94,133 +159,66 @@ Fixed — this is the product's identity.
 
 Every screen must look intentionally designed, like a product from a world-class design studio.
 
-## Working hours & attendance
+## Parked modules (feature-flagged OFF)
 
-### Hours
+These came from the agency fork. BWM did not request them. Each is gated behind
+a Settings feature flag, **default off**:
 
-- **12:00 – 22:00**, timezone **Asia/Karachi** (already the project timezone)
-- **Monday – Saturday**; Sunday is off
-- Workdays and hours are fixed for now, and become **admin-configurable later**
+| Module | What it was | Flag covers |
+| --- | --- | --- |
+| **Attendance & availability checks** | Random hidden availability pings, clock-in, breaks, leave, outages | Nav items, attendance board, member attendance panels, the check-scheduling cron |
+| **Performance scoring engine** | 100-points-per-month `ScoreEvent` ledger, disputes, incentives, leaderboard | Scoring nav, score columns, dispute UI, incentive awards, the nightly evaluate cron |
+| **Monthly retainer project cycles** | Auto-renewing modules/milestones per retainer client | Cycle generation, renewal cron, milestone auto-assignment |
+| **Client KPI / ROAS panels** | Ad spend, revenue, ROAS, MRR snapshots | Client KPI tabs, money dashboard cards, the reports that aggregate them |
 
-### Attendance philosophy
+Rules for all four:
 
-Clock-in / clock-out on its own is **not trusted**. A button can be tapped from
-a phone anywhere, so it proves only that someone had their phone — not that
-they were working.
+- **Off is invisible, not empty.** No nav entry, no dashboard card, no route
+  reachable, no cron firing. A flag that leaves a heading over a blank panel has
+  not been implemented.
+- **Off must not error.** A disabled module's routes return a clean not-found or
+  redirect — never a crash, never a page that 200s and then dies on hydration.
+- **Do not delete the code.** These may be switched on later. Removing them
+  turns a config change into a rebuild.
+- **The crons in `vercel.json` are part of the flag.** A background job that
+  keeps running for a disabled module is the same bug as a visible nav item.
 
-Instead, the system issues **3 random, hidden availability checks per member
-per day**. They are unannounced and unpredictable, so they cannot be planned
-around. Responding on time is what proves a member is genuinely reachable
-during working hours.
+## Configuration lives in the database
 
-### Scoring
+Departments, client field definitions, pipeline stages, team-department-skill
+mappings, the company timezone and the feature flags above are **admin-editable
+records**. Changing how BWM runs must never require a developer, a deploy, or an
+edit to a constant in a file.
 
-Attendance feeds the monthly performance score through the **existing
-`ScoreEvent` engine** — not a parallel scoring system. The rules in
-`lib/scoring.ts` stay the single source of truth for how points move, and a
-member's score remains `100 + sum(that month's events)`.
+The seed establishes BWM's current shape. It does not establish the schema's
+limits.
 
-## Roles
+## Access is enforced server-side
 
-- **ADMIN** (the owner) — sees everything, manages clients, assigns work, views all reports
-- **MEMBER** (team) — sees only their own assigned tasks, milestones, and personal performance reports
+Department scoping and role-based field stripping happen in a **central
+serialization layer, before data leaves the server**. Hiding a component is
+never sufficient — a hidden component still shipped the value to the browser,
+where it sits in the RSC payload for anyone who opens the network tab.
+
+The baseline rule: **ADMIN and SUPPORT_ADMIN see all departments; a MEMBER sees
+only the departments they belong to**, for every entity — leads, clients, deals,
+tasks, activities and every metric derived from them.
+
+> **Open question, to settle with the client before building:** the inherited
+> matrix made money fields (deal values, budgets, payment status) owner-only.
+> BWM's departments are sales-driven and members may well need to see the value
+> of their own deals. Field-level visibility *within* a department is
+> deliberately unspecified here rather than guessed at.
 
 ## Conventions
 
-- Keep components small and reusable in `/components`
-- All dates handled with a single date utility; timezone: **Asia/Karachi**
-- After completing any significant feature, append a summary to `PROGRESS.md`
-
-## Fairness & Leverage Doctrine
-
-Governs **Phases 8–11**. These eight principles outrank anything earlier in
-this file that contradicts them, and where one does, the conflict is named
-below. A scoring system people believe is unfair gets gamed or ignored, so
-fairness here is a functional requirement, not a courtesy.
-
-### 1. Deadlines are judged on submission, never approval
-
-A member's deadline is met the moment they **submit**. Approval time is the
-owner's latency, not theirs, and must never move a member's score.
-
-The owner's review speed becomes **the owner's own tracked metric** — time from
-submission to decision, visible in the same reports the team is measured by.
-
-> **Overrides:** the current engine charges LATE and pays `EARLY_BONUS` against
-> `completedAt`, which is set at approval. `lib/scoring.ts` and every call site
-> must switch to `submittedAt`, and historical events keep their old basis
-> rather than being silently recomputed.
-
-### 2. Nobody is penalized for time they cannot control
-
-The clock pauses for anything outside a member's hands:
-
-- **Blocked work** pauses the deadline clock. A milestone waiting on a client
-  asset, an ad-account approval or another member's output accrues no lateness
-  while blocked.
-- **Declared outages** (power cut, internet failure) pause availability checks.
-- **Break time** pauses availability checks — see principle 4.
-
-Every pause is a recorded, auditable event with a reason and a duration, not a
-silent adjustment. A pause a member can declare freely and unlimited is a hole
-in the system, so declared pauses are visible to the owner and reviewable.
-
-### 3. Raw score never appears alone
-
-Wherever a score is shown, **On-Time Rate %** and **Workload** are shown beside
-it. A 92 carrying four milestones and a 92 carrying nineteen are not the same
-achievement, and a score presented without volume context invites the wrong
-conclusion. This applies to the dashboard, the leaderboard, member profiles and
-every report.
-
-### 4. Prayer and meal breaks are protected
-
-Within the 12:00–22:00 shift, prayer and meal breaks are a **protected daily
-allowance, capped in minutes and never penalized**. Time inside the allowance
-issues no availability check and costs no points. Exceeding the allowance is a
-normal, visible fact — not a hidden penalty.
-
-The cap and how breaks are declared are decisions for the phase that builds
-this; they belong in the `Settings` row alongside the other attendance rules,
-not hardcoded.
-
-### 5. Business development is scored on activity and outcomes
-
-Sales pipeline work does not decompose into client milestones, so scoring Saad
-Tariq's Business Developer work against milestones would measure the wrong
-thing entirely. It is scored on **activity targets** (outreach volume, calls,
-proposals) and **outcomes** (deals closed, pipeline value moved).
-
-This is a second scoring path feeding the **same `ScoreEvent` ledger** — a
-member's score stays `100 + sum(that month's events)`. It is not a parallel
-engine.
-
-### 6. Monthly cycles auto-renew
-
-On the 1st of the month, every active retainer client's next cycle must already
-exist — projects, modules, milestones, deadlines and assignments — with **zero
-manual setup from the owner**. Renewal is generated from the client's services
-and the previous cycle, and the owner edits exceptions rather than building
-each month from nothing.
-
-### 7. Money is first-class dashboard data
-
-**Pipeline value, MRR and per-client ROAS** are primary dashboard metrics,
-displayed with the same weight as delivery and performance figures. The agency
-runs on retainers; a dashboard that shows only task completion tells the owner
-how busy the team is but not how the business is doing.
-
-### 8. Consequences are written policy, and every event is disputable
-
-- **Policy in the app.** Whatever a score triggers — bonus eligibility, a
-  performance review, a warning — is stated in the product where the team can
-  read it. No consequence exists only in the owner's head.
-- **Disputes in the app.** Every `ScoreEvent` can be formally disputed by the
-  member it charges, with a reason. The owner resolves it, and the resolution
-  follows the existing excuse pattern: the original event is **never deleted or
-  edited**, and an upheld dispute writes a compensating `MANUAL_ADJUST`. The
-  ledger stays append-only, so the record shows both what happened and how it
-  was settled.
+- Keep components small and reusable in `/components` — and prefer composing
+  what is already there (Doctrine 1) over adding to it.
+- All dates go through the single date utility, resolved against the **company
+  timezone setting** (Doctrine 6). No `new Date()` arithmetic in a component.
+- Department scoping belongs in the query layer, not in a `.filter()` on the
+  page.
+- After completing any significant feature, append a summary to `PROGRESS.md`.
 
 ## Stability gate — run at the end of every phase
 
@@ -230,115 +228,102 @@ Any phase that touches a page, a query, a route or the schema ends by running:
 npm run smoke          # every route × every role, against the current database
 npm run smoke:empty    # the same, against a database with no business data
 npm run permtest       # forbidden fields absent, forbidden mutations refused
-npm run leaks          # owner-only values must not reach a non-owner
+npm run leaks          # cross-department values must not reach a non-member
 npx tsc --noEmit
 npm test
 ```
 
-All six must be clean before the phase is committed. **`npm run permtest` and
-`npm run smoke` are part of the definition of done for every phase from Phase
-12 onwards** — a feature is not finished while either is red. `npm run leaks` reads
-every byte the server sends to each role and fails on a value the permission
-matrix forbids — and fails just as loudly when a role stops receiving something
-the matrix grants, because a deny-everything implementation passes a one-sided
-leak test while breaking the product. `npm run smoke:browser`
-additionally loads every page in a real browser and is the only check that
-catches a client component crashing after hydration — run it when a phase
-changed anything a page renders.
+All six must be clean before the phase is committed. `npm run leaks` reads every
+byte the server sends to each role and fails on a value the access rules forbid
+— and fails just as loudly when a role stops receiving something it should get,
+because a deny-everything implementation passes a one-sided leak test while
+breaking the product. `npm run smoke:browser` additionally loads every page in a
+real browser and is the only check that catches a client component crashing
+after hydration — run it when a phase changed anything a page renders.
+
+**These scripts were written against the agency's roles and fixtures.** Part of
+the fork is re-pointing them at departments and the new roster; until that is
+done, a green run does not mean what it used to.
 
 ### Why this exists
 
-Eleven phases of schema changes produced pages that returned a healthy HTTP 200
-and then failed in the browser, and nobody found out until someone mentioned it
-in chat. Two things follow from that, and both are rules rather than
-suggestions:
+The agency build produced pages that returned a healthy HTTP 200 and then failed
+in the browser, and nobody found out until someone mentioned it in chat. Two
+rules follow:
 
 - **Never diagnose a broken page from the browser.** Get the server-side error
   and stack trace, or reproduce it under `npm run smoke:browser`. A guess that
-  happens to fix the symptom leaves the cause in place.
+  fixes the symptom leaves the cause in place.
 - **Never wrap a failing page in `try`/`catch` to make it render.** Hiding an
   error deletes the evidence and converts a loud bug into a silent one. Fix the
-  query, add the null handling, or render an `EmptyState` — those are outcomes;
-  a swallowed exception is not.
+  query, add the null handling, or render an `EmptyState`.
 
 ### Empty states are a feature, not a fallback
 
-Every query result must have a designed empty state. A client with no project,
-a member with no score events, a month with no KPI entries — these are normal
-states of a real agency, not edge cases. Use `EmptyState`; never render a blank
-`div`, and never let missing data reach a `.map` or a property access.
+Every query result must have a designed empty state. A department with no leads,
+a member with no tasks, a new client with no deals — these are normal states of a
+real business, not edge cases. Use `EmptyState`; never render a blank `div`, and
+never let missing data reach a `.map` or a property access.
+
+Note the tension with Doctrine 4: an empty state is not demo smell. **A designed
+"no leads yet" is correct; a hardcoded "12 leads" is not.**
 
 ### Errors are recorded, not just thrown
 
-The error boundaries report to `/api/system-errors`, and the owner reads them at
+Error boundaries report to `/api/system-errors`, and an admin reads them at
 `/admin/errors` with an unseen count badged in the sidebar. When adding a new
-boundary or a new background job, log failures there too. The owner should
-never learn about a broken page from a team member's WhatsApp message.
+boundary or background job, log failures there too.
 
-## Production Doctrine
+## Fork status
 
-Governs the move from a working internal tool to a product the agency actually
-runs on. These three principles outrank anything earlier in this file that
-contradicts them, and the conflicts are named at the end rather than left for
-someone to trip over.
+**Done — Phase 1 (foundation) and Phase T1 (identity, departments, team).**
+Verified by the stability gate, not assumed:
 
-### 1. Data visibility is enforced server-side
+- **Branding.** Zero references to the old agency name or roster survive in
+  code, tests, metadata, the PWA manifest or the package name. The login page
+  keeps its exact layout; only its text changed.
+- **Departments.** `Department` (slug, name, shortLabel, colorToken, order,
+  isActive), `DepartmentMembership` (roleInDept, skills), `PipelineStage`,
+  `ClientFieldDef`, `ClientFieldValue`. `Client` and `Lead` carry a required
+  `departmentId`.
+- **Roles.** `["ADMIN", "SUPPORT_ADMIN", "MEMBER"]`, with `hasAdminPower()` as
+  the only authority check. SUPPORT_ADMIN reaches everything ADMIN does and
+  renders as "Support".
+- **Seed.** 4 departments, 21 pipeline stages, 10 client fields, 6 users, 17
+  memberships with per-department skills, and **no demo business data**.
+- **Forced password change.** `mustChangePassword` is enforced in the app shell
+  before any surface renders, and lifts once satisfied.
+- **Parked modules.** Attendance, scoring, retainer projects and client KPIs are
+  off by default and genuinely absent: no nav entry, no dashboard card, no link,
+  no cron run. Their routes answer with a disabled screen. Smoke asserts it.
+- **Admin UI.** Settings → Departments (CRUD, reorder, per-department team and
+  skills, deactivation with a required migration choice) and Settings → Modules.
 
-Role-based field stripping happens in a **central serialization layer, before
-data leaves the server**. UI hiding alone is never sufficient — a hidden
-component still shipped the number to the browser, where it sits in the RSC
-payload or a JSON response for anyone who opens the network tab.
+**Still to build.** None of this is done:
 
-The permission matrix below is law:
+- **Department scoping is declared, not enforced.** The columns and membership
+  rows exist and `departmentIdsForUser()` is written, but no list or detail
+  query filters by it yet. A MEMBER still sees every department's records.
+  Doctrine 2 is a schema fact and a promise, not a working guarantee.
+- **The dynamic field engine.** `ClientFieldDef`/`ClientFieldValue` are seeded
+  but read by nothing; there is no field UI, and no per-department create flow.
+- **Timezone.** `Settings.timezone` exists and defaults to `America/New_York`,
+  but `lib/date.ts` still hardcodes `Asia/Karachi`. Every "today" and due-date
+  calculation is still on the wrong clock.
+- **`User.jobTitle`** is still required and still drives auto-assignment in
+  `lib/templates.ts`. Department membership is meant to replace it.
+- **`ServiceCatalog`, `ServiceLead` and the SERVICE_LEAD visibility tier** are
+  inherited agency concepts with no BWM meaning. Left in place deliberately;
+  they need a decision rather than a deletion.
 
-| Data | ADMIN | SERVICE_LEAD | MEMBER |
-| --- | --- | --- | --- |
-| Client name, email, industry, country | full | full | full |
-| Client services & requirements/briefs | full | full | full (assigned clients) |
-| Client phone number | full | hidden | hidden |
-| Client monthlyBudget / retainer value | full | hidden | hidden |
-| Payment status, collections, MRR | full | hidden | hidden |
-| Pipeline deal $ values | full | hidden (unless BD) | own leads only (BD role) |
-| Client ad KPIs (spend, revenue, ROAS) | full | their services | assigned clients only |
-| Other members' scores/attendance | full | their pod | hidden (self only) |
-| Bonus amounts / incentive sums | full | hidden | hidden (sees own streak status only) |
-| Settings, audit, errors, backups | full | hidden | hidden |
+## Known deviations from spec
 
-**Rationale:** operational numbers (ad spend/ROAS) go to the people doing the
-work; agency money (what clients pay us, MRR, bonuses) is owner-only.
+Recorded so the next person does not read them as oversights:
 
-### 2. Nothing operational requires code
-
-Services, templates, team, clients, projects, scoring values, attendance rules
-and incentive rules are **all editable by the admin in the UI**. Changing how
-the agency runs must never require a developer, a deploy, or an edit to a
-constant in a file.
-
-### 3. Live by default
-
-Operational screens — the attendance board, dashboards, boards, notifications —
-**update automatically without a refresh**, and every live screen shows a subtle
-**"Updated Xs ago"** indicator.
-
-### Conflicts this overrides
-
-- **The Roles section** lists only ADMIN and MEMBER. `SERVICE_LEAD` is now a
-  first-class visibility tier in the matrix above. It is still not a database
-  role — it is a MEMBER with `ServiceLead` rows — so the serialization layer
-  resolves it per request rather than reading it off the session.
-- **Fairness principle 7** makes MRR, pipeline value and ROAS primary dashboard
-  metrics. Read it as *the owner's* dashboard: the matrix makes MRR and payment
-  data owner-only, and scopes ROAS to the services or clients a person works on.
-- **Fairness principle 3** requires a score to appear with On-Time Rate and
-  Workload "on the dashboard, the leaderboard, member profiles and every
-  report". The matrix limits *whose* scores a person sees; it does not relax the
-  rule about how a score is displayed once it is shown.
-- **`leaderboardVisibility = "TEAM_VISIBLE"`** directly contradicts "other
-  members' scores: MEMBER — hidden (self only)". The matrix wins, so that
-  setting either goes or narrows to something that shows rank without exposing
-  another member's numbers.
-- **Working hours** are described as "fixed for now, admin-configurable later".
-  Principle 2 makes that *now*.
-- **Attendance secrecy stands.** Live-updating screens must never send a
-  scheduled availability check before it fires. Principle 3 changes how often
-  the client asks, not what it is allowed to receive.
+- **`skills` is a comma-separated `String`, not `String[]`.** Prisma has no
+  array column on SQLite and this file forbids array columns to keep the schema
+  Postgres-portable. `lib/skills.ts` owns the parsing, and the API and UI both
+  work in `string[]`.
+- **A disabled module's route answers 200 with a disabled screen, not a 404.**
+  A real 404 renders the generic not-found page, which cannot say the one useful
+  thing — that the feature exists, is switched off, and who can switch it on.

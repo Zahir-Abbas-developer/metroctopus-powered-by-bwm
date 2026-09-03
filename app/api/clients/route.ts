@@ -113,6 +113,14 @@ export async function POST(request: Request) {
   const start = parseDateInput(startDate);
   if (!start) return apiError("Enter a valid start date", 422, { startDate: "Use a valid date" });
 
+  const department = await prisma.department.findFirst({
+    where: { id: details.departmentId, isActive: true },
+    select: { id: true },
+  });
+  if (!department) {
+    return apiError("Pick a department", 422, { departmentId: "That department no longer exists" });
+  }
+
   const services = await prisma.serviceCatalog.findMany({
     where: { id: { in: serviceIds }, isActive: true },
     select: { id: true },

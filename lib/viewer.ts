@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Viewer } from "@/lib/visibility";
+import { hasAdminPower } from "@/lib/constants";
 
 /**
  * Turns a signed-in user into the `Viewer` the visibility matrix takes.
@@ -64,7 +65,7 @@ export async function viewerFor(user: { id: string; role: string }): Promise<Vie
   return {
     id: user.id,
     role:
-      user.role === "ADMIN"
+      hasAdminPower(user.role)
         ? "ADMIN"
         : leadServiceIds.length > 0
           ? "SERVICE_LEAD"

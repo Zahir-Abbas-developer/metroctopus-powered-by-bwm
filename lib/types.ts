@@ -20,6 +20,20 @@ export type TeamMember = {
    *  score, because a score without its volume is not comparable. */
   load: number;
   totalWeight: number;
+  /**
+   * Departments this person works in, with what they do there. Carried on the
+   * roster row so the team table can show membership without a request per
+   * person.
+   */
+  departments: TeamMemberDepartment[];
+};
+
+export type TeamMemberDepartment = {
+  departmentId: string;
+  shortLabel: string;
+  colorToken: string | null;
+  roleInDept: "LEAD" | "MEMBER";
+  skills: string[];
 };
 
 export type ServiceSummary = {

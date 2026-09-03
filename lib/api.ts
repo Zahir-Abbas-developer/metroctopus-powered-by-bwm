@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getCurrentUser } from "@/lib/session";
+import { hasAdminPower } from "@/lib/constants";
 
 /** Shape every API error shares, so clients can render one code path. */
 export type ApiError = {
@@ -28,7 +29,7 @@ export async function requireAdminApi() {
     return { user: null, response: apiError("You must be signed in", 401) };
   }
 
-  if (user.role !== "ADMIN") {
+  if (!hasAdminPower(user.role)) {
     return {
       user: null,
       response: apiError("Only the agency owner can manage the team", 403),
