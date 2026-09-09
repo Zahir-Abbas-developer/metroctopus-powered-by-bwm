@@ -8,14 +8,26 @@ import { createProjectWithPlan, progressForProjects } from "@/lib/planner";
 import { healthForClients } from "@/lib/client-health-service";
 import { alertsForClients } from "@/lib/kpi-service";
 import { containsInsensitive } from "@/lib/db-features";
+import { departmentIdsForUser } from "@/lib/departments";
+import { hasAdminPower } from "@/lib/constants";
 
 export async function GET(request: Request) {
-  const { response } = await requireAdminApi();
+  const { user, response } = await requireAdminApi();
   if (response) return response;
 
   const { searchParams } = new URL(request.url);
   const status = searchParams.get("status");
   const query = searchParams.get("q")?.trim();
+
+  // The departments this viewer may see, which is what the filter chips are
+  // drawn from. Today the route is admin-only, so this is every active
+  // department — but the list is derived rather than assumed, so widening the
+  // gate to members scopes the rows and the chips together instead of leaking
+  // one while filtering the other.
+  const visibleDepartmentIds = await departmentIdsForUser(
+    user!.id,
+    hasAdminPower(user!.role),
+  );
 
   try {
     const clients = await prisma.client.findMany({
@@ -25,6 +37,7 @@ export async function GET(request: Request) {
         // SQLite ignores it. Without it, search behaves differently in
         // production than it does locally.
         ...(query ? { businessName: containsInsensitive(query) } : {}),
+        departmentId: { in: visibleDepartmentIds },
       },
       orderBy: [{ status: "asc" }, { businessName: "asc" }],
       include: {
@@ -33,6 +46,10 @@ export async function GET(request: Request) {
           take: 1,
           include: { services: { include: { service: true } } },
         },
+        department: {
+          select: { id: true, shortLabel: true, colorToken: true },
+        },
+        assignee: { select: { id: true, name: true, avatarColor: true } },
       },
     });
 
@@ -60,6 +77,9 @@ export async function GET(request: Request) {
           monthlyBudget: client.monthlyBudget,
           status: client.status,
           onboardedAt: client.onboardedAt,
+          department: client.department,
+          assignee: client.assignee,
+          nextFollowUpAt: client.nextFollowUpAt,
           services: current
             ? current.services.map((link) => ({
                 id: link.service.id,

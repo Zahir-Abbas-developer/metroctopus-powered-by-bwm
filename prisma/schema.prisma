@@ -88,6 +88,7 @@ model User {
   auditEntries   AuditLog[]             @relation("AuditActor")
   incentives     IncentiveAward[]
   departments    DepartmentMembership[]
+  clientsOwned   Client[]               @relation("ClientAssignee")
 
   @@index([role])
   @@index([isActive])
@@ -99,40 +100,48 @@ model User {
 
 /// An e-commerce business on a monthly retainer.
 model Client {
-  id            String   @id @default(cuid())
+  id             String    @id @default(cuid())
   /// The business line this client belongs to. Required: a client with no
   /// department is invisible to department-scoped queries, which is a silent
   /// data-loss bug rather than a display one.
-  departmentId  String
-  businessName  String
-  contactName   String
-  email         String
-  phone         String?
-  country       String?
-  industry      String?
+  departmentId   String
+  businessName   String
+  contactName    String
+  email          String
+  phone          String?
+  country        String?
+  industry       String?
   /// Whole currency units (USD). Integer, never Float — money is not binary.
-  monthlyBudget Int      @default(0)
+  monthlyBudget  Int       @default(0)
   /// "LEAD" | "ACTIVE" | "PAUSED" | "CHURNED" — see CLIENT_STATUSES.
-  status        String   @default("LEAD")
-  notes         String?
-  onboardedAt   DateTime @default(now())
+  status         String    @default("LEAD")
+  notes          String?
+  onboardedAt    DateTime  @default(now())
   /// When false the nightly job never opens a new cycle for this client —
   /// for bespoke schedules, or a retainer being wound down.
-  autoRenew     Boolean  @default(true)
+  autoRenew      Boolean   @default(true)
   /// Return on ad spend this client's campaigns are held to. Null falls back
   /// to the agency default in Settings.
-  targetRoas    Float?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  targetRoas     Float?
+  /// Who owns this relationship. A core column rather than a dynamic field:
+  /// every department has an assignee, and it is filtered on constantly.
+  assigneeId     String?
+  /// The next thing owed to this client. Core for the same reason — it drives
+  /// the follow-up views every department needs.
+  nextFollowUpAt DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
-  department  Department         @relation(fields: [departmentId], references: [id])
-  projects    Project[]
-  reports     Report[]
-  lead        Lead?
-  kpis        ClientKpiEntry[]
-  fieldValues ClientFieldValue[]
+  department Department       @relation(fields: [departmentId], references: [id])
+  assignee   User?            @relation("ClientAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  projects   Project[]
+  reports    Report[]
+  lead       Lead?
+  kpis       ClientKpiEntry[]
 
   @@index([departmentId, status])
+  @@index([assigneeId])
+  @@index([nextFollowUpAt])
   @@index([status])
   @@index([businessName])
 }
@@ -864,6 +873,9 @@ model Lead {
   lostReason            String?
   lostNote              String?
   notes                 String?
+  /// The next thing owed to this deal. Core, not dynamic: every department
+  /// works a follow-up queue off it.
+  nextFollowUpAt        DateTime?
   /// Set when the lead is converted, so a won deal can't be converted twice.
   convertedClientId     String?   @unique
   convertedAt           DateTime?
@@ -876,6 +888,7 @@ model Lead {
   activities      SalesActivity[]
 
   @@index([departmentId, stage])
+  @@index([nextFollowUpAt])
   @@index([stage, stageChangedAt])
   @@index([ownerId, stage])
 }
@@ -1198,11 +1211,11 @@ model Department {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships  DepartmentMembership[]
-  stages       PipelineStage[]
-  clientFields ClientFieldDef[]
-  clients      Client[]
-  leads        Lead[]
+  memberships DepartmentMembership[]
+  stages      PipelineStage[]
+  fields      FieldDefinition[]
+  clients     Client[]
+  leads       Lead[]
 
   @@index([isActive, order])
 }
@@ -1265,56 +1278,84 @@ model PipelineStage {
   @@index([departmentId, sortOrder])
 }
 
-/// A field a department needs on its clients that other departments do not.
+/// A department-specific field on a lead or a client.
 ///
-/// Pilot Cars needs dispatch details, Insurance needs policy details,
-/// Affiliates needs commission terms. Rather than widening the Client table
-/// with every department's columns, each department declares its own fields
-/// and the values land in ClientFieldValue.
-model ClientFieldDef {
+/// The four departments sell different things and record different facts:
+/// dispatch needs pickup and destination, insurance needs policy type and
+/// coverage, affiliates need commission terms. Widening Client and Lead with
+/// every department's columns would give each department a table full of other
+/// people's nulls, so each declares its own fields and the answers live in
+/// FieldValue.
+///
+/// What stays a real column on the record is the common core every department
+/// shares — name, email, phone, department, assignee, stage, source, created,
+/// next follow-up. Those are queried, sorted and filtered constantly, and a
+/// join per column would be a tax on every list in the product.
+model FieldDefinition {
   id           String  @id @default(cuid())
   departmentId String
-  /// Stable machine key, unique within the department.
+  /// "LEAD" | "CLIENT" — see FIELD_ENTITIES in lib/constants.ts. A department
+  /// can want a fact on a deal that it does not want on a converted client.
+  entity       String
+  /// Stable machine key, unique per department and entity.
   key          String
   label        String
-  /// "TEXT" | "NUMBER" | "DATE" | "SELECT" | "BOOLEAN" — see
-  /// CLIENT_FIELD_TYPES in lib/constants.ts.
+  /// One of FIELD_TYPES in lib/constants.ts. Decides the input rendered, the
+  /// validation applied, and how the stored string is parsed back.
   type         String  @default("TEXT")
-  /// Options when type is SELECT, comma-separated. Comma-separated rather than
-  /// an array column so this ports to Postgres unchanged.
+  /// Options for SELECT and MULTISELECT, comma-separated.
+  ///
+  /// Not a String[]: SQLite has no array column and the schema is kept
+  /// Postgres-portable. Read and written through parseOptions()/
+  /// serializeOptions() in lib/fields.ts — nothing splits this by hand.
   options      String  @default("")
   helpText     String?
   required     Boolean @default(false)
-  sortOrder    Int     @default(0)
+  order        Int     @default(0)
   isActive     Boolean @default(true)
 
+  /// Conditional visibility: show this field only when the field with
+  /// `showIfKey` holds one of `showIfValues` (comma-separated).
+  ///
+  /// Culture Plus needs this — its insurance questions are irrelevant to a Cam
+  /// sale and vice versa, and asking every question of every lead is how a form
+  /// stops being filled in honestly. Null means always visible.
+  showIfKey    String?
+  showIfValues String  @default("")
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  department Department         @relation(fields: [departmentId], references: [id], onDelete: Cascade)
-  values     ClientFieldValue[]
+  department Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  values     FieldValue[]
 
-  @@unique([departmentId, key])
-  @@index([departmentId, sortOrder])
+  @@unique([departmentId, entity, key])
+  @@index([departmentId, entity, order])
 }
 
-/// One client's answer to one of its department's custom fields.
+/// One record's answer to one field definition.
 ///
-/// Stored as text whatever the declared type: the definition owns parsing and
-/// validation, so changing a field from TEXT to SELECT does not require a
-/// column migration.
-model ClientFieldValue {
-  id       String @id @default(cuid())
-  clientId String
-  fieldId  String
-  value    String @default("")
+/// `recordId` is the Lead or Client id. Deliberately not a foreign key: the
+/// definition's `entity` says which table it points at, and Prisma cannot
+/// express a relation whose target depends on another column. Deleting a record
+/// therefore has to clear its values explicitly — `deleteFieldValues()` in
+/// lib/fields.ts owns that, and is called from every delete path.
+///
+/// Stored as text whatever the declared type, with lib/fields.ts owning the
+/// parsing. A Json column would be the obvious alternative, but SQLite has none
+/// and the schema is kept Postgres-portable; text plus a typed accessor also
+/// means changing a field from TEXT to SELECT is not a column migration.
+model FieldValue {
+  id                String @id @default(cuid())
+  fieldDefinitionId String
+  recordId          String
+  value             String @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  client Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
-  field  ClientFieldDef @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+  definition FieldDefinition @relation(fields: [fieldDefinitionId], references: [id], onDelete: Cascade)
 
-  @@unique([clientId, fieldId])
-  @@index([fieldId])
+  @@unique([fieldDefinitionId, recordId])
+  @@index([recordId])
 }

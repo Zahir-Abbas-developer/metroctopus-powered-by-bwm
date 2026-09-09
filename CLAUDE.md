@@ -276,37 +276,44 @@ boundary or background job, log failures there too.
 
 ## Fork status
 
-**Done — Phase 1 (foundation) and Phase T1 (identity, departments, team).**
-Verified by the stability gate, not assumed:
+**Done — Phase 1 (foundation), Phase T1 (identity, departments, team) and
+Phase T2 (the department field engine).** Verified by the stability gate, not
+assumed:
 
 - **Branding.** Zero references to the old agency name or roster survive in
   code, tests, metadata, the PWA manifest or the package name. The login page
   keeps its exact layout; only its text changed.
 - **Departments.** `Department` (slug, name, shortLabel, colorToken, order,
   isActive), `DepartmentMembership` (roleInDept, skills), `PipelineStage`,
-  `ClientFieldDef`, `ClientFieldValue`. `Client` and `Lead` carry a required
+  `FieldDefinition` (entity, key, type, options, required, order, conditional
+  visibility), `FieldValue`. `Client` and `Lead` carry a required
   `departmentId`.
 - **Roles.** `["ADMIN", "SUPPORT_ADMIN", "MEMBER"]`, with `hasAdminPower()` as
   the only authority check. SUPPORT_ADMIN reaches everything ADMIN does and
   renders as "Support".
-- **Seed.** 4 departments, 21 pipeline stages, 10 client fields, 6 users, 17
-  memberships with per-department skills, and **no demo business data**.
+- **Seed.** 4 departments, 21 pipeline stages, 34 field definitions (17 per
+  department set, seeded for both LEAD and CLIENT), 6 users, 17 memberships with
+  per-department skills, and **no demo business data**.
 - **Forced password change.** `mustChangePassword` is enforced in the app shell
   before any surface renders, and lifts once satisfied.
 - **Parked modules.** Attendance, scoring, retainer projects and client KPIs are
   off by default and genuinely absent: no nav entry, no dashboard card, no link,
   no cron run. Their routes answer with a disabled screen. Smoke asserts it.
 - **Admin UI.** Settings → Departments (CRUD, reorder, per-department team and
-  skills, deactivation with a required migration choice) and Settings → Modules.
+  skills, deactivation with a required migration choice), Settings → Departments
+  → Fields, and Settings → Modules.
+- **The field engine.** `lib/fields.ts` owns options, validation, conditional
+  visibility and value storage. Lead creation is department-first: the chosen
+  business line decides the questions asked, the opening stage, and who may be
+  assigned. `npm run fieldtest` checks all of that over HTTP.
 
 **Still to build.** None of this is done:
 
-- **Department scoping is declared, not enforced.** The columns and membership
-  rows exist and `departmentIdsForUser()` is written, but no list or detail
-  query filters by it yet. A MEMBER still sees every department's records.
-  Doctrine 2 is a schema fact and a promise, not a working guarantee.
-- **The dynamic field engine.** `ClientFieldDef`/`ClientFieldValue` are seeded
-  but read by nothing; there is no field UI, and no per-department create flow.
+- **Department scoping is enforced on creation only.** T2 scoped the creation
+  path end to end — the picker, the form route and the write all refuse a
+  department the viewer is not in, and `npm run fieldtest` proves it. Reading is
+  still open: no pipeline or lead list query filters by department, so a MEMBER
+  still *sees* every department's records. Doctrine 2 is now half a guarantee.
 - **Timezone.** `Settings.timezone` exists and defaults to `America/New_York`,
   but `lib/date.ts` still hardcodes `Asia/Karachi`. Every "today" and due-date
   calculation is still on the wrong clock.

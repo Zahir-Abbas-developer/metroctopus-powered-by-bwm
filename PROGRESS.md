@@ -2387,3 +2387,123 @@ Department **scoping is still not enforced**. The columns, the memberships and
 department, so a MEMBER still sees every department's records. Also outstanding:
 `lib/date.ts` still hardcodes `Asia/Karachi` despite `Settings.timezone`, and
 the dynamic field engine (`ClientFieldDef`) is seeded but read by nothing.
+
+## BWM Phase T2 — the department field engine (9 September 2026)
+
+Design untouched. Every screen here is composed from existing primitives —
+`Input`, `Textarea`, `Select`, `Card`, `Badge`, `Avatar`, `Tabs`, `Modal`,
+`EmptyState`, `Skeleton` — and the MULTISELECT control is the same pill toggle
+the lead form already used for services. No new colour, type or component.
+
+### 1. The engine
+
+`lib/fields.ts` owns everything about department-specific storage: options
+parsing, the text encoding of each type, validation, conditional visibility, and
+the read/write of `FieldValue`. Nothing downstream splits a stored string by
+hand.
+
+Two shapes follow from the Postgres-portable-SQLite rule, and match how
+`skills` already works: `options` is comma-separated text, and `FieldValue.value`
+is text whatever the declared type. A Json column would be the obvious
+alternative and SQLite has none — text plus a typed accessor also means changing
+a field from TEXT to SELECT is not a column migration.
+
+Three decisions worth recording:
+
+- **An unresolvable condition hides its field.** A rule pointing at a missing or
+  inactive field returns *not visible*, never *visible*. A condition that cannot
+  be evaluated has not been met, and defaulting the other way would leak exactly
+  the questions the rule was written to hide.
+- **A hidden field's answer is discarded on write.** Leaving the insurance
+  answers on a record whose category moved to "Cam" would show them again the
+  moment it moved back, as data nobody entered for that state.
+- **Required is only checked on visible fields.** A required insurance question
+  on a Cam sale is not a missing answer; it is a question that was never asked.
+
+### 2. Seed
+
+17 definitions per department across the four business lines, seeded for **both**
+entities — 34 rows. The spec's lists include the common core (name, contact,
+phone, email, status, assignee, follow-up, notes); those stay real columns on
+`Lead`/`Client`, and only the department-specific remainder became definitions.
+
+Culture Plus carries the conditional pair: `insurance_info` appears only when
+`sales_category` is Life or Health Insurance, `cam_info` only when it is Cam.
+
+### 3. Creation flow
+
+`LeadFormModal` is now three steps — department, details, stage & owner. The
+department is asked first because it decides the rest of the form: which
+questions are asked, which stages exist, and who may be assigned.
+
+`AssigneePicker` is a radio group rather than a `<select>`, because a native
+select cannot carry the two things that make the decision well — why someone is
+recommended, and what they are already carrying. Ranking is a hint, never a
+filter: every member of the department stays selectable.
+
+Skill matching is **whole-word, not substring**. Substring was the obvious first
+cut and is wrong: "Cam" is a substring of "campaign", and Culture Plus's Cam
+category matching a campaign skill is precisely the conflation CLAUDE.md calls
+out by name.
+
+### 4. Admin UI
+
+Settings → Departments → **Fields**, beside the existing Team button and built on
+the same whole-list-replace endpoint: the order of the rows is the display order,
+and the whole set is sent so two admins converge on a list. An existing field
+keeps its key when relabelled — rewriting it would orphan every answer already
+recorded against it.
+
+### Bugs found and fixed
+
+- **`POST /api/leads` hardcoded `stage: "NEW"`.** Stages are per-department
+  records; Affiliates opens at `APPLIED`. Every Affiliates lead was being filed
+  into a stage that department does not have, where no column on its board would
+  ever render it. The opening stage now comes from the department's own pipeline.
+- **The lead form never sent `departmentId`,** which T1 made required — so
+  creating a lead from the UI failed with a 422 every time.
+- **Deleting a lead or client orphaned its answers.** `FieldValue.recordId` is
+  deliberately not a foreign key, so no cascade reaches it; both delete paths now
+  clear values explicitly.
+- **`npm run smoke:browser` had not parsed since T1.** The rebrand sweep inserted
+  a comment block *inside* an import statement, splitting `import {` from its
+  member list. The one check that catches a client component crashing after
+  hydration has been dead for the whole fork, and the six-command gate never
+  noticed because it is the optional seventh. Repaired; it now runs green.
+
+### Stability gate
+
+```
+npx tsc --noEmit     ✓ clean
+npm test             ✓ 405/405
+npm run smoke        ✓ every route × every role
+npm run smoke:empty  ✓ every route × every role
+npm run permtest     ✓ 171 checks
+npm run leaks        ✓ 108 responses, 0 sentinels
+npm run fieldtest    ✓ 45 checks  (new — see below)
+npm run smoke:browser ✓ 66 pages hydrated across 3 roles
+```
+
+`scripts/fieldtest.mjs` is new, and checks over HTTP what this phase actually
+claims — because all three claims are claims about a *response*, not about a
+component:
+
+- each department's form offers only its own fields, and its assignee list is
+  exactly its own membership
+- a lead created in each of the four opens at one of that department's own
+  stages, with its answers bound to that department's definitions
+- Tayyaba is offered exactly her two departments, and Affiliates and Culture Plus
+  answer **403** to both the form read and the create — absent from the picker is
+  not the same as refused by the server, and only the second is a permission
+
+### Not done
+
+- **`ClientWizard` is still department-last.** Client creation was not converted
+  to the department-first wizard; leads were. The client *profile* and list are
+  done.
+- **The clients list is still `requireAdminApi`.** Its rows and its department
+  chips are both derived from `departmentIdsForUser`, so widening the gate scopes
+  them together — but widening it is a permissions change belonging with the
+  Doctrine 2 enforcement work, not something to fold into this phase quietly.
+- **Department scoping is still not enforced on the pipeline or lead reads.**
+  Creation is scoped, end to end and tested. Reading is not.

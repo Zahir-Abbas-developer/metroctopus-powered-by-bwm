@@ -45,12 +45,25 @@ export function ClientCard({ client }: { client: ClientSummary }) {
           <p className="mt-1 truncate text-[13px] text-ink/50">
             {client.industry ?? "Industry not set"}
           </p>
+          {/* Which business line owns this account — the first thing that
+              distinguishes two otherwise similar cards. */}
+          {client.department && (
+            <div className="mt-2">
+              <Badge size="sm" tone="neutral">
+                {client.department.shortLabel}
+              </Badge>
+            </div>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1.5">
           <Badge dot tone={CLIENT_STATUS_TONE[client.status]}>
             {CLIENT_STATUS_LABEL[client.status]}
           </Badge>
+
+          {client.assignee && (
+            <span className="text-[11px] text-ink/45">{client.assignee.name}</span>
+          )}
 
           {/* Deliberately discreet — payment is the owner's business, and a
               loud red chip on every unpaid invoice would cry wolf by the 8th. */}

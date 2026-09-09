@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
+import { deleteFieldValues } from "@/lib/fields";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
@@ -165,6 +166,11 @@ export async function DELETE(_request: Request, { params }: { params: { id: stri
   if (lead.convertedClientId) {
     return apiError("This lead became a client — it's the record of where they came from", 409);
   }
+
+  // Answers are not reached by the cascade — FieldValue.recordId is not a
+  // foreign key, because the definition's `entity` decides which table it
+  // points at. See deleteFieldValues in lib/fields.ts.
+  await deleteFieldValues(params.id);
 
   await prisma.lead.delete({ where: { id: params.id } });
   return NextResponse.json({ ok: true });

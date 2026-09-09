@@ -10,6 +10,9 @@ import { fieldErrors } from "@/lib/validation";
 import { pipelineMetrics } from "@/lib/pipeline";
 import { LEAD_SOURCES } from "@/lib/pipeline-types";
 import { hasAdminPower } from "@/lib/constants";
+import { canUseDepartment } from "@/lib/departments";
+import { canBeAssigned } from "@/lib/assignment";
+import { fieldsFor, validateFieldValues, writeFieldValues } from "@/lib/fields";
 
 const leadSchema = z.object({
   // The business line this deal belongs to. Also decides which pipeline
@@ -26,6 +29,10 @@ const leadSchema = z.object({
   estimatedMonthlyValue: z.number().int().min(0).max(1_000_000).default(0),
   ownerId: z.string().min(1).nullish(),
   notes: z.string().trim().max(2000).nullish(),
+  /** Opening stage, from this department's pipeline. */
+  stage: z.string().trim().min(1).max(60).optional(),
+  /** Department-specific answers, keyed by field key. */
+  fieldValues: z.record(z.string(), z.string()).default({}),
 });
 
 /**
@@ -135,6 +142,53 @@ export async function POST(request: Request) {
     return apiError("Pick a department", 422, { departmentId: "That department no longer exists" });
   }
 
+  // Membership is checked on the write, not only on the picker. A member who
+  // crafts a payload naming someone else's department would otherwise file a
+  // record they cannot then see.
+  if (!(await canUseDepartment(user.id, hasAdminPower(user.role), department.id))) {
+    return apiError("Pick a department", 403, {
+      departmentId: "That department isn't one of yours",
+    });
+  }
+
+  // The opening stage belongs to the department, not to a constant. Affiliates
+  // opens at "Applied", Pilot Cars at "New enquiry" — a hardcoded "NEW" files
+  // an Affiliates lead into a stage that department does not have, where no
+  // column on its board will ever show it.
+  const stages = await prisma.pipelineStage.findMany({
+    where: { departmentId: department.id, isActive: true },
+    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    select: { key: true, isWon: true, isLost: true },
+  });
+  if (stages.length === 0) {
+    return apiError("That department has no pipeline stages yet", 422, {
+      stage: "An admin needs to add stages before leads can be filed here",
+    });
+  }
+
+  const opening = stages.find((stage) => !stage.isWon && !stage.isLost) ?? stages[0];
+  const stage = data.stage ?? opening.key;
+  if (!stages.some((row) => row.key === stage)) {
+    return apiError("Pick a stage", 422, { stage: "That stage isn't in this pipeline" });
+  }
+
+  // An assignee outside the department cannot see the record they were given.
+  if (data.ownerId && !(await canBeAssigned(department.id, data.ownerId))) {
+    return apiError("Pick an assignee", 422, {
+      ownerId: "That person isn't in this department",
+    });
+  }
+
+  const definitions = await fieldsFor(department.id, "LEAD");
+  const fieldProblems = validateFieldValues(definitions, data.fieldValues);
+  if (fieldProblems.length > 0) {
+    return apiError(
+      "Please fix the highlighted fields",
+      422,
+      Object.fromEntries(fieldProblems.map((problem) => [problem.key, problem.message])),
+    );
+  }
+
   const lead = await prisma.lead.create({
     data: {
       departmentId: department.id,
@@ -150,9 +204,11 @@ export async function POST(request: Request) {
       // owner says otherwise.
       ownerId: data.ownerId ?? user.id,
       notes: data.notes || null,
-      stage: "NEW",
+      stage,
     },
   });
+
+  await writeFieldValues(lead.id, definitions, data.fieldValues);
 
   return NextResponse.json({ lead }, { status: 201 });
 }

@@ -7,6 +7,7 @@
     "dev": "next dev",
     "prebuild": "node scripts/sync-db-provider.mjs && prisma generate",
     "build": "next build",
+    "vercel-build": "node scripts/sync-db-provider.mjs && prisma generate && PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" prisma migrate deploy && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -24,7 +25,8 @@
     "smoke:empty": "node scripts/sync-db-provider.mjs && node --import tsx scripts/smoke.mjs --empty",
     "smoke:browser": "node --import tsx scripts/smoke-browser.mjs",
     "leaks": "node scripts/sync-db-provider.mjs && node --import tsx scripts/leak-scan.mjs",
-    "permtest": "node scripts/sync-db-provider.mjs && node --import tsx scripts/permtest.mjs"
+    "permtest": "node scripts/sync-db-provider.mjs && node --import tsx scripts/permtest.mjs",
+    "fieldtest": "node scripts/sync-db-provider.mjs && node --import tsx scripts/fieldtest.mjs"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

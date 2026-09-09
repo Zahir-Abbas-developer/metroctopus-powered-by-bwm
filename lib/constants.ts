@@ -47,6 +47,59 @@ export const DEPT_ROLE_LABEL: Record<DeptRole, string> = {
 };
 
 /**
+ * What a department-specific field can be attached to.
+ *
+ * A department often wants a fact while qualifying a deal that it stops caring
+ * about once the deal converts — and vice versa — so a definition names its
+ * entity rather than being shared across both.
+ */
+export const FIELD_ENTITIES = ["LEAD", "CLIENT"] as const;
+export type FieldEntity = (typeof FIELD_ENTITIES)[number];
+
+export const FIELD_ENTITY_LABEL: Record<FieldEntity, string> = {
+  LEAD: "Lead",
+  CLIENT: "Client",
+};
+
+/**
+ * Field types an admin can choose in Settings.
+ *
+ * The stored value is always text (see `FieldValue` in the schema); the type
+ * decides which input renders, how the string is validated, and how it is
+ * parsed back for display. Adding a type here is a code change on purpose —
+ * each one needs an input and a parser, which data alone cannot supply.
+ */
+export const FIELD_TYPES = [
+  "TEXT",
+  "TEXTAREA",
+  "PHONE",
+  "EMAIL",
+  "NUMBER",
+  "CURRENCY",
+  "DATE",
+  "SELECT",
+  "MULTISELECT",
+  "CHECKBOX",
+] as const;
+export type FieldType = (typeof FIELD_TYPES)[number];
+
+export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
+  TEXT: "Text",
+  TEXTAREA: "Long text",
+  PHONE: "Phone",
+  EMAIL: "Email",
+  NUMBER: "Number",
+  CURRENCY: "Currency",
+  DATE: "Date",
+  SELECT: "Single choice",
+  MULTISELECT: "Multiple choice",
+  CHECKBOX: "Checkbox",
+};
+
+/** The two types whose `options` list is meaningful. */
+export const FIELD_TYPES_WITH_OPTIONS: readonly FieldType[] = ["SELECT", "MULTISELECT"];
+
+/**
  * Tones a department may be tagged with.
  *
  * Deliberately the exact BadgeTone union rather than a parallel palette: a

@@ -378,7 +378,6 @@ export function PipelineBoard() {
       <LeadFormModal
         open={creating}
         services={data?.services ?? []}
-        owners={data?.owners ?? []}
         canAssign={data?.viewer.isAdmin ?? false}
         onClose={() => setCreating(false)}
         onSaved={() => {

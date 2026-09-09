@@ -25,6 +25,7 @@ import { HEALTH_BAND_COLOR, HEALTH_BAND_LABEL } from "@/lib/clientHealth";
 import { cn } from "@/lib/utils";
 import { ClientEditModal } from "@/components/clients/ClientEditModal";
 import { NewEngagementModal } from "@/components/clients/NewEngagementModal";
+import { RecordFieldsPanel } from "@/components/fields/RecordFieldsPanel";
 import {
   CLIENT_STATUS_LABEL,
   CLIENT_STATUS_TONE,
@@ -188,6 +189,16 @@ export function ClientDetail({
 
       {tab === "overview" && (
         <div className="grid gap-5 lg:grid-cols-3">
+          {/* This department's own questions. Renders nothing when the business
+              line has no fields of its own, rather than an empty panel. */}
+          <div className="lg:col-span-3">
+            <RecordFieldsPanel
+              endpoint={`/api/clients/${client.id}/fields`}
+              description="Recorded by this client's business line."
+              canEdit
+            />
+          </div>
+
           {health && (
             <Card className="lg:col-span-3">
               <div className="flex flex-wrap items-start justify-between gap-4">

@@ -120,3 +120,66 @@ export async function uniqueSlug(name: string, excludeId?: string): Promise<stri
     if (!clash) return candidate;
   }
 }
+
+/**
+ * The departments a viewer may file a new record under, with just enough of
+ * each to draw the picker card.
+ *
+ * This is the department scoping rule at the point of creation: an admin sees
+ * every active department, a member sees only their own. Offering a department
+ * a member does not belong to would let them create a record they cannot then
+ * see — and would disclose the roster of a business line that is not theirs.
+ */
+export type CreatableDepartment = {
+  id: string;
+  slug: string;
+  name: string;
+  shortLabel: string;
+  colorToken: string | null;
+  description: string | null;
+  members: { id: string; name: string; avatarColor: string }[];
+};
+
+export async function creatableDepartments(
+  userId: string,
+  isAdmin: boolean,
+): Promise<CreatableDepartment[]> {
+  const allowed = await departmentIdsForUser(userId, isAdmin);
+  if (allowed.length === 0) return [];
+
+  const rows = await prisma.department.findMany({
+    where: { id: { in: allowed }, isActive: true },
+    orderBy: [{ order: "asc" }, { name: "asc" }],
+    include: {
+      memberships: {
+        where: { user: { isActive: true } },
+        orderBy: { createdAt: "asc" },
+        include: { user: { select: { id: true, name: true, avatarColor: true } } },
+      },
+    },
+  });
+
+  return rows.map((row) => ({
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    shortLabel: row.shortLabel,
+    colorToken: row.colorToken,
+    description: row.description,
+    members: row.memberships.map((m) => ({
+      id: m.user.id,
+      name: m.user.name,
+      avatarColor: m.user.avatarColor,
+    })),
+  }));
+}
+
+/** May this viewer file a record under this department? */
+export async function canUseDepartment(
+  userId: string,
+  isAdmin: boolean,
+  departmentId: string,
+): Promise<boolean> {
+  const allowed = await departmentIdsForUser(userId, isAdmin);
+  return allowed.includes(departmentId);
+}

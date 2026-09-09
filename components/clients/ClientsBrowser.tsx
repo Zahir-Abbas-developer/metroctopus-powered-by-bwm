@@ -36,6 +36,7 @@ export function ClientsBrowser({
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [department, setDepartment] = useState<string>("ALL");
   const [query, setQuery] = useState("");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -67,6 +68,7 @@ export function ClientsBrowser({
     const needle = query.trim().toLowerCase();
     return clients.filter((client) => {
       if (filter !== "ALL" && client.status !== filter) return false;
+      if (department !== "ALL" && client.department?.id !== department) return false;
       if (!needle) return true;
       return (
         client.businessName.toLowerCase().includes(needle) ||
@@ -74,7 +76,26 @@ export function ClientsBrowser({
         (client.industry ?? "").toLowerCase().includes(needle)
       );
     });
-  }, [clients, filter, query]);
+  }, [clients, filter, department, query]);
+
+  /**
+   * The chips are derived from the departments present in the response, not
+   * from a constant. An admin sees every business line; when this list is
+   * scoped to a member, they see theirs — and the chips cannot offer a filter
+   * that would return nothing because the rows were never sent.
+   */
+  const departments = useMemo(() => {
+    const seen = new Map<string, { id: string; shortLabel: string }>();
+    for (const client of clients) {
+      if (client.department && !seen.has(client.department.id)) {
+        seen.set(client.department.id, {
+          id: client.department.id,
+          shortLabel: client.department.shortLabel,
+        });
+      }
+    }
+    return [...seen.values()].sort((a, b) => a.shortLabel.localeCompare(b.shortLabel));
+  }, [clients]);
 
   const counts = useMemo(() => {
     const map = new Map<Filter, number>([["ALL", clients.length]]);
@@ -105,6 +126,45 @@ export function ClientsBrowser({
           </>
         }
       />
+
+      {/* Business line first: which book of business am I looking at? The
+          status chips below then narrow within it. Only rendered when there is
+          a choice to make. */}
+      {departments.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {[{ id: "ALL", shortLabel: "All departments" }, ...departments].map((option) => {
+            const active = department === option.id;
+            const count =
+              option.id === "ALL"
+                ? clients.length
+                : clients.filter((client) => client.department?.id === option.id).length;
+
+            return (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setDepartment(option.id)}
+                className={cn(
+                  "flex items-center gap-1.5 rounded-pill border px-3 py-1.5 text-[13px] transition-colors",
+                  active
+                    ? "border-brand bg-brand text-paper"
+                    : "border-line bg-white text-ink/60 hover:border-ink/25 hover:text-ink",
+                )}
+              >
+                {option.shortLabel}
+                <span
+                  className={cn(
+                    "text-[11px] tabular-nums",
+                    active ? "text-paper/60" : "text-ink/35",
+                  )}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-1.5">

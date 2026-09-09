@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, Building2, Pencil, Plus, Users2 } from "lucide-react";
+import { ArrowDown, ArrowUp, ListChecks, Building2, Pencil, Plus, Users2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/Table";
 import { DepartmentModal } from "@/components/settings/DepartmentModal";
 import { DepartmentMembersModal } from "@/components/settings/DepartmentMembersModal";
+import { DepartmentFieldsModal } from "@/components/settings/DepartmentFieldsModal";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 export type DepartmentMemberView = {
@@ -60,6 +61,7 @@ export function DepartmentsManager() {
   const [editing, setEditing] = useState<DepartmentView | null>(null);
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState<DepartmentView | null>(null);
+  const [fieldsFor, setFieldsFor] = useState<DepartmentView | null>(null);
   const [reordering, setReordering] = useState(false);
 
   const load = useCallback(async () => {
@@ -234,6 +236,14 @@ export function DepartmentsManager() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        icon={<ListChecks className="h-3.5 w-3.5" />}
+                        onClick={() => setFieldsFor(dept)}
+                      >
+                        Fields
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         icon={<Pencil className="h-3.5 w-3.5" />}
                         onClick={() => setEditing(dept)}
                       >
@@ -261,6 +271,12 @@ export function DepartmentsManager() {
           setEditing(null);
           void load();
         }}
+      />
+
+      <DepartmentFieldsModal
+        open={fieldsFor !== null}
+        department={fieldsFor}
+        onClose={() => setFieldsFor(null)}
       />
 
       <DepartmentMembersModal

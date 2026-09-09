@@ -39,3 +39,4 @@ yarn-error.log*
 
 # local tool settings
 /.claude/settings.local.json
+.env*

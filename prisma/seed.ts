@@ -1,14 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
-import { avatarColorFor } from "../lib/constants";
+import { avatarColorFor, FIELD_ENTITIES } from "../lib/constants";
 import { serializeSkills } from "../lib/skills";
 
 /**
  * BWM seed — the starting shape of the business, not the shape of the system.
  *
  * Everything here is a database record an admin can edit afterwards:
- * departments, their pipeline stages, their client fields, and who works in
+ * departments, their pipeline stages, their field definitions, and who works in
  * which department. Nothing in the app may assume there are four departments
  * or that they are named what they are named today.
  *
@@ -46,15 +46,27 @@ const DEPARTMENTS = [
       { key: "LOST", label: "Lost", sortOrder: 6, isLost: true },
     ],
     fields: [
-      { key: "service_area", label: "Service area", type: "TEXT", sortOrder: 1 },
+      { key: "pickup_location", label: "Pickup location", type: "TEXT", order: 1, required: true },
+      { key: "destination", label: "Destination", type: "TEXT", order: 2, required: true },
       {
-        key: "vehicle_type",
-        label: "Vehicle type",
-        type: "SELECT",
-        options: "Lead car,Chase car,Both",
-        sortOrder: 2,
+        key: "service_requirements",
+        label: "Service requirements",
+        type: "TEXTAREA",
+        order: 3,
       },
-      { key: "certified_states", label: "Certified states", type: "TEXT", sortOrder: 3 },
+      {
+        key: "dispatch_requirements",
+        label: "Dispatch requirements",
+        type: "TEXTAREA",
+        order: 4,
+      },
+      {
+        key: "vehicle_job_details",
+        label: "Vehicle / job details",
+        type: "TEXTAREA",
+        order: 5,
+      },
+      { key: "quote", label: "Quote", type: "CURRENCY", order: 6 },
     ],
   },
   {
@@ -74,14 +86,25 @@ const DEPARTMENTS = [
     ],
     fields: [
       {
-        key: "policy_type",
-        label: "Policy type",
+        key: "insurance_type",
+        label: "Insurance type",
         type: "SELECT",
         options: "Life,Health,Both",
-        sortOrder: 1,
+        order: 1,
+        required: true,
       },
-      { key: "carrier", label: "Carrier", type: "TEXT", sortOrder: 2 },
-      { key: "renewal_date", label: "Renewal date", type: "DATE", sortOrder: 3 },
+      {
+        key: "qualification_info",
+        label: "Qualification info",
+        type: "TEXTAREA",
+        order: 2,
+      },
+      {
+        key: "coverage_requirements",
+        label: "Coverage requirements",
+        type: "TEXTAREA",
+        order: 3,
+      },
     ],
   },
   {
@@ -98,9 +121,16 @@ const DEPARTMENTS = [
       { key: "DECLINED", label: "Declined", sortOrder: 4, isLost: true },
     ],
     fields: [
-      { key: "referral_code", label: "Referral code", type: "TEXT", sortOrder: 1 },
-      { key: "commission_rate", label: "Commission rate (%)", type: "NUMBER", sortOrder: 2 },
-      { key: "payout_method", label: "Payout method", type: "TEXT", sortOrder: 3 },
+      { key: "affiliate_type", label: "Affiliate type", type: "TEXT", order: 1 },
+      { key: "referral_info", label: "Referral info", type: "TEXTAREA", order: 2 },
+      {
+        key: "commission_rate",
+        label: "Commission rate (%)",
+        type: "NUMBER",
+        helpText: "A percentage — 12.5 means 12.5%.",
+        order: 3,
+      },
+      { key: "commission_notes", label: "Commission notes", type: "TEXTAREA", order: 4 },
     ],
   },
   {
@@ -119,13 +149,39 @@ const DEPARTMENTS = [
     ],
     fields: [
       {
+        key: "service_interest",
+        label: "Service / product interest",
+        type: "TEXT",
+        order: 1,
+      },
+      {
         // "Cam" is a sales/service category here, not the team member of the
         // same name. Cam the person is not a member of this department.
-        key: "service_category",
-        label: "Service category",
+        key: "sales_category",
+        label: "Sales category",
         type: "SELECT",
-        options: "Sales,Cam,Life & Health Insurance",
-        sortOrder: 1,
+        options: "Sales,Cam,Life Insurance,Health Insurance",
+        order: 2,
+        required: true,
+      },
+      {
+        // Asking every question of every lead is how a form stops being filled
+        // in honestly, so the two specialist blocks below appear only for the
+        // category they belong to.
+        key: "insurance_info",
+        label: "Insurance info",
+        type: "TEXTAREA",
+        order: 3,
+        showIfKey: "sales_category",
+        showIfValues: "Life Insurance,Health Insurance",
+      },
+      {
+        key: "cam_info",
+        label: "Cam details",
+        type: "TEXTAREA",
+        order: 4,
+        showIfKey: "sales_category",
+        showIfValues: "Cam",
       },
     ],
   },
@@ -272,24 +328,35 @@ async function main() {
       });
     }
 
-    for (const field of dept.fields) {
-      await prisma.clientFieldDef.upsert({
-        where: { departmentId_key: { departmentId: department.id, key: field.key } },
-        update: {
+    // Each department's set is seeded for both entities. The facts a business
+    // line needs while qualifying a deal are the same ones it needs once that
+    // deal converts; an admin can diverge them per entity afterwards, which is
+    // exactly what Settings -> Departments -> Fields is for.
+    for (const entity of FIELD_ENTITIES) {
+      for (const field of dept.fields) {
+        const shape = {
           label: field.label,
           type: field.type,
           options: "options" in field ? field.options : "",
-          sortOrder: field.sortOrder,
-        },
-        create: {
-          departmentId: department.id,
-          key: field.key,
-          label: field.label,
-          type: field.type,
-          options: "options" in field ? field.options : "",
-          sortOrder: field.sortOrder,
-        },
-      });
+          helpText: "helpText" in field ? field.helpText : null,
+          required: "required" in field ? field.required : false,
+          order: field.order,
+          showIfKey: "showIfKey" in field ? field.showIfKey : null,
+          showIfValues: "showIfValues" in field ? field.showIfValues : "",
+        };
+
+        await prisma.fieldDefinition.upsert({
+          where: {
+            departmentId_entity_key: {
+              departmentId: department.id,
+              entity,
+              key: field.key,
+            },
+          },
+          update: shape,
+          create: { departmentId: department.id, entity, key: field.key, ...shape },
+        });
+      }
     }
   }
 
@@ -328,7 +395,7 @@ async function main() {
   const [departments, stages, fields, users] = await Promise.all([
     prisma.department.count(),
     prisma.pipelineStage.count(),
-    prisma.clientFieldDef.count(),
+    prisma.fieldDefinition.count(),
     prisma.user.count(),
   ]);
   const memberships = await prisma.departmentMembership.count();
@@ -336,7 +403,7 @@ async function main() {
   console.log("BWM seed complete");
   console.log(`  departments     ${departments}`);
   console.log(`  pipeline stages ${stages}`);
-  console.log(`  client fields   ${fields}`);
+  console.log(`  field defs      ${fields}`);
   console.log(`  users           ${users}`);
   console.log(`  memberships     ${memberships}`);
   console.log(`\n  All accounts use the placeholder password and must change it on first login.`);

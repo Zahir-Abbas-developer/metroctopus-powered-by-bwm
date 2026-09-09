@@ -20,6 +20,17 @@
  */
 import { connect, launch, findBrowser } from "./cdp.mjs";
 import {
+  ADMIN,
+  LEAD,
+  MEMBER,
+  Session,
+  discoverRoutes,
+  loadEnv,
+  prepareDatabase,
+  cleanupDatabase,
+  startServer,
+  waitForServer,
+} from "./smoke.mjs";
 
 /**
  * Roles carrying full administrative capability. Mirrors ADMIN_ROLES in
@@ -32,18 +43,6 @@ const isAdminRole = (role) => ADMIN_ROLES.includes(role);
 
 /** Seeded accounts share one placeholder password; SEED_PASSWORD overrides it. */
 const SEED_PASSWORD = process.env.SEED_PASSWORD ?? "bwm-change-me";
-
-  ADMIN,
-  LEAD,
-  MEMBER,
-  Session,
-  discoverRoutes,
-  loadEnv,
-  prepareDatabase,
-  cleanupDatabase,
-  startServer,
-  waitForServer,
-} from "./smoke.mjs";
 
 loadEnv();
 

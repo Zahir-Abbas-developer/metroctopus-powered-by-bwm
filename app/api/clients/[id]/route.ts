@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, updateClientSchema } from "@/lib/validation";
+import { deleteFieldValues } from "@/lib/fields";
 
 export async function PATCH(
   request: Request,
@@ -48,6 +49,13 @@ export async function DELETE(
   if (!existing) return apiError("That client no longer exists", 404);
 
   try {
+    // FieldValue.recordId is deliberately not a foreign key — the definition's
+    // `entity` decides which table it points at, which Prisma cannot express —
+    // so the cascade below does not reach the answers. Clearing them first is
+    // what keeps a deleted client from leaving its answers behind, where a
+    // later record reusing the id would inherit them.
+    await deleteFieldValues(params.id);
+
     // Cascades through projects, modules and milestones. Score events survive
     // with a null milestone, so a member's history is never rewritten by an
     // account being removed.

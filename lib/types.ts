@@ -60,6 +60,10 @@ export type ClientSummary = {
   monthlyBudget: number;
   status: ClientStatus;
   onboardedAt: string;
+  /** The business line this account belongs to. Never null — the column is required. */
+  department: { id: string; shortLabel: string; colorToken: string | null };
+  assignee: AssigneeChip | null;
+  nextFollowUpAt: string | null;
   services: ServiceSummary[];
   currentProject: {
     id: string;
