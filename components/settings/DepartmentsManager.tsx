@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, ListChecks, Building2, Pencil, Plus, Users2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GitBranch, ListChecks, Building2, Pencil, Plus, Users2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -22,6 +22,7 @@ import {
 import { DepartmentModal } from "@/components/settings/DepartmentModal";
 import { DepartmentMembersModal } from "@/components/settings/DepartmentMembersModal";
 import { DepartmentFieldsModal } from "@/components/settings/DepartmentFieldsModal";
+import { DepartmentPipelineModal } from "@/components/settings/DepartmentPipelineModal";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 export type DepartmentMemberView = {
@@ -62,6 +63,7 @@ export function DepartmentsManager() {
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState<DepartmentView | null>(null);
   const [fieldsFor, setFieldsFor] = useState<DepartmentView | null>(null);
+  const [pipelineFor, setPipelineFor] = useState<DepartmentView | null>(null);
   const [reordering, setReordering] = useState(false);
 
   const load = useCallback(async () => {
@@ -244,6 +246,14 @@ export function DepartmentsManager() {
                       <Button
                         variant="ghost"
                         size="sm"
+                        icon={<GitBranch className="h-3.5 w-3.5" />}
+                        onClick={() => setPipelineFor(dept)}
+                      >
+                        Pipeline
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         icon={<Pencil className="h-3.5 w-3.5" />}
                         onClick={() => setEditing(dept)}
                       >
@@ -271,6 +281,13 @@ export function DepartmentsManager() {
           setEditing(null);
           void load();
         }}
+      />
+
+      <DepartmentPipelineModal
+        open={pipelineFor !== null}
+        department={pipelineFor}
+        onClose={() => setPipelineFor(null)}
+        onSaved={() => void load()}
       />
 
       <DepartmentFieldsModal

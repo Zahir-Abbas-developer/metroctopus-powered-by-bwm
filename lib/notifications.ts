@@ -22,6 +22,10 @@ export const NOTIFICATION_TYPES = [
   // gets a type of their own for review work that has gone stale.
   "AVAILABILITY_CHECK",
   "REVIEW_OVERDUE",
+  // Phase T3 — the CRM's own events. A deal landing and a follow-up coming due
+  // are the two things a salesperson must not miss.
+  "LEAD_WON",
+  "FOLLOW_UP_DUE",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -35,6 +39,8 @@ export const NOTIFICATION_TONE: Record<NotificationType, BadgeTone> = {
   REPORT_READY: "neutral",
   AVAILABILITY_CHECK: "warning",
   REVIEW_OVERDUE: "danger",
+  LEAD_WON: "success",
+  FOLLOW_UP_DUE: "warning",
 };
 
 export type NotifyInput = {

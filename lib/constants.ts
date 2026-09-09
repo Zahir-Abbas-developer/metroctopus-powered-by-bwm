@@ -100,6 +100,101 @@ export const FIELD_TYPE_LABEL: Record<FieldType, string> = {
 export const FIELD_TYPES_WITH_OPTIONS: readonly FieldType[] = ["SELECT", "MULTISELECT"];
 
 /**
+ * What a pipeline stage means, beyond where it sits in the order.
+ *
+ * Replaces the old isWon/isLost pair, which could express "won and lost at
+ * once" — not a state a deal can be in — and had nowhere to put the stages that
+ * come *after* a win. Insurance's "Active Client" and Culture Plus's likewise
+ * are not the win itself; they are what the record becomes once it converts.
+ */
+export const STAGE_KINDS = ["OPEN", "WON", "LOST", "ACTIVE_CLIENT"] as const;
+export type StageKind = (typeof STAGE_KINDS)[number];
+
+export const STAGE_KIND_LABEL: Record<StageKind, string> = {
+  OPEN: "In progress",
+  WON: "Won",
+  LOST: "Lost",
+  ACTIVE_CLIENT: "Active client",
+};
+
+export const STAGE_KIND_TONE: Record<StageKind, BadgeTone> = {
+  OPEN: "neutral",
+  WON: "success",
+  LOST: "danger",
+  ACTIVE_CLIENT: "info",
+};
+
+/** Kinds that end a deal's time on the board. */
+export const TERMINAL_STAGE_KINDS: readonly StageKind[] = ["WON", "LOST", "ACTIVE_CLIENT"];
+
+/** Kinds that mean the deal was won — the lifecycle flip to a client. */
+export const WINNING_STAGE_KINDS: readonly StageKind[] = ["WON", "ACTIVE_CLIENT"];
+
+export function isStageKind(value: string): value is StageKind {
+  return (STAGE_KINDS as readonly string[]).includes(value);
+}
+
+/**
+ * What happened on a lead or a client.
+ *
+ * The first six are logged by a person from the quick-log bar; the last three
+ * are written by the app when it changes something worth remembering.
+ */
+export const ACTIVITY_TYPES = [
+  "CALL",
+  "EMAIL",
+  "MEETING",
+  "FOLLOW_UP",
+  "NOTE",
+  "QUOTE",
+  "STATUS_CHANGE",
+  "ASSIGNMENT",
+  "OTHER",
+] as const;
+export type ActivityType = (typeof ACTIVITY_TYPES)[number];
+
+export const ACTIVITY_TYPE_LABEL: Record<ActivityType, string> = {
+  CALL: "Call",
+  EMAIL: "Email",
+  MEETING: "Meeting",
+  FOLLOW_UP: "Follow-up",
+  NOTE: "Note",
+  QUOTE: "Quote",
+  STATUS_CHANGE: "Stage change",
+  ASSIGNMENT: "Assignment",
+  OTHER: "Other",
+};
+
+/** The types a person may log by hand. The rest are written by the app. */
+export const LOGGABLE_ACTIVITY_TYPES: readonly ActivityType[] = [
+  "CALL",
+  "EMAIL",
+  "MEETING",
+  "FOLLOW_UP",
+  "NOTE",
+  "QUOTE",
+  "OTHER",
+];
+
+export const TASK_PRIORITIES = ["LOW", "MEDIUM", "HIGH"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = {
+  LOW: "Low",
+  MEDIUM: "Medium",
+  HIGH: "High",
+};
+
+export const TASK_PRIORITY_TONE: Record<TaskPriority, BadgeTone> = {
+  LOW: "neutral",
+  MEDIUM: "info",
+  HIGH: "warning",
+};
+
+export const TASK_STATUSES = ["OPEN", "DONE"] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/**
  * Tones a department may be tagged with.
  *
  * Deliberately the exact BadgeTone union rather than a parallel palette: a

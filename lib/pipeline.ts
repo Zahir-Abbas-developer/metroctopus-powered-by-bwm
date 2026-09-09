@@ -133,13 +133,18 @@ export async function moveStage(options: {
 // ---------------------------------------------------------------------------
 
 /**
- * Logs a piece of sales work and, where the type implies it, advances the
- * stage.
+ * Logs a piece of sales work against a lead.
  *
- * The advance is one-directional and only ever forwards to the stage the
- * activity proves: sending a proposal means the deal is at least at
- * PROPOSAL_SENT. It never moves a deal backwards, so logging a follow-up call
- * on a deal in NEGOTIATION doesn't drag it back to CONTACTED.
+ * It used to also advance the stage, from a module-level `IMPLIED_STAGE` map:
+ * logging a meeting moved the deal to MEETING_BOOKED, a proposal to
+ * PROPOSAL_SENT. That map was written when there was one global pipeline. Stages
+ * are now per-department admin-editable records, and none of BWM's four
+ * departments has a stage called MEETING_BOOKED or PROPOSAL_SENT — so the
+ * advance would have written a stage key that department's board cannot render,
+ * putting the card nowhere.
+ *
+ * Logging what happened and deciding where the deal has got to are now separate
+ * acts: the board moves a card, and the move logs its own activity.
  */
 export async function logActivity(options: {
   leadId: string;
@@ -150,8 +155,15 @@ export async function logActivity(options: {
 }) {
   const occurredAt = options.occurredAt ?? new Date();
 
+  const lead = await prisma.lead.findUnique({
+    where: { id: options.leadId },
+    select: { departmentId: true },
+  });
+  if (!lead) throw new Error(`logActivity: lead ${options.leadId} no longer exists`);
+
   const activity = await prisma.salesActivity.create({
     data: {
+      departmentId: lead.departmentId,
       leadId: options.leadId,
       userId: options.userId,
       type: options.type,
@@ -160,37 +172,8 @@ export async function logActivity(options: {
     },
   });
 
-  const implied = IMPLIED_STAGE[options.type];
-  if (implied) {
-    const lead = await prisma.lead.findUnique({
-      where: { id: options.leadId },
-      select: { stage: true },
-    });
-
-    if (lead && isOpenStage(lead.stage)) {
-      const current = OPEN_STAGES.indexOf(lead.stage as (typeof OPEN_STAGES)[number]);
-      const target = OPEN_STAGES.indexOf(implied);
-      if (target > current) {
-        await prisma.lead.update({
-          where: { id: options.leadId },
-          data: { stage: implied, stageChangedAt: occurredAt },
-        });
-      }
-    }
-  }
-
   return activity;
 }
-
-/** What logging a given activity proves about where the deal has got to. */
-const IMPLIED_STAGE: Record<string, (typeof OPEN_STAGES)[number] | undefined> = {
-  CALL: "CONTACTED",
-  EMAIL: "CONTACTED",
-  DM: "CONTACTED",
-  MEETING: "MEETING_BOOKED",
-  PROPOSAL_SENT: "PROPOSAL_SENT",
-  FOLLOW_UP: undefined,
-};
 
 // ---------------------------------------------------------------------------
 // Weekly targets

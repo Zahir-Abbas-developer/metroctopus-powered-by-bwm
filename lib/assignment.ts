@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { parseSkills } from "@/lib/skills";
-import type { DeptRole } from "@/lib/constants";
+import { TERMINAL_STAGE_KINDS, type DeptRole } from "@/lib/constants";
 
 /**
  * Who can be assigned a record, and who should be.
@@ -155,7 +155,7 @@ async function terminalStages(departmentId: string): Promise<string[]> {
     where: {
       departmentId,
       isActive: true,
-      OR: [{ isWon: true }, { isLost: true }],
+      kind: { in: [...TERMINAL_STAGE_KINDS] },
     },
     select: { key: true },
   });

@@ -2507,3 +2507,103 @@ component:
   Doctrine 2 enforcement work, not something to fold into this phase quietly.
 - **Department scoping is still not enforced on the pipeline or lead reads.**
   Creation is scoped, end to end and tested. Reading is not.
+
+## BWM Phase T3, part 1 — department pipelines (9 September 2026)
+
+**Section 1 of three.** Tasks & follow-ups (§2) and the activity timeline UI
+(§3) are **not built** — see *Not done* at the end. Recorded as a partial phase
+rather than claimed as a whole one.
+
+Design untouched: the board is the same kanban, the same `DropColumn`,
+`LeadCard`, `StatCard`, `Table` and pill chips. What changed is where the
+columns come from.
+
+### Stages became data
+
+`PipelineStage` gained `kind` (OPEN | WON | LOST | ACTIVE_CLIENT) and
+`colorToken`, and lost `isWon`/`isLost` — extending the existing model rather
+than adding the spec's `StageDefinition` beside it, which would have left two
+stage tables and two sources of truth.
+
+The pair had to go, not just be supplemented. Two booleans can express "won and
+lost at once", which is not a state a deal can be in, and they left nowhere to
+put the stages that come *after* a win — Insurance's Active Client is neither
+the win nor a step towards it.
+
+Seeded to the T3 lists: 29 stages across four departments.
+
+### Deviation: Pilot Cars keeps a Lost stage
+
+The T3 list for Pilot Cars has no Lost, while saying "add Lost" for two of the
+other three. Read as the same omission rather than an intent — and without it a
+dead inquiry has nowhere to go, which is how a board silently fills with stale
+cards. Kept, and flagged here rather than done quietly. It is one row in an
+admin-editable table if that reading is wrong.
+
+### Moving a card
+
+`lib/stages.ts` owns every rule a move implies, so a drag, the drawer and a
+script cannot diverge: the target must belong to *this lead's* department, a
+LOST stage requires a reason, a winning stage flips `convertedAt` and notifies
+the assignee and every admin except whoever just did it, and the move logs its
+own `STATUS_CHANGE` activity.
+
+Commission is **derived, never stored**: rate lives in the department's
+`commission_rate` field definition and the deal value can be corrected after the
+fact, so a stored amount would silently disagree with both and nothing would say
+which was right. A department with no such field gets no table — a data
+question, not a hardcoded one.
+
+### Bugs found and fixed
+
+- **`logActivity` auto-advanced stages from a hardcoded map.** `IMPLIED_STAGE`
+  moved a deal to MEETING_BOOKED or PROPOSAL_SENT — keys **no BWM department
+  has**. Logging a meeting would have written a stage no column could render,
+  putting the card nowhere. Logging what happened and deciding where the deal
+  has got to are now separate acts.
+- **`LeadCard` rendered money unguarded** while the server was already stripping
+  it. The type claimed `estimatedMonthlyValue` was always present; it is absent
+  for non-owners, so `formatMoney(undefined)` was one non-owner away from
+  throwing. Adding `dealValue` behind the same guard rather than beside it.
+- **The board would have shown nothing.** Changing the stage keys orphaned every
+  card against the old `OPEN_STAGES` columns. The rework repairs that, and an
+  "Not on the board" lane now surfaces any lead whose stage a department has
+  since removed, rather than dropping it silently.
+
+### Stability gate
+
+```
+npx tsc --noEmit      ✓ clean
+npm test              ✓ 405/405
+npm run smoke         ✓ every route × every role
+npm run smoke:empty   ✓ every route × every role
+npm run permtest      ✓ 171 checks
+npm run leaks         ✓ no owner-only value reached a non-owner
+npm run fieldtest     ✓ 45 checks
+npm run journeytest   ✓ 58 checks  (new)
+npm run smoke:browser ✓ 66 pages hydrated across 3 roles
+```
+
+`scripts/journeytest.mjs` drives T3's exit criteria over HTTP — the journeys,
+not the screens: Pilot Cars inquiry → Completed carrying a quote, Insurance →
+Converted → Active Client, Affiliate → Active with commission computed from
+12,000 × 12.5% = 1,500, Culture Plus → Won. It also asserts each move was
+logged, that `convertedAt` flipped, that LOST is refused without a reason
+whatever the department calls that stage, and that a non-member's request for
+another department's board answers 403.
+
+### Not done — §2 and §3
+
+- **Tasks and follow-ups.** The `Task` model exists (deliberately not
+  `Milestone`, which is retainer delivery inside a parked module). Nothing reads
+  it: no `/tasks` sections, no filters, no snooze, no 9am follow-up
+  notification, no dashboard count.
+- **The activity timeline UI.** `SalesActivity` now carries `departmentId`, an
+  optional `clientId` and `isSystem`, and stage moves auto-log through it — so
+  the data is accumulating correctly. The quick-log bar and the filterable
+  timeline are not built.
+- **Two nullable foreign keys, not `recordId`.** T3 specifies a polymorphic
+  `recordId` on both Activity and Task. There are only two possible targets and
+  both are known at write time, so real foreign keys keep the cascade and refuse
+  orphans. `FieldValue` gives that up only because its target table is chosen by
+  another column, which Prisma cannot express.

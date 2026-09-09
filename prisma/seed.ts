@@ -38,12 +38,17 @@ const DEPARTMENTS = [
       "Sales, quotes, dispatch coordination, scheduling and job management for pilot car work.",
     order: 1,
     stages: [
-      { key: "NEW", label: "New enquiry", sortOrder: 1 },
-      { key: "QUOTED", label: "Quoted", sortOrder: 2 },
-      { key: "SCHEDULED", label: "Scheduled", sortOrder: 3 },
-      { key: "DISPATCHED", label: "Dispatched", sortOrder: 4 },
-      { key: "COMPLETED", label: "Completed", sortOrder: 5, isWon: true },
-      { key: "LOST", label: "Lost", sortOrder: 6, isLost: true },
+      { key: "NEW_INQUIRY", label: "New Inquiry", sortOrder: 1, kind: "OPEN", colorToken: "neutral" },
+      { key: "QUALIFIED", label: "Qualified", sortOrder: 2, kind: "OPEN", colorToken: "info" },
+      { key: "QUOTE", label: "Quote", sortOrder: 3, kind: "OPEN", colorToken: "info" },
+      { key: "SCHEDULED", label: "Scheduled", sortOrder: 4, kind: "OPEN", colorToken: "warning" },
+      { key: "DISPATCHED", label: "Dispatched", sortOrder: 5, kind: "OPEN", colorToken: "warning" },
+      { key: "COMPLETED", label: "Completed", sortOrder: 6, kind: "WON", colorToken: "success" },
+      // Kept, though the T3 list omits it. The spec says "add Lost" for two of
+      // the other three departments, so its absence here reads as the same
+      // oversight rather than an intent — and without it a dead inquiry has
+      // nowhere to go, which is how a board silently fills with stale cards.
+      { key: "LOST", label: "Lost", sortOrder: 7, kind: "LOST", colorToken: "danger" },
     ],
     fields: [
       { key: "pickup_location", label: "Pickup location", type: "TEXT", order: 1, required: true },
@@ -77,12 +82,13 @@ const DEPARTMENTS = [
     description: "Insurance leads, qualification, policies and conversion.",
     order: 2,
     stages: [
-      { key: "NEW", label: "New lead", sortOrder: 1 },
-      { key: "CONTACTED", label: "Contacted", sortOrder: 2 },
-      { key: "QUALIFIED", label: "Qualified", sortOrder: 3 },
-      { key: "QUOTED", label: "Quoted", sortOrder: 4 },
-      { key: "POLICY_ISSUED", label: "Policy issued", sortOrder: 5, isWon: true },
-      { key: "LOST", label: "Lost", sortOrder: 6, isLost: true },
+      { key: "NEW_LEAD", label: "New Lead", sortOrder: 1, kind: "OPEN", colorToken: "neutral" },
+      { key: "QUALIFIED", label: "Qualified", sortOrder: 2, kind: "OPEN", colorToken: "info" },
+      { key: "CONTACTED", label: "Contacted", sortOrder: 3, kind: "OPEN", colorToken: "info" },
+      { key: "PROPOSAL", label: "Application / Proposal", sortOrder: 4, kind: "OPEN", colorToken: "warning" },
+      { key: "CONVERTED", label: "Converted", sortOrder: 5, kind: "WON", colorToken: "success" },
+      { key: "ACTIVE_CLIENT", label: "Active Client", sortOrder: 6, kind: "ACTIVE_CLIENT", colorToken: "info" },
+      { key: "LOST", label: "Lost", sortOrder: 7, kind: "LOST", colorToken: "danger" },
     ],
     fields: [
       {
@@ -115,10 +121,16 @@ const DEPARTMENTS = [
     description: "Partner onboarding, referral tracking and commission tracking.",
     order: 3,
     stages: [
-      { key: "APPLIED", label: "Applied", sortOrder: 1 },
-      { key: "ONBOARDING", label: "Onboarding", sortOrder: 2 },
-      { key: "ACTIVE", label: "Active partner", sortOrder: 3, isWon: true },
-      { key: "DECLINED", label: "Declined", sortOrder: 4, isLost: true },
+      { key: "NEW_PARTNER", label: "New Partner", sortOrder: 1, kind: "OPEN", colorToken: "neutral" },
+      { key: "QUALIFIED", label: "Qualified", sortOrder: 2, kind: "OPEN", colorToken: "info" },
+      { key: "ONBOARDING", label: "Onboarding", sortOrder: 3, kind: "OPEN", colorToken: "warning" },
+      { key: "ACTIVE", label: "Active", sortOrder: 4, kind: "WON", colorToken: "success" },
+      // Referral and Commission come *after* the win: they are what an active
+      // partner is doing, not a deal still being chased. ACTIVE_CLIENT is the
+      // kind for exactly that — converted and ongoing.
+      { key: "REFERRAL", label: "Referral", sortOrder: 5, kind: "ACTIVE_CLIENT", colorToken: "info" },
+      { key: "COMMISSION", label: "Commission", sortOrder: 6, kind: "ACTIVE_CLIENT", colorToken: "info" },
+      { key: "LOST", label: "Lost", sortOrder: 7, kind: "LOST", colorToken: "danger" },
     ],
     fields: [
       { key: "affiliate_type", label: "Affiliate type", type: "TEXT", order: 1 },
@@ -141,11 +153,14 @@ const DEPARTMENTS = [
     description: "Sales, Cam, and Life & Health Insurance under the Culture Plus Network brand.",
     order: 4,
     stages: [
-      { key: "NEW", label: "New lead", sortOrder: 1 },
-      { key: "CONTACTED", label: "Contacted", sortOrder: 2 },
-      { key: "PROPOSAL", label: "Proposal sent", sortOrder: 3 },
-      { key: "WON", label: "Won", sortOrder: 4, isWon: true },
-      { key: "LOST", label: "Lost", sortOrder: 5, isLost: true },
+      { key: "NEW_LEAD", label: "New Lead", sortOrder: 1, kind: "OPEN", colorToken: "neutral" },
+      { key: "QUALIFIED", label: "Qualified", sortOrder: 2, kind: "OPEN", colorToken: "info" },
+      { key: "CONTACTED", label: "Contacted", sortOrder: 3, kind: "OPEN", colorToken: "info" },
+      { key: "PROPOSAL", label: "Proposal", sortOrder: 4, kind: "OPEN", colorToken: "warning" },
+      { key: "NEGOTIATION", label: "Negotiation", sortOrder: 5, kind: "OPEN", colorToken: "warning" },
+      { key: "WON", label: "Won", sortOrder: 6, kind: "WON", colorToken: "success" },
+      { key: "ACTIVE_CLIENT", label: "Active Client", sortOrder: 7, kind: "ACTIVE_CLIENT", colorToken: "info" },
+      { key: "LOST", label: "Lost", sortOrder: 8, kind: "LOST", colorToken: "danger" },
     ],
     fields: [
       {
@@ -314,16 +329,16 @@ async function main() {
         update: {
           label: stage.label,
           sortOrder: stage.sortOrder,
-          isWon: "isWon" in stage ? stage.isWon : false,
-          isLost: "isLost" in stage ? stage.isLost : false,
+          kind: stage.kind,
+          colorToken: stage.colorToken,
         },
         create: {
           departmentId: department.id,
           key: stage.key,
           label: stage.label,
           sortOrder: stage.sortOrder,
-          isWon: "isWon" in stage ? stage.isWon : false,
-          isLost: "isLost" in stage ? stage.isLost : false,
+          kind: stage.kind,
+          colorToken: stage.colorToken,
         },
       });
     }

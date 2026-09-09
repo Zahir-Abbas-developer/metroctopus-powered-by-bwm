@@ -112,6 +112,7 @@ const LEAD_ROW = {
   country: "GB",
   interestedServices: ["google-ads"],
   estimatedMonthlyValue: 6500,
+  dealValue: 6500,
   ownerId: "bd",
   stage: "NEGOTIATION",
   stageChangedAt: new Date("2026-08-01T00:00:00Z"),

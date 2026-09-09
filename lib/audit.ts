@@ -33,6 +33,7 @@ export const AUDIT_ACTIONS = [
   "DEPARTMENT_MEMBERS_CHANGED",
   "DEPARTMENT_FIELDS_CHANGED",
   "CLIENT_FIELDS_CHANGED",
+  "DEPARTMENT_STAGES_CHANGED",
   "MODULE_TOGGLED",
 ] as const;
 
@@ -57,6 +58,7 @@ export const AUDIT_ACTION_LABEL: Record<AuditAction, string> = {
   DEPARTMENT_MEMBERS_CHANGED: "Changed department members",
   DEPARTMENT_FIELDS_CHANGED: "Changed department fields",
   CLIENT_FIELDS_CHANGED: "Edited client fields",
+  DEPARTMENT_STAGES_CHANGED: "Changed department pipeline",
   MODULE_TOGGLED: "Switched a module on or off",
 };
 

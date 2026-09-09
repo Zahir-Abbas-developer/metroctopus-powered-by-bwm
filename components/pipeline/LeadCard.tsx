@@ -73,10 +73,22 @@ export function LeadCard({
       </div>
 
       <div className="mt-2.5 flex items-center justify-between gap-2 pl-1">
-        <span className="font-display text-sm font-bold tabular-nums text-ink">
-          {formatMoney(lead.estimatedMonthlyValue, true)}
-          <span className="ml-0.5 text-[11px] font-medium text-ink/35">/mo</span>
-        </span>
+        {/* Money is absent, not zero, for viewers the server strips it from —
+            rendering formatMoney(undefined) is how a card threw for every
+            non-owner. What the deal is worth leads; the monthly figure is the
+            fallback for a lead priced before dealValue existed. */}
+        {lead.dealValue !== undefined && lead.dealValue > 0 ? (
+          <span className="font-display text-sm font-bold tabular-nums text-ink">
+            {formatMoney(lead.dealValue, true)}
+          </span>
+        ) : lead.estimatedMonthlyValue !== undefined ? (
+          <span className="font-display text-sm font-bold tabular-nums text-ink">
+            {formatMoney(lead.estimatedMonthlyValue, true)}
+            <span className="ml-0.5 text-[11px] font-medium text-ink/35">/mo</span>
+          </span>
+        ) : (
+          <span />
+        )}
 
         {lead.owner && (
           <Avatar

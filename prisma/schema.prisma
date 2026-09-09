@@ -92,6 +92,8 @@ model User {
 
   @@index([role])
   @@index([isActive])
+  tasksAssigned Task[] @relation("TaskAssignee")
+  tasksCreated  Task[] @relation("TaskCreator")
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,8 @@ model Client {
   @@index([nextFollowUpAt])
   @@index([status])
   @@index([businessName])
+  activities SalesActivity[]
+  tasks      Task[]
 }
 
 /// The agency's offerings. Seeded, and editable by the owner.
@@ -863,6 +867,11 @@ model Lead {
   interestedServices    String    @default("")
   /// Whole currency units per month, matching Client.monthlyBudget.
   estimatedMonthlyValue Int       @default(0)
+  /// What this deal is worth — a Pilot Cars quote, an insurance premium, an
+  /// affiliate's expected volume. Whole currency units, like every other money
+  /// column here. Optional per department: a business line that does not price
+  /// at the lead stage leaves it at zero.
+  dealValue             Int       @default(0)
   ownerId               String?
   /// "NEW" | "CONTACTED" | "MEETING_BOOKED" | "PROPOSAL_SENT" | "NEGOTIATION"
   /// | "WON" | "LOST"
@@ -891,24 +900,78 @@ model Lead {
   @@index([nextFollowUpAt])
   @@index([stage, stageChangedAt])
   @@index([ownerId, stage])
+  tasks Task[]
 }
 
 /// One recorded piece of sales work. The unit activity targets count.
 model SalesActivity {
-  id         String   @id @default(cuid())
-  leadId     String
-  userId     String
-  /// "CALL" | "EMAIL" | "DM" | "MEETING" | "FOLLOW_UP" | "PROPOSAL_SENT"
-  type       String
-  note       String
-  occurredAt DateTime @default(now())
-  createdAt  DateTime @default(now())
+  id           String   @id @default(cuid())
+  departmentId String
+  /// Exactly one of these is set. Two nullable foreign keys rather than a bare
+  /// polymorphic `recordId`: there are only two possible targets and both are
+  /// known when the row is written, so the database can still cascade a delete
+  /// and refuse an orphan. FieldValue gives that up only because its target
+  /// table is decided by another column, which Prisma cannot express.
+  leadId       String?
+  clientId     String?
+  userId       String
+  /// One of ACTIVITY_TYPES in lib/constants.ts.
+  type         String
+  note         String
+  /// True when the app wrote this rather than a person — a stage move, a
+  /// reassignment. Kept apart so the timeline can distinguish what somebody did
+  /// from what merely happened.
+  isSystem     Boolean  @default(false)
+  occurredAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
 
-  lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  client     Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, occurredAt])
   @@index([leadId, occurredAt])
+  @@index([clientId, occurredAt])
+  @@index([departmentId, occurredAt])
+}
+
+/// A piece of follow-up work on a lead or a client.
+///
+/// Deliberately not `Milestone`, which is retainer delivery inside a parked
+/// module: a milestone is a scheduled deliverable on a monthly plan, a task is
+/// "ring them back on Thursday". Sharing one table would tie the CRM's daily
+/// working surface to a module CLAUDE.md says is switched off.
+model Task {
+  id           String    @id @default(cuid())
+  departmentId String
+  /// Exactly one, for the same reason as SalesActivity above.
+  leadId       String?
+  clientId     String?
+  title        String
+  note         String?
+  assigneeId   String?
+  createdById  String?
+  dueAt        DateTime?
+  /// One of TASK_PRIORITIES in lib/constants.ts.
+  priority     String    @default("MEDIUM")
+  /// One of TASK_STATUSES in lib/constants.ts.
+  status       String    @default("OPEN")
+  completedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  lead       Lead?      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  client     Client?    @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  assignee   User?      @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy  User?      @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([assigneeId, status, dueAt])
+  @@index([departmentId, status])
+  @@index([leadId])
+  @@index([clientId])
 }
 
 /// A standing weekly activity target for one person.
@@ -1218,6 +1281,8 @@ model Department {
   leads       Lead[]
 
   @@index([isActive, order])
+  activities   SalesActivity[]
+  tasks        Task[]
 }
 
 /// Which departments a person works in, and what they do there.
@@ -1263,10 +1328,15 @@ model PipelineStage {
   key          String
   label        String
   sortOrder    Int     @default(0)
-  /// Terminal stages. A department should have exactly one of each; the app
-  /// reads these rather than string-matching "WON" or "LOST".
-  isWon        Boolean @default(false)
-  isLost       Boolean @default(false)
+  /// One of STAGE_KINDS in lib/constants.ts: OPEN | WON | LOST | ACTIVE_CLIENT.
+  ///
+  /// Replaces the isWon/isLost pair. Two booleans could express "won and lost
+  /// at once", which is not a state a deal can be in, and left nowhere to put
+  /// the ACTIVE_CLIENT stages that sit *after* a win. The app reads this rather
+  /// than string-matching "WON", because stage keys are admin-editable.
+  kind         String  @default("OPEN")
+  /// A DEPARTMENT_COLOR_TOKENS value, tinting this column on the board.
+  colorToken   String?
   isActive     Boolean @default(true)
 
   createdAt DateTime @default(now())

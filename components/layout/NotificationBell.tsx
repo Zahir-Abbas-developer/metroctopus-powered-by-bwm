@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Trophy,
+  PhoneCall,
   Bell,
   CheckCheck,
   CheckCircle2,
@@ -40,6 +42,8 @@ const ICONS: Record<NotificationType, typeof Bell> = {
   REPORT_READY: FileText,
   AVAILABILITY_CHECK: BellRing,
   REVIEW_OVERDUE: Hourglass,
+  LEAD_WON: Trophy,
+  FOLLOW_UP_DUE: PhoneCall,
 };
 
 const TONE_CLASSES: Record<string, string> = {

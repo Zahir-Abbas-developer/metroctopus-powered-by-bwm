@@ -27,6 +27,8 @@ const leadSchema = z.object({
   /** ServiceCatalog slugs. */
   interestedServices: z.array(z.string().min(1)).max(20).default([]),
   estimatedMonthlyValue: z.number().int().min(0).max(1_000_000).default(0),
+  /** What the deal is worth: a quote, a premium, an expected volume. */
+  dealValue: z.number().int().min(0).max(100_000_000).default(0),
   ownerId: z.string().min(1).nullish(),
   notes: z.string().trim().max(2000).nullish(),
   /** Opening stage, from this department's pipeline. */
@@ -102,6 +104,7 @@ export async function GET(request: Request) {
       country: lead.country,
       interestedServices: splitSlugs(lead.interestedServices),
       estimatedMonthlyValue: lead.estimatedMonthlyValue,
+      dealValue: lead.dealValue,
       stage: lead.stage,
       stageChangedAt: lead.stageChangedAt,
       lostReason: lead.lostReason,
@@ -158,7 +161,7 @@ export async function POST(request: Request) {
   const stages = await prisma.pipelineStage.findMany({
     where: { departmentId: department.id, isActive: true },
     orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
-    select: { key: true, isWon: true, isLost: true },
+    select: { key: true, kind: true },
   });
   if (stages.length === 0) {
     return apiError("That department has no pipeline stages yet", 422, {
@@ -166,7 +169,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const opening = stages.find((stage) => !stage.isWon && !stage.isLost) ?? stages[0];
+  const opening = stages.find((stage) => stage.kind === "OPEN") ?? stages[0];
   const stage = data.stage ?? opening.key;
   if (!stages.some((row) => row.key === stage)) {
     return apiError("Pick a stage", 422, { stage: "That stage isn't in this pipeline" });
@@ -200,6 +203,7 @@ export async function POST(request: Request) {
       country: data.country || null,
       interestedServices: data.interestedServices.join(","),
       estimatedMonthlyValue: data.estimatedMonthlyValue,
+      dealValue: data.dealValue,
       // Unowned leads are invisible work. Whoever adds one owns it unless the
       // owner says otherwise.
       ownerId: data.ownerId ?? user.id,

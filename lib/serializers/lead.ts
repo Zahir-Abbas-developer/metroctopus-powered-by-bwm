@@ -20,6 +20,8 @@ export type LeadSource = {
   country: string | null;
   interestedServices: string[];
   estimatedMonthlyValue: number | null;
+  /** What the deal is worth. Money, so it follows the same rule. */
+  dealValue: number | null;
   ownerId: string | null;
   stage: string;
   stageChangedAt: Date | string;
@@ -31,18 +33,22 @@ export type LeadSource = {
   createdAt: Date | string;
 };
 
-export type SerializedLead = Omit<LeadSource, "estimatedMonthlyValue" | "stageChangedAt" | "createdAt"> & {
+export type SerializedLead = Omit<
+  LeadSource,
+  "estimatedMonthlyValue" | "dealValue" | "stageChangedAt" | "createdAt"
+> & {
   stageChangedAt: string;
   createdAt: string;
   /** Owner, or the business developer who owns this deal. Absent otherwise. */
   estimatedMonthlyValue?: number | null;
+  dealValue?: number | null;
 };
 
 const iso = (value: Date | string): string =>
   typeof value === "string" ? value : value.toISOString();
 
 export function serializeLead(lead: LeadSource, viewer: Viewer): SerializedLead {
-  const { estimatedMonthlyValue, ...rest } = lead;
+  const { estimatedMonthlyValue, dealValue, ...rest } = lead;
 
   const result: SerializedLead = {
     ...rest,
@@ -50,8 +56,12 @@ export function serializeLead(lead: LeadSource, viewer: Viewer): SerializedLead 
     createdAt: iso(lead.createdAt),
   };
 
+  // Both figures are money and both are stripped by the same rule. Adding
+  // dealValue outside this guard would have quietly reintroduced the leak the
+  // guard was written to close.
   if (canSeeDealValue(viewer, { ownerId: lead.ownerId })) {
     result.estimatedMonthlyValue = estimatedMonthlyValue;
+    result.dealValue = dealValue;
   }
 
   return result;

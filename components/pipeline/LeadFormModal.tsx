@@ -13,12 +13,13 @@ import { DepartmentPicker } from "@/components/fields/DepartmentPicker";
 import { DynamicFields } from "@/components/fields/DynamicFields";
 import { AssigneePicker } from "@/components/fields/AssigneePicker";
 import { LEAD_SOURCES, LEAD_SOURCE_LABEL, type LeadSource } from "@/lib/pipeline-types";
+import type { StageKind } from "@/lib/constants";
 import type { CreatableDepartment } from "@/lib/departments";
 import type { FieldDefinitionView, FieldValueMap } from "@/lib/fields";
 import type { AssignableMember } from "@/lib/assignment";
 import { cn } from "@/lib/utils";
 
-type Stage = { key: string; label: string; isWon: boolean; isLost: boolean };
+type Stage = { key: string; label: string; kind: StageKind; colorToken: string | null };
 
 type FormContext = {
   fields: FieldDefinitionView[];
@@ -34,6 +35,7 @@ type Draft = {
   country: string;
   source: LeadSource;
   estimatedMonthlyValue: string;
+  dealValue: string;
   interestedServices: string[];
   ownerId: string;
   stage: string;
@@ -49,6 +51,7 @@ function emptyDraft(): Draft {
     country: "",
     source: "OUTREACH",
     estimatedMonthlyValue: "",
+    dealValue: "",
     interestedServices: [],
     ownerId: "",
     stage: "",
@@ -160,7 +163,7 @@ export function LeadFormModal({
     if (!next) return;
 
     // Open at the first non-terminal stage this department actually has.
-    const opening = next.stages.find((stage) => !stage.isWon && !stage.isLost);
+    const opening = next.stages.find((stage) => stage.kind === "OPEN");
     setDraft((current) => ({ ...current, stage: opening?.key ?? next.stages[0]?.key ?? "" }));
     setStep(1);
   }
@@ -209,6 +212,7 @@ export function LeadFormModal({
           country: draft.country,
           source: draft.source,
           estimatedMonthlyValue: Number(draft.estimatedMonthlyValue || 0),
+          dealValue: Number(draft.dealValue || 0),
           interestedServices: draft.interestedServices,
           ...(canAssign && draft.ownerId ? { ownerId: draft.ownerId } : {}),
           ...(draft.stage ? { stage: draft.stage } : {}),
@@ -314,6 +318,16 @@ export function LeadFormModal({
                 error={errors.estimatedMonthlyValue}
                 onChange={(event) => set("estimatedMonthlyValue", event.target.value)}
                 hint="What the retainer would be worth"
+              />
+              <Input
+                label="Deal value"
+                type="number"
+                min={0}
+                icon={<span className="text-[13px]">$</span>}
+                value={draft.dealValue}
+                error={errors.dealValue}
+                onChange={(event) => set("dealValue", event.target.value)}
+                hint="The quote, premium or expected volume"
               />
               <Select
                 label="Where they came from"
@@ -441,6 +455,7 @@ const CORE_KEYS = new Set([
   "phone",
   "country",
   "estimatedMonthlyValue",
+  "dealValue",
   "source",
   "notes",
 ]);

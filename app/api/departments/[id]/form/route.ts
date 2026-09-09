@@ -56,7 +56,7 @@ export async function GET(request: Request, { params }: { params: { id: string }
     prisma.pipelineStage.findMany({
       where: { departmentId: department.id, isActive: true },
       orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
-      select: { key: true, label: true, isWon: true, isLost: true },
+      select: { key: true, label: true, kind: true, colorToken: true },
     }),
     assignableMembers(department.id, context),
   ]);
