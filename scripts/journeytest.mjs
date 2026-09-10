@@ -357,6 +357,76 @@ async function main() {
     });
     check(snoozed.ok, "a follow-up can be snoozed", String(snoozed.status));
 
+    // ------------------------------------------------------------- timeline --
+    if (createdLeads.length > 0) {
+      const timelineLead = createdLeads[0];
+
+      const logged = await admin.fetch("/api/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: timelineLead,
+          type: "CALL",
+          note: "Journey — spoke to the operations manager",
+        }),
+      });
+      check(logged.status === 201, "an activity can be logged by hand", String(logged.status));
+
+      const timeline = await (
+        await admin.fetch(`/api/activities?leadId=${timelineLead}`)
+      ).json();
+
+      const entries = timeline.activities ?? [];
+      check(entries.length > 0, "the timeline returns entries");
+      check(
+        entries.some((entry) => entry.isSystem === false),
+        "a hand-logged entry is marked as not automatic",
+      );
+      check(
+        entries.some((entry) => entry.isSystem === true),
+        "system entries appear alongside logged ones",
+      );
+      check(Boolean(timeline.counts), "counts are returned for the filter chips");
+
+      // Filtering narrows the list without changing the counts behind the chips.
+      const filtered = await (
+        await admin.fetch(`/api/activities?leadId=${timelineLead}&type=CALL`)
+      ).json();
+      check(
+        (filtered.activities ?? []).every((entry) => entry.type === "CALL"),
+        "filtering by type returns only that type",
+      );
+
+      // A system entry is a record of what happened, not a claim to retract.
+      const systemEntry = entries.find((entry) => entry.isSystem);
+      if (systemEntry) {
+        const refused = await admin.fetch(`/api/activities?id=${systemEntry.id}`, {
+          method: "DELETE",
+        });
+        check(
+          refused.status === 403,
+          "an automatic entry cannot be deleted",
+          `status ${refused.status}`,
+        );
+      }
+
+      // Only the loggable vocabulary is accepted by hand.
+      const forged = await admin.fetch("/api/activities", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: timelineLead,
+          type: "STATUS_CHANGE",
+          note: "Pretending the app did this",
+        }),
+      });
+      check(
+        forged.status === 422,
+        "a person cannot log a system-only type",
+        `status ${forged.status}`,
+      );
+    }
+
     // ---------------------------------------------------------------- scoping --
     const member = new Session("member");
     await member.signIn(MEMBER, SEED_PASSWORD);

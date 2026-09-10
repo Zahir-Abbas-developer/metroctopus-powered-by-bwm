@@ -2703,3 +2703,104 @@ The activity timeline UI. `SalesActivity` carries `departmentId`, an optional
 `clientId` and `isSystem`; stage moves, snoozes and logged outcomes all write to
 it, so the data is accumulating correctly and correctly attributed. The
 quick-log bar and the filterable timeline are not built.
+
+## BWM Phase T3, part 3 — the activity timeline (9 September 2026)
+
+**Section 3 of three. T3 is complete.**
+
+### One timeline, both record types
+
+`GET/POST/DELETE /api/activities` serves leads and clients from one endpoint,
+because a record's history should not change shape when it converts: the calls
+made while it was a lead are the same calls afterwards, and a separate endpoint
+per table is how the two drift.
+
+The rail marks two kinds of entry and never merges them. A person logging a call
+is a claim; the app recording a stage move is a fact. "Coach D moved this to
+Quote" and "Coach D says he called them" carry different weight, and a timeline
+that blurs them is worth less than one that says nothing.
+
+Consequences of that distinction, both enforced server-side:
+
+- A person **cannot log** STATUS_CHANGE or ASSIGNMENT. Only
+  `LOGGABLE_ACTIVITY_TYPES` are accepted, or the "automatic" marker would be a
+  claim rather than a fact.
+- An automatic entry **cannot be deleted** by anyone, admin included. A
+  removable record is a draft.
+
+Filter counts are of the whole timeline, not the filtered slice — a chip
+showing what it would return *after* you applied it is no help in deciding
+whether to apply it.
+
+### Three activity vocabularies, reconciled
+
+`ACTIVITY_TYPES` existed in three places: `lib/activity.ts` (the milestone audit
+trail — a different domain, name collision only), `lib/pipeline-types.ts` (the
+original sales list, which drives weekly target bucketing), and the one T3 added
+to `lib/constants.ts`. Adding a third without reconciling was my doing.
+
+`lib/constants.ts` is canonical for `SalesActivity.type` now. The old list stays
+because rows already carry `DM` and `PROPOSAL_SENT`; deleting the values would
+not delete the history, it would leave stored activities that no label renders
+and no bucket counts. `bucketFor` is keyed by string and covers both, so
+historical rows count exactly as they did and T3's `QUOTE` counts as a proposal.
+`STATUS_CHANGE` and `ASSIGNMENT` are deliberately unbucketed: the app writes
+them, and letting them count would let somebody hit an outreach target by
+dragging a card back and forth.
+
+### The duplicate stage-move path, found and deleted
+
+The board called `moveLeadStage`; the lead drawer's PATCH called a *second*
+implementation, `moveStage` in lib/pipeline.ts, which compared
+`stage === "WON"` — a literal that after T3 **only Culture Plus has**.
+
+So the same move made two ways did two different things. Dragging a Pilot Cars
+card to Completed paid the bonus, notified and logged; editing the same lead to
+Completed from the drawer did none of it, because "COMPLETED" is not "WON". The
+drawer now delegates to the same function, and `moveStage` is deleted — a
+superseded duplicate, not parked module code, and the danger of a second
+implementation is exactly that somebody calls it.
+
+`moveLeadStage` absorbed what it did: the won-deal payout (gated on the parked
+scoring module, so an award is never written into a switched-off ledger) and the
+loss notification.
+
+### Auto-logged system events
+
+Stage moves, follow-up snoozes and logged outcomes already wrote to the
+timeline. Added here: **reassignment** ("why is this mine?" should not need an
+audit export to answer) and **client field edits**. The audit log answers "who
+changed what" for an admin; the timeline answers "what has happened to this
+record" for whoever picks it up next, and only one of those is on the record's
+own page.
+
+### The drawer's bespoke section, replaced
+
+The lead drawer had its own log bar and rail. It could not show system entries
+and had no filter, so a stage move made *from that drawer* was invisible in the
+timeline directly beneath it. Replaced with the shared component — which meant
+carrying its delete control across rather than dropping a working capability.
+
+### Stability gate
+
+```
+npx tsc --noEmit      ✓ clean
+npm test              ✓ 421/421
+npm run smoke         ✓ every route × every role
+npm run smoke:empty   ✓ every route × every role
+npm run permtest      ✓ 171 checks
+npm run leaks         ✓ no owner-only value reached a non-owner
+npm run fieldtest     ✓ 45 checks
+npm run journeytest   ✓ 78 checks (70 + timeline)
+npm run smoke:browser ✓ 69 pages hydrated across 3 roles
+```
+
+### Still outstanding, carried from before
+
+- `ClientWizard` is still department-last; leads were converted, clients not.
+- The clients list is still `requireAdminApi`. Its rows and chips both derive
+  from `departmentIdsForUser`, so widening the gate scopes them together — but
+  that is a permissions decision, not a tidy-up.
+- Department scoping is enforced on **creation and writes**, not on reads: no
+  pipeline or lead list query filters by department yet.
+- `User.jobTitle` still drives auto-assignment in `lib/templates.ts`.

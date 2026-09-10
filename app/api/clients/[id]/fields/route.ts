@@ -89,6 +89,20 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   );
 
   if (changed.length > 0) {
+    // The audit log answers "who changed what" for an admin; the timeline
+    // answers "what has happened to this client" for whoever picks it up next.
+    // Both are worth having, and only one of them is on the record's own page.
+    await prisma.salesActivity.create({
+      data: {
+        departmentId: client.departmentId,
+        clientId: client.id,
+        userId: user!.id,
+        type: "NOTE",
+        isSystem: true,
+        note: `Updated ${changed.map((definition) => definition.label).join(", ")}`,
+      },
+    });
+
     await recordAudit({
       actorId: user!.id,
       action: "CLIENT_FIELDS_CHANGED",

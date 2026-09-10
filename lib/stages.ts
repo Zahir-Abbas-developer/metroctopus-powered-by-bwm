@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { notify } from "@/lib/notifications";
 import { fieldsFor, valuesFor } from "@/lib/fields";
+import { getSettings } from "@/lib/settings";
+import { applyEvents } from "@/lib/score-service";
+import { isModuleEnabled } from "@/lib/modules";
 import {
   ADMIN_ROLES,
   TERMINAL_STAGE_KINDS,
@@ -163,19 +166,63 @@ export async function moveLeadStage(options: {
     },
   });
 
-  if (winning) await notifyWon(lead, target, options.actorId);
+  if (winning) {
+    await awardWonDeal(lead, options.actorId, now);
+    await notifyOutcome(lead, target, options.actorId);
+  } else if (target.kind === "LOST") {
+    await notifyOutcome(lead, target, options.actorId, options.lostReason ?? null);
+  }
 
   return { ok: true, stage: target, converted: winning && !lead.convertedAt };
 }
 
 /**
- * Tell the assignee and every admin that a deal landed.
+ * The won-deal bonus.
+ *
+ * Gated on the scoring module, which is parked: an award written while the
+ * ledger is switched off would surface as an unexplained score the day somebody
+ * turned it back on. Deduped per lead forever, so dragging a card in and out of
+ * a winning stage cannot mint a second payout.
+ *
+ * Carried over from the older `moveStage`, which this function replaced. That
+ * one compared `stage === "WON"` — a literal only Culture Plus has, so a Pilot
+ * Cars deal reaching Completed never paid out at all.
+ */
+async function awardWonDeal(
+  lead: { id: string; businessName: string; ownerId: string | null; dealValue: number },
+  actorId: string,
+  at: Date,
+) {
+  if (!lead.ownerId) return;
+  if (!(await isModuleEnabled("scoring"))) return;
+
+  const settings = await getSettings();
+
+  await applyEvents(
+    [
+      {
+        userId: lead.ownerId,
+        milestoneId: null,
+        type: "DEAL_WON",
+        points: Math.abs(settings.bonusDealWon),
+        reason: `Closed ${lead.businessName}${
+          lead.dealValue > 0 ? ` — $${lead.dealValue.toLocaleString("en-US")}` : ""
+        }.`,
+        dedupeKey: `lead:${lead.id}:WON`,
+      },
+    ],
+    { at, createdById: actorId },
+  );
+}
+
+/**
+ * Tell the assignee and every admin how a deal ended.
  *
  * The actor is skipped: they just did it, and a notification telling someone
  * what they themselves have this second done is noise that trains people to
  * ignore the bell.
  */
-async function notifyWon(
+async function notifyOutcome(
   lead: {
     id: string;
     businessName: string;
@@ -185,6 +232,7 @@ async function notifyWon(
   },
   stage: StageView,
   actorId: string,
+  lostReason: string | null = null,
 ) {
   const admins = await prisma.user.findMany({
     where: { role: { in: [...ADMIN_ROLES] }, isActive: true },
@@ -195,18 +243,23 @@ async function notifyWon(
   if (lead.ownerId) recipients.add(lead.ownerId);
   recipients.delete(actorId);
 
+  const lost = stage.kind === "LOST";
+
   for (const userId of recipients) {
     await notify({
       userId,
-      type: "LEAD_WON",
-      title: `${lead.businessName} reached ${stage.label}`,
-      body:
-        `${lead.department.shortLabel}` +
-        (lead.dealValue > 0 ? ` — ${lead.dealValue.toLocaleString()}` : ""),
+      type: lost ? "WORK_REJECTED" : "LEAD_WON",
+      title: lost
+        ? `${lead.businessName} was lost`
+        : `${lead.businessName} reached ${stage.label}`,
+      body: lost
+        ? `${lead.department.shortLabel}${lostReason ? ` — ${lostReason}` : ""}`
+        : `${lead.department.shortLabel}` +
+          (lead.dealValue > 0 ? ` — ${lead.dealValue.toLocaleString()}` : ""),
       href: `/pipeline?lead=${lead.id}`,
       // One notification per lead per stage, however many times a card is
       // dragged back and forth across the line.
-      dedupeKey: `lead-won:${lead.id}:${stage.key}:${userId}`,
+      dedupeKey: `lead-outcome:${lead.id}:${stage.key}:${userId}`,
     });
   }
 }

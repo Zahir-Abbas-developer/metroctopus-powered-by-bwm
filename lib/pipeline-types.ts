@@ -74,6 +74,18 @@ export const LEAD_SOURCE_LABEL: Record<LeadSource, string> = {
 // Activities
 // ---------------------------------------------------------------------------
 
+/**
+ * The original sales-activity vocabulary.
+ *
+ * Superseded as the *canonical* list by ACTIVITY_TYPES in lib/constants.ts,
+ * which T3 widened: it adds NOTE, QUOTE and OTHER for logging by hand, plus
+ * STATUS_CHANGE and ASSIGNMENT for events the app writes itself.
+ *
+ * Kept because rows already carry `DM` and `PROPOSAL_SENT`. Deleting the values
+ * would not delete the history — it would leave stored activities that no label
+ * renders and no bucket counts, which is a worse outcome than an unused enum.
+ * New logging offers LOGGABLE_ACTIVITY_TYPES from lib/constants.ts.
+ */
 export const ACTIVITY_TYPES = [
   "CALL",
   "EMAIL",
@@ -127,17 +139,30 @@ export const BUCKET_DESCRIPTION: Record<ActivityBucket, string> = {
   MEETING: "Calls and meetings actually held",
 };
 
-const BUCKET_OF: Record<ActivityType, ActivityBucket> = {
+/**
+ * Which weekly target an activity counts towards.
+ *
+ * Keyed by string rather than by the legacy enum so it can cover both
+ * vocabularies at once. Historical `DM` and `PROPOSAL_SENT` rows keep counting
+ * exactly as they did; T3's `QUOTE` counts as a proposal, because that is what
+ * it is under a different name.
+ *
+ * `STATUS_CHANGE` and `ASSIGNMENT` are deliberately absent: the app writes
+ * those itself, and letting them count would let somebody hit an outreach
+ * target by dragging a card back and forth.
+ */
+const BUCKET_OF: Record<string, ActivityBucket> = {
   CALL: "OUTREACH",
   EMAIL: "OUTREACH",
   DM: "OUTREACH",
   FOLLOW_UP: "FOLLOW_UP",
   PROPOSAL_SENT: "PROPOSAL",
+  QUOTE: "PROPOSAL",
   MEETING: "MEETING",
 };
 
 export function bucketFor(type: string): ActivityBucket | null {
-  return isActivityType(type) ? BUCKET_OF[type] : null;
+  return BUCKET_OF[type] ?? null;
 }
 
 export function isActivityBucket(value: string): value is ActivityBucket {

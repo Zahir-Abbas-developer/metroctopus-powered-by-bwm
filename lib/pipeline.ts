@@ -33,100 +33,16 @@ export type StageMoveResult =
   | { ok: false; reason: string; field?: string };
 
 /**
- * Moves a lead to a new stage.
+ * Stage moves used to live here as `moveStage`. They now live in
+ * lib/stages.ts as `moveLeadStage`, which reads each department's own
+ * `PipelineStage` rows instead of comparing against the literals "WON" and
+ * "LOST" — literals that, after T3, only one of the four departments has.
  *
- * Deliberately permissive about direction: a deal that goes back from
- * NEGOTIATION to CONTACTED is a real thing that happens, and a state machine
- * that forbade it would just get worked around by deleting and re-creating
- * the lead, losing the activity history that makes the pipeline worth having.
- *
- * The two closed stages are the exceptions. LOST needs a reason, because the
- * reason is the entire point of recording it. WON pays out once — the dedupe
- * key sees to that, so dragging a card out of WON and back in cannot mint a
- * second bonus.
+ * Deleted rather than left in place: this is a superseded duplicate, not parked
+ * module code, and the danger of a second implementation is precisely that
+ * somebody calls it.
  */
-export async function moveStage(options: {
-  leadId: string;
-  stage: LeadStage;
-  actorId: string;
-  lostReason?: string | null;
-  lostNote?: string | null;
-  now?: Date;
-}): Promise<StageMoveResult> {
-  const now = options.now ?? new Date();
-  const settings = await getSettings();
 
-  const lead = await prisma.lead.findUnique({
-    where: { id: options.leadId },
-    include: { owner: { select: { id: true, name: true } } },
-  });
-  if (!lead) return { ok: false, reason: "That lead no longer exists." };
-  if (lead.stage === options.stage) return { ok: true, scored: 0 };
-
-  if (options.stage === "LOST" && !options.lostReason) {
-    return {
-      ok: false,
-      reason: "Say why it was lost — that's the data worth keeping.",
-      field: "lostReason",
-    };
-  }
-
-  await prisma.lead.update({
-    where: { id: lead.id },
-    data: {
-      stage: options.stage,
-      stageChangedAt: now,
-      // Moving back out of LOST clears the reason rather than leaving a stale
-      // "too expensive" hanging off a live deal.
-      lostReason: options.stage === "LOST" ? (options.lostReason ?? null) : null,
-      lostNote: options.stage === "LOST" ? (options.lostNote ?? null) : null,
-    },
-  });
-
-  let scored = 0;
-
-  if (options.stage === "WON" && lead.ownerId) {
-    scored = await applyEvents(
-      [
-        {
-          userId: lead.ownerId,
-          milestoneId: null,
-          type: "DEAL_WON",
-          points: Math.abs(settings.bonusDealWon),
-          reason: `Closed ${lead.businessName}${
-            lead.estimatedMonthlyValue > 0
-              ? ` — $${lead.estimatedMonthlyValue.toLocaleString("en-US")}/month`
-              : ""
-          }.`,
-          // One payout per lead, forever. Dragging in and out of WON cannot
-          // mint a second bonus.
-          dedupeKey: `lead:${lead.id}:WON`,
-        },
-      ],
-      { at: now, createdById: options.actorId },
-    );
-  }
-
-  // The owner hears about a deal closing and about one being lost — both are
-  // things they would otherwise find out about days later in a standup.
-  if (options.stage === "WON" || options.stage === "LOST") {
-    for (const recipient of await admins()) {
-      if (recipient.id === options.actorId) continue;
-      await notify({
-        userId: recipient.id,
-        type: options.stage === "WON" ? "WORK_APPROVED" : "WORK_REJECTED",
-        title: options.stage === "WON" ? "Deal won" : "Deal lost",
-        body:
-          options.stage === "WON"
-            ? `${lead.businessName} closed by ${lead.owner?.name ?? "the team"}.`
-            : `${lead.businessName} was lost: ${options.lostReason}.`,
-        href: "/pipeline",
-      });
-    }
-  }
-
-  return { ok: true, scored };
-}
 
 // ---------------------------------------------------------------------------
 // Activities

@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { ClientEditModal } from "@/components/clients/ClientEditModal";
 import { NewEngagementModal } from "@/components/clients/NewEngagementModal";
 import { RecordFieldsPanel } from "@/components/fields/RecordFieldsPanel";
+import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import {
   CLIENT_STATUS_LABEL,
   CLIENT_STATUS_TONE,
@@ -197,6 +198,10 @@ export function ClientDetail({
               description="Recorded by this client's business line."
               canEdit
             />
+          </div>
+
+          <div className="lg:col-span-3">
+            <ActivityTimeline clientId={client.id} />
           </div>
 
           {health && (

@@ -12,6 +12,7 @@ import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
+import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
 import { formatDateTime, formatDate } from "@/lib/date";
 import {
   ACTIVITY_LABEL,
@@ -29,6 +30,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type Detail = {
+  viewer?: { id: string; isAdmin: boolean };
   lead: {
     id: string;
     businessName: string;
@@ -286,100 +288,18 @@ export function LeadDrawer({
             )}
           </div>
 
-          {/* Quick log */}
-          {!closed && data.canEdit && (
-            <div>
-              <p className="mb-2 text-[13px] font-medium text-ink/80">Log what you did</p>
-              <div className="mb-2 flex flex-wrap gap-1.5">
-                {ACTIVITY_TYPES.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setType(option)}
-                    className={cn(
-                      "rounded-pill border px-3 py-1.5 text-[13px] transition-colors",
-                      type === option
-                        ? "border-brand bg-brand text-paper"
-                        : "border-line bg-white text-ink/55 hover:border-ink/25",
-                    )}
-                  >
-                    {ACTIVITY_LABEL[option]}
-                  </button>
-                ))}
-              </div>
+          {/* The shared timeline: same quick-log bar, same rail, and — unlike
+              the bespoke section this replaced — it shows the entries the app
+              writes itself. A stage move made from this drawer was invisible
+              here while being visible nowhere else. */}
+          <ActivityTimeline
+            leadId={lead.id}
+            canLog={!closed && data.canEdit}
+            viewerId={data.viewer?.id}
+            isAdmin={Boolean(data.viewer?.isAdmin)}
+            onChanged={onChanged}
+          />
 
-              <Textarea
-                rows={2}
-                value={note}
-                placeholder="Spoke to Claire, walking her through the funnel audit next Tuesday."
-                onChange={(event) => setNote(event.target.value)}
-              />
-
-              <Button
-                className="mt-2"
-                size="sm"
-                loading={busy}
-                disabled={note.trim().length < 3}
-                onClick={() => void log()}
-              >
-                Log {ACTIVITY_LABEL[type].toLowerCase()}
-              </Button>
-            </div>
-          )}
-
-          {/* Timeline */}
-          <div>
-            <p className="mb-3 text-[13px] font-medium text-ink/80">
-              Activity
-              {lead.activities.length > 0 && (
-                <span className="ml-2 font-normal text-ink/45">
-                  {lead.activities.length}
-                </span>
-              )}
-            </p>
-
-            {lead.activities.length === 0 ? (
-              <EmptyState
-                icon={Mail}
-                title="Nothing logged yet"
-                description="Every call, email and DM logged here counts towards weekly activity targets."
-              />
-            ) : (
-              <ol className="relative space-y-4 border-l border-line pl-5">
-                {lead.activities.map((activity) => (
-                  <li key={activity.id} className="group relative">
-                    <span className="absolute -left-[23px] top-1.5 h-2 w-2 rounded-full bg-brand ring-4 ring-paper" />
-
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium text-ink">
-                          {ACTIVITY_LABEL[activity.type as ActivityType] ?? activity.type}
-                          <span className="ml-2 text-[12px] font-normal text-ink/45">
-                            {activity.user.name}
-                          </span>
-                        </p>
-                        <p className="mt-0.5 text-[13px] leading-relaxed text-ink/60">
-                          {activity.note}
-                        </p>
-                        <p className="mt-1 text-[11px] text-ink/35">
-                          {formatDateTime(activity.occurredAt)}
-                        </p>
-                      </div>
-
-                      <button
-                        type="button"
-                        aria-label="Remove this entry"
-                        onClick={() => void removeActivity(activity.id)}
-                        className="rounded p-1 text-ink/20 opacity-0 transition-opacity hover:text-danger focus-visible:opacity-100 group-hover:opacity-100"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </div>
         </div>
       )}
     </Drawer>

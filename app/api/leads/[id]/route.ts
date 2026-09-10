@@ -6,7 +6,7 @@ import { deleteFieldValues } from "@/lib/fields";
 import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
-import { moveStage } from "@/lib/pipeline";
+import { moveLeadStage } from "@/lib/stages";
 import { LEAD_SOURCES, LEAD_STAGES, LOST_REASONS } from "@/lib/pipeline-types";
 import { hasAdminPower } from "@/lib/constants";
 
@@ -21,7 +21,8 @@ const patchSchema = z.object({
   estimatedMonthlyValue: z.number().int().min(0).max(1_000_000).optional(),
   ownerId: z.string().min(1).nullish(),
   notes: z.string().trim().max(2000).nullish(),
-  stage: z.enum(LEAD_STAGES).optional(),
+  /** Any stage key in this lead's own pipeline; lib/stages.ts validates it. */
+  stage: z.string().trim().min(1).optional(),
   lostReason: z.enum(LOST_REASONS).nullish(),
   lostNote: z.string().trim().max(500).nullish(),
 });
@@ -61,6 +62,9 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       })),
     },
     canEdit: hasAdminPower(user.role) || lead.ownerId === user.id,
+    // The timeline needs to know who is looking to decide whose entries
+    // carry a delete control.
+    viewer: { id: user.id, isAdmin: hasAdminPower(user.role) },
   });
 }
 
@@ -96,12 +100,15 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
   const { stage, lostReason, lostNote, interestedServices, ...rest } = parsed.data;
 
-  // The stage move goes through the service, because WON pays out and LOST
-  // demands a reason — neither of which belongs in a generic field update.
+  // The stage move goes through lib/stages.ts — the same function the board's
+  // drag calls. It used to call a second implementation that compared
+  // `stage === "WON"`, a literal only Culture Plus has: a Pilot Cars deal
+  // edited to Completed from this drawer skipped the payout, the notification
+  // and the timeline entry that the same move made on the board produced.
   if (stage && stage !== lead.stage) {
-    const result = await moveStage({
+    const result = await moveLeadStage({
       leadId: lead.id,
-      stage,
+      toStageKey: stage,
       actorId: user.id,
       lostReason: lostReason ?? null,
       lostNote: lostNote ?? null,
@@ -109,9 +116,9 @@ export async function PATCH(request: Request, { params }: { params: { id: string
 
     if (!result.ok) {
       return apiError(
-        result.reason,
-        422,
-        result.field ? { [result.field]: result.reason } : undefined,
+        result.error,
+        result.status,
+        result.field ? { [result.field]: result.error } : undefined,
       );
     }
   }
@@ -137,6 +144,30 @@ export async function PATCH(request: Request, { params }: { params: { id: string
         ...(interestedServices !== undefined
           ? { interestedServices: interestedServices.join(",") }
           : {}),
+      },
+    });
+  }
+
+  // Reassignment is a system event worth remembering: "why is this mine?" is a
+  // question the timeline should be able to answer without an audit export.
+  if (rest.ownerId !== undefined && rest.ownerId !== lead.ownerId) {
+    const [from, to] = await Promise.all([
+      lead.ownerId
+        ? prisma.user.findUnique({ where: { id: lead.ownerId }, select: { name: true } })
+        : null,
+      rest.ownerId
+        ? prisma.user.findUnique({ where: { id: rest.ownerId }, select: { name: true } })
+        : null,
+    ]);
+
+    await prisma.salesActivity.create({
+      data: {
+        departmentId: lead.departmentId,
+        leadId: lead.id,
+        userId: user.id,
+        type: "ASSIGNMENT",
+        isSystem: true,
+        note: `${from?.name ?? "Unassigned"} → ${to?.name ?? "Unassigned"}`,
       },
     });
   }
