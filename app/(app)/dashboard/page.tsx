@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import {
+  PhoneCall,
   Briefcase,
   CalendarClock,
   CheckSquare,
@@ -14,6 +15,7 @@ import {
 } from "lucide-react";
 
 import { prisma } from "@/lib/prisma";
+import { taskBoard } from "@/lib/tasks";
 import { requireUser } from "@/lib/session";
 import { currentCycle, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore } from "@/lib/scoring";
@@ -85,6 +87,14 @@ export default async function DashboardPage({
 
   // An admin sees the whole agency; a member sees only their own work.
   const scope = isAdmin ? {} : { assigneeId: user.id };
+
+  // Read through taskBoard so this number and the page it links to are computed
+  // by the same code on the same clock. A separate count here is how a
+  // dashboard comes to disagree with the list behind it.
+  const { rows: followUpRows } = await taskBoard(user.id, isAdmin, { mineOnly: !isAdmin });
+  const pendingFollowUps = followUpRows.filter(
+    (row) => row.kind === "FOLLOW_UP" && (row.bucket === "TODAY" || row.bucket === "OVERDUE"),
+  ).length;
 
   const [activeClients, openMilestones, completed, members, atRisk] = await Promise.all([
     prisma.client.count({ where: { status: "ACTIVE" } }),
@@ -349,6 +359,18 @@ export default async function DashboardPage({
             tone="info"
             hint="On a live monthly retainer"
           />
+          {/* Core CRM, not a parked module — always shown. Links straight to
+              the filtered list rather than to Tasks generally, so the number
+              and the page behind it cannot disagree. */}
+          <Link href="/tasks" className="rounded-card focus-visible:outline-none">
+            <StatCard
+              label="Pending follow-ups"
+              value={pendingFollowUps}
+              icon={PhoneCall}
+              tone={pendingFollowUps === 0 ? "neutral" : "warning"}
+              hint={isAdmin ? "Due today or overdue" : "Yours, due today or overdue"}
+            />
+          </Link>
           {flags.retainerProjects && (
           <StatCard
             label="Open milestones"

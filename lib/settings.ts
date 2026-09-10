@@ -59,6 +59,8 @@ export type AgencySettings = {
   disputeSlaHours: number;
   leaderboardVisibility: string;
   backupWarnHours: number;
+  /** IANA zone the whole app reasons in (Doctrine 6). */
+  timezone: string;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -106,6 +108,7 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   disputeSlaHours: 72,
   leaderboardVisibility: "ADMIN_ONLY",
   backupWarnHours: 26,
+  timezone: "America/New_York",
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -160,6 +163,7 @@ export async function getSettings(): Promise<AgencySettings> {
     disputeSlaHours: row.disputeSlaHours,
     leaderboardVisibility: row.leaderboardVisibility,
     backupWarnHours: row.backupWarnHours,
+    timezone: row.timezone,
   };
 }
 

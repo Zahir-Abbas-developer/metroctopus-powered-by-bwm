@@ -53,6 +53,8 @@ async function main() {
   const { PrismaClient } = await import("@prisma/client");
   const prisma = new PrismaClient();
   const created = [];
+  const createdTasks = [];
+  const createdLeads = [];
 
   try {
     await prisma.user.updateMany({
@@ -217,6 +219,144 @@ async function main() {
       );
     }
 
+    // ------------------------------------------------------- tasks & follow-ups --
+    const firstDept = departments[0];
+
+    /**
+     * Today on the *company* clock, as YYYY-MM-DD.
+     *
+     * Not `new Date().toISOString().slice(0, 10)`. That is today in UTC, and
+     * for a zone behind UTC the two disagree for several hours every evening —
+     * so a task "due today" would be filed against tomorrow's date and land in
+     * Upcoming, which is what the first run of this suite did.
+     *
+     * Date-only values are stored at UTC midnight of the intended calendar day
+     * (see lib/date.ts), so the string is what matters, not the instant.
+     */
+    const boardMeta = await (await admin.fetch("/api/tasks?mine=1")).json();
+    const companyToday = new Intl.DateTimeFormat("en-CA", {
+      timeZone: boardMeta.timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+    check(Boolean(boardMeta.timeZone), "the board reports the company timezone");
+
+    const taskRes = await admin.fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        departmentId: firstDept.id,
+        title: "Journey task — call back",
+        dueAt: companyToday,
+        priority: "HIGH",
+      }),
+    });
+    const taskBody = await taskRes.json().catch(() => ({}));
+    const taskOk = check(
+      taskRes.status === 201,
+      "task created",
+      `${taskRes.status} ${JSON.stringify(taskBody.fields ?? taskBody.error ?? "")}`,
+    );
+
+    if (taskOk) {
+      const taskId = taskBody.task.id;
+      createdTasks.push(taskId);
+
+      const board = await (await admin.fetch("/api/tasks?mine=1")).json();
+      const row = (board.tasks ?? []).find((entry) => entry.id === taskId);
+      check(Boolean(row), "task appears on the board");
+      check(row?.bucket === "TODAY", "a task due today lands in Today", row?.bucket);
+
+      const done = await admin.fetch(`/api/tasks/${taskId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "DONE" }),
+      });
+      check(done.ok, "task completed", String(done.status));
+
+      const after = await (await admin.fetch("/api/tasks?mine=1")).json();
+      const completedRow = (after.tasks ?? []).find((entry) => entry.id === taskId);
+      check(completedRow?.bucket === "COMPLETED", "completed task moves to Completed");
+    }
+
+    // A follow-up surfaces from the record itself, never a copied task row.
+    const followLead = await prisma.lead.create({
+      data: {
+        departmentId: firstDept.id,
+        businessName: "Journey Follow-up",
+        contactName: "Journey Contact",
+        stage: (await prisma.pipelineStage.findFirst({
+          where: { departmentId: firstDept.id, kind: "OPEN" },
+          orderBy: { sortOrder: "asc" },
+        }))?.key ?? "NEW_INQUIRY",
+        ownerId: (await prisma.user.findUnique({ where: { email: ADMIN } })).id,
+        nextFollowUpAt: new Date(`${companyToday}T00:00:00.000Z`),
+      },
+    });
+    createdLeads.push(followLead.id);
+
+    const withFollowUp = await (await admin.fetch("/api/tasks?mine=1")).json();
+    const projected = (withFollowUp.tasks ?? []).find(
+      (entry) => entry.kind === "FOLLOW_UP" && entry.record?.id === followLead.id,
+    );
+    check(Boolean(projected), "a due follow-up surfaces on the board");
+    check(
+      projected?.bucket === "TODAY" || projected?.bucket === "OVERDUE",
+      "a due follow-up is Today or Overdue",
+      projected?.bucket,
+    );
+
+    // Logging an outcome without a next date, and without closing out, is
+    // refused — the whole point of the feature.
+    const silent = await admin.fetch("/api/follow-ups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "LEAD",
+        recordId: followLead.id,
+        action: "log",
+        activityType: "CALL",
+        note: "Spoke briefly",
+      }),
+    });
+    check(
+      silent.status === 422,
+      "logging an outcome with no next date is refused",
+      `status ${silent.status}`,
+    );
+
+    const logged = await admin.fetch("/api/follow-ups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "LEAD",
+        recordId: followLead.id,
+        action: "log",
+        activityType: "CALL",
+        note: "Spoke to ops, revised quote Thursday",
+        nextFollowUpAt: new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10),
+      }),
+    });
+    check(logged.ok, "logging an outcome with a next date succeeds", String(logged.status));
+
+    const activityLogged = await prisma.salesActivity.count({
+      where: { leadId: followLead.id, type: "CALL" },
+    });
+    check(activityLogged === 1, "the outcome was written to the timeline");
+
+    const snoozed = await admin.fetch("/api/follow-ups", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        type: "LEAD",
+        recordId: followLead.id,
+        action: "snooze",
+        days: 3,
+      }),
+    });
+    check(snoozed.ok, "a follow-up can be snoozed", String(snoozed.status));
+
     // ---------------------------------------------------------------- scoping --
     const member = new Session("member");
     await member.signIn(MEMBER, SEED_PASSWORD);
@@ -246,7 +386,11 @@ async function main() {
     }
   } finally {
     // Leave the database as it was found.
-    for (const id of created) {
+    for (const id of createdTasks) {
+      await prisma.task.delete({ where: { id } }).catch(() => {});
+    }
+    for (const id of [...created, ...createdLeads]) {
+      await prisma.task.deleteMany({ where: { leadId: id } });
       await prisma.salesActivity.deleteMany({ where: { leadId: id } });
       await prisma.fieldValue.deleteMany({ where: { recordId: id } });
       await prisma.lead.delete({ where: { id } }).catch(() => {});

@@ -1,13 +1,25 @@
 /**
  * The single date utility for BWM (CLAUDE.md convention).
  *
- * Everything is stored in UTC and displayed in the agency's working timezone,
- * Asia/Karachi. No component should call `toLocaleDateString` or construct a
- * date format inline — import from here instead, so a timezone change is a
- * one-line edit.
+ * Everything is stored in UTC and displayed in the company's working timezone.
+ * No component should call `toLocaleDateString` or construct a date format
+ * inline — import from here instead.
+ *
+ * Doctrine 6 makes the timezone a Company setting, defaulting to
+ * `America/New_York`. This module holds that default; `companyTimezone()` in
+ * lib/settings-timezone.ts reads the stored value for server code that must be
+ * exact, chiefly the crons.
+ *
+ * The old fixed `AGENCY_UTC_OFFSET_HOURS = 5` is gone. Karachi is UTC+5 all
+ * year, so a constant worked; New York is UTC-5 in winter and UTC-4 in summer,
+ * and a constant would put every deadline an hour out for half the year. The
+ * offset is now computed for the instant in question.
  */
 
-export const AGENCY_TIMEZONE = "Asia/Karachi";
+export const COMPANY_TIMEZONE = "America/New_York";
+
+/** @deprecated Use COMPANY_TIMEZONE. Kept so no import breaks silently. */
+export const AGENCY_TIMEZONE = COMPANY_TIMEZONE;
 
 type DateInput = Date | string | number;
 
@@ -61,12 +73,15 @@ export function formatWeekday(value: DateInput): string {
 }
 
 /**
- * The current hour in Asia/Karachi, regardless of where the server or the
- * viewer's browser sits. Used for the dashboard greeting.
+ * The current hour in the company's timezone, regardless of where the server or
+ * the viewer's browser sits. Used for the dashboard greeting.
  */
-export function agencyHour(now: DateInput = new Date()): number {
+export function companyHour(
+  now: DateInput = new Date(),
+  timeZone: string = COMPANY_TIMEZONE,
+): number {
   const hour = new Intl.DateTimeFormat("en-GB", {
-    timeZone: AGENCY_TIMEZONE,
+    timeZone,
     hour: "2-digit",
     hour12: false,
   }).format(toDate(now));
@@ -74,6 +89,9 @@ export function agencyHour(now: DateInput = new Date()): number {
 }
 
 /** "Good morning" | "Good afternoon" | "Good evening", in agency time. */
+/** @deprecated Use companyHour. */
+export const agencyHour = companyHour;
+
 export function greeting(now: DateInput = new Date()): string {
   const hour = agencyHour(now);
   if (hour < 12) return "Good morning";
@@ -119,13 +137,54 @@ export function relativeFromNow(value: DateInput, now: DateInput = new Date()): 
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Asia/Karachi is UTC+5 year round — it observes no daylight saving. */
-const AGENCY_UTC_OFFSET_HOURS = 5;
+/**
+ * How far ahead of UTC a zone is at a given instant, in hours.
+ *
+ * Derived from `Intl` rather than a table, so daylight saving is handled by the
+ * platform's own tz database instead of by an assumption that goes stale twice
+ * a year. Returns a positive number east of UTC (Karachi +5), negative west
+ * (New York -5, or -4 while on daylight time).
+ */
+export function utcOffsetHours(
+  at: DateInput = new Date(),
+  timeZone: string = COMPANY_TIMEZONE,
+): number {
+  const date = toDate(at);
+  if (!isValid(date)) return 0;
+
+  // Read the wall-clock time in the zone, then measure it against the same
+  // instant expressed in UTC.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(date);
+
+  const get = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
+  const asUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    // Intl renders midnight as hour 24 in some engines under hour12:false.
+    get("hour") % 24,
+    get("minute"),
+    get("second"),
+  );
+
+  return Math.round((asUtc - date.getTime()) / (60 * 60 * 1000));
+}
 
 /**
  * `startDate`, `endDate` and `dueDate` are date-only. They're stored at UTC
- * midnight of the intended calendar day, which formats back to the same day in
- * Karachi (UTC+5) with no off-by-one.
+ * midnight of the intended calendar day. Formatting reads them back in the
+ * company timezone, so a zone *behind* UTC — New York is — would render UTC
+ * midnight as the previous evening; every formatter here works from the stored
+ * calendar day rather than the instant, which is why that does not happen.
  */
 export function toDateOnly(value: DateInput): Date {
   const date = toDate(value);
@@ -154,17 +213,26 @@ export function addDays(value: DateInput, days: number): Date {
 }
 
 /**
- * The instant a milestone is actually late.
+ * The instant a due item is actually late.
  *
- * A due date means "by the end of that day, in the office's timezone". The
- * date is stored at UTC midnight, so the deadline is 19:00 UTC the same day —
- * midnight in Karachi. Scoring uses this, never the raw stored date, otherwise
- * everything due today would be late from 05:00 local onwards.
+ * A due date means "by the end of that day, in the company's timezone". The
+ * date is stored at UTC midnight, so the deadline is the following local
+ * midnight expressed in UTC. Scoring and overdue chips use this, never the raw
+ * stored date, or everything due today would read as late from the small hours
+ * onwards.
+ *
+ * The offset is measured at the end of that day rather than assumed, so a
+ * deadline falling either side of a daylight-saving change lands on the real
+ * local midnight.
  */
-export function dueDeadline(dueDate: DateInput): Date {
-  return new Date(
-    toDateOnly(dueDate).getTime() + (24 - AGENCY_UTC_OFFSET_HOURS) * 60 * 60 * 1000,
-  );
+export function dueDeadline(
+  dueDate: DateInput,
+  timeZone: string = COMPANY_TIMEZONE,
+): Date {
+  const startOfDayUtc = toDateOnly(dueDate).getTime();
+  const approximateEnd = startOfDayUtc + DAY_MS;
+  const offset = utcOffsetHours(approximateEnd, timeZone);
+  return new Date(approximateEnd - offset * 60 * 60 * 1000);
 }
 
 /** Whole days from now until `value`; negative once it's in the past. */

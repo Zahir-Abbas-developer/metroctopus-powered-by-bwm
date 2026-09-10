@@ -2607,3 +2607,99 @@ another department's board answers 403.
   both are known at write time, so real foreign keys keep the cascade and refuse
   orphans. `FieldValue` gives that up only because its target table is chosen by
   another column, which Prisma cannot express.
+
+## BWM Phase T3, part 2 — tasks, follow-ups and the company clock (9 September 2026)
+
+**Section 2 of three.** The activity timeline UI (§3) is still not built.
+
+### The clock had to be fixed first
+
+Doctrine 6 makes the timezone a company setting defaulting to
+`America/New_York`. `lib/date.ts` still hardcoded `Asia/Karachi` **and** a fixed
+`UTC+5` offset. A 9am notification is meaningless on the wrong clock, so this
+came before anything else.
+
+The offset was the worse half. Karachi is +5 all year, so a constant worked;
+New York is -5 in winter and -4 on daylight time, so a constant is wrong for
+half the year — the kind of bug found in March by somebody whose deadline moved.
+`utcOffsetHours()` now derives it from `Intl` at the instant in question, and
+`dueDeadline()` measures the offset at the end of the due day.
+
+**There were no tests on any of this.** Not one line covered `dueDeadline`,
+`toDateOnly` or the timezone. That is how it survived being wrong: the whole
+suite passed while every due date in the product was on the wrong clock, because
+nothing looked. `tests/date.test.ts` covers it now, including both sides of a
+daylight-saving change, and `tests/tasks.test.ts` covers the bucketing.
+
+`companyTimezone()` reads the stored setting for server code that must be exact;
+`lib/date.ts` keeps the default, because it is imported by client components
+where an async read is not available.
+
+### Tasks and follow-ups
+
+Two kinds of row, one surface, and they behave differently on purpose:
+
+- A **task** is explicit and finishes with a checkbox.
+- A **follow-up** is the record itself coming due. It is **projected at read
+  time, never copied into the task table** — a copy would disagree with its lead
+  the moment either was edited, and nothing would say which was right.
+
+A follow-up has no checkbox. Clearing one without saying what happened or when
+to speak next is exactly how a lead goes quiet, so the dialog asks: log the
+outcome *and* set the next date, or tick "no further follow-up" deliberately.
+The API refuses the first without the second — `journeytest` asserts that.
+
+Snoozing measures from the date it was due, not from now, so three one-day
+snoozes land three days after the original date rather than three days after
+whenever somebody last clicked.
+
+The 9am cron runs **hourly** and acts only in the company's 9 o'clock hour. A
+cron pinned to a fixed UTC time is 9am for half the year and 10am for the other
+half, and nobody would connect the drift to daylight saving. Deduped per record
+per company day, so a retry — or the hour that runs twice when clocks go back —
+cannot send the same reminder twice.
+
+### A Doctrine 5 violation, found and closed
+
+The rail's "Tasks" entry pointed at `/my-tasks`, which is built entirely on
+`Milestone` — part of the **parked** retainer-projects module. The module gates
+`board` and `projects` but never `my-tasks`, so with retainer projects off the
+rail carried a Tasks entry that opened a permanently empty page. That is exactly
+what "off is invisible, not empty" forbids.
+
+`/tasks` is the CRM's working surface now and takes the Tasks slot; the
+milestone list is labelled Milestones and gated with the rest of its module.
+
+### Stability gate
+
+```
+npx tsc --noEmit      ✓ clean
+npm test              ✓ 421/421  (405 + 16 new: date and bucketing)
+npm run smoke         ✓ every route × every role
+npm run smoke:empty   ✓ every route × every role
+npm run permtest      ✓ 171 checks
+npm run leaks         ✓ no owner-only value reached a non-owner
+npm run fieldtest     ✓ 45 checks
+npm run journeytest   ✓ 70 checks (58 + tasks and follow-ups)
+npm run smoke:browser ✓ 69 pages hydrated across 3 roles
+```
+
+**A harness note worth recording.** `permtest` and `leaks` do not start a server
+— they drive `http://localhost:3010` and expect one to be there. Running them
+while a `smoke` server was still shutting down pointed them at *smoke's fixture
+database*, where the seeded accounts differ, and produced three 500s that looked
+like a permissions regression and were not. Run them against a known server:
+`SMOKE_BASE=http://localhost:3000 npm run permtest`.
+
+The first `journeytest` run also failed two checks, correctly: it sent
+`new Date().toISOString().slice(0, 10)` as "today", which is today in **UTC**.
+For a zone behind UTC those disagree for several hours every evening, so a task
+"due today" was filed against tomorrow and landed in Upcoming. The harness reads
+the company timezone from the API now. The code was right; the test was naive.
+
+### Not done — §3
+
+The activity timeline UI. `SalesActivity` carries `departmentId`, an optional
+`clientId` and `isSystem`; stage moves, snoozes and logged outcomes all write to
+it, so the data is accumulating correctly and correctly attributed. The
+quick-log bar and the filterable timeline are not built.

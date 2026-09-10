@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
+  ListChecks,
   AlertTriangle,
   BarChart3,
   Briefcase,
@@ -37,7 +38,8 @@ const ICONS: Record<NavKey, LucideIcon> = {
   pipeline: Wallet,
   clients: Briefcase,
   projects: Layers,
-  "my-tasks": CheckSquare,
+  tasks: CheckSquare,
+  "my-tasks": ListChecks,
   "my-attendance": CalendarCheck,
   attendance: Clock,
   "my-performance": Gauge,

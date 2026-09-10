@@ -12,6 +12,7 @@ export type NavKey =
   | "clients"
   | "projects"
   | "my-tasks"
+  | "tasks"
   | "pipeline"
   | "my-attendance"
   | "attendance"
@@ -67,7 +68,12 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { key: "pipeline", label: "Pipeline", href: "/pipeline", roles: EVERYONE },
   { key: "clients", label: "Clients", href: "/clients", roles: ADMINS },
   { key: "projects", label: "Projects", href: "/projects", roles: ADMINS },
-  { key: "my-tasks", label: "Tasks", href: "/my-tasks", roles: EVERYONE },
+  { key: "tasks", label: "Tasks", href: "/tasks", roles: EVERYONE },
+  // The milestone list. It belongs to the parked retainer-projects module —
+  // with that module off it has no data at all, so leaving it in the rail
+  // meant a "Tasks" entry that opened a permanently empty page. It is gated
+  // with the rest of its module now, and /tasks is the working surface.
+  { key: "my-tasks", label: "Milestones", href: "/my-tasks", roles: EVERYONE },
   {
     key: "my-attendance",
     label: "My attendance",
