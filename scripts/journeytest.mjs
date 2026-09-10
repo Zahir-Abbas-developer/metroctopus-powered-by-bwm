@@ -35,13 +35,29 @@ function check(ok, label, detail = "") {
   return false;
 }
 
-/** The journey each department is driven through, by stage key. */
-const JOURNEYS = {
-  "pilot-cars": ["QUALIFIED", "QUOTE", "SCHEDULED", "DISPATCHED", "COMPLETED"],
-  "life-health-insurance": ["QUALIFIED", "CONTACTED", "PROPOSAL", "CONVERTED", "ACTIVE_CLIENT"],
-  affiliates: ["QUALIFIED", "ONBOARDING", "ACTIVE"],
-  "culture-plus-network": ["QUALIFIED", "CONTACTED", "PROPOSAL", "NEGOTIATION", "WON"],
-};
+/**
+ * The journey for a department, derived from its own pipeline.
+ *
+ * This was a hardcoded map keyed by slug, and a slug is the wrong handle: the
+ * department PATCH route regenerates it from the name, so renaming a department
+ * — or even saving it unchanged — silently detached its journey and the suite
+ * reported "has no journey defined" for a pipeline that was perfectly fine.
+ *
+ * Walking the stages instead means the journey is whatever that department
+ * actually defines: every OPEN stage in order, then its first winning one. It
+ * needs no maintenance when an admin adds a stage, and it exercises the real
+ * configuration rather than a copy of it that can drift.
+ */
+function journeyFor(stages) {
+  const open = stages
+    .filter((stage) => stage.kind === "OPEN")
+    .map((stage) => stage.key);
+  const winning = stages.find(
+    (stage) => stage.kind === "WON" || stage.kind === "ACTIVE_CLIENT",
+  );
+  // Skip the opening stage: the lead is created there already.
+  return [...open.slice(1), ...(winning ? [winning.key] : [])];
+}
 
 const DEAL_VALUE = 12_000;
 /** Affiliates' commission_rate answer, as a percentage. */
@@ -71,12 +87,20 @@ async function main() {
     });
 
     for (const department of departments) {
-      const journey = JOURNEYS[department.slug];
-      if (!check(Boolean(journey), `${department.shortLabel}: has a journey defined`)) continue;
-
       const form = await (
         await admin.fetch(`/api/departments/${department.id}/form?entity=LEAD`)
       ).json();
+
+      const journey = journeyFor(form.stages ?? []);
+      if (
+        !check(
+          journey.length > 0,
+          `${department.shortLabel}: pipeline yields a journey`,
+          `${(form.stages ?? []).length} stages`,
+        )
+      ) {
+        continue;
+      }
 
       // Answer every required field, plus the commission rate where the
       // department defines one.

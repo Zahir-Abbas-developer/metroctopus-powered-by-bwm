@@ -16,6 +16,7 @@ import {
 
 import { prisma } from "@/lib/prisma";
 import { taskBoard } from "@/lib/tasks";
+import { departmentIdsForUser } from "@/lib/departments";
 import { requireUser } from "@/lib/session";
 import { currentCycle, scoresForCycle } from "@/lib/score-service";
 import { monthlyScore } from "@/lib/scoring";
@@ -96,8 +97,20 @@ export default async function DashboardPage({
     (row) => row.kind === "FOLLOW_UP" && (row.bucket === "TODAY" || row.bucket === "OVERDUE"),
   ).length;
 
+  // Doctrine 2 reaches aggregates too. This tile used to count every active
+  // client in the business for everyone who could load the page — a member of
+  // one department reading a number computed over all four. It was inert only
+  // because production had no clients yet.
+  //
+  // The page is a server component that queries Prisma directly, which is why
+  // the API-level leak tests never saw it. `permtest` now renders this page as
+  // a member as well as calling the endpoints.
+  const visibleDepartmentIds = await departmentIdsForUser(user.id, isAdmin);
+
   const [activeClients, openMilestones, completed, members, atRisk] = await Promise.all([
-    prisma.client.count({ where: { status: "ACTIVE" } }),
+    prisma.client.count({
+      where: { status: "ACTIVE", departmentId: { in: visibleDepartmentIds } },
+    }),
     prisma.milestone.count({ where: { ...scope, status: { in: OPEN_STATUSES } } }),
     prisma.milestone.findMany({
       where: { ...scope, status: "COMPLETED", completedAt: { not: null } },

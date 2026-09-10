@@ -360,6 +360,10 @@ async function main() {
       planted.push({ dept, leadId: lead.id });
     }
 
+    // Declared out here so the finally block below can clean it up — a `let`
+    // inside the try is not in scope there.
+    let plantedClient = null;
+
     try {
       const session = new Session("cheryl");
       await session.signIn(cheryl.email, SEED_PASSWORD);
@@ -499,7 +503,76 @@ async function main() {
           after?.businessName,
         );
       }
+      // --- rendered pages, not just endpoints -------------------------------
+      //
+      // The blind spot this closes: every check above calls an API route, but a
+      // server component queries Prisma directly and never touches one. The
+      // dashboard's "Active clients" tile counted every department for months
+      // while the endpoint tests passed, because no test ever rendered the page
+      // as a member.
+      //
+      // Planting a client in a department Cheryl is not in makes the tile a
+      // number that can be wrong rather than a zero that is right by accident.
+      const foreignDept = forbidden[0];
+
+      if (foreignDept) {
+        plantedClient = await prisma.client.create({
+          data: {
+            departmentId: foreignDept.id,
+            businessName: "Scopeprobe Client",
+            contactName: "Scope Probe",
+            email: "scopeprobe-client@bwm.local",
+            status: "ACTIVE",
+          },
+        });
+
+        const html = await (await session.fetch("/dashboard")).text();
+
+        check(
+          "the member dashboard does not name a foreign department's client",
+          !html.includes("Scopeprobe Client"),
+        );
+
+        const activeForCheryl = await prisma.client.count({
+          where: { status: "ACTIVE", departmentId: { in: cherylDepts } },
+        });
+        const activeEverywhere = await prisma.client.count({ where: { status: "ACTIVE" } });
+
+        // Without a difference the next assertion cannot fail, and a check that
+        // cannot fail is not a check.
+        check(
+          "there is a difference for the tile to get wrong",
+          activeEverywhere !== activeForCheryl,
+          `global ${activeEverywhere}, hers ${activeForCheryl}`,
+        );
+
+        /* The page is an RSC payload, not markup, so the tile's value arrives as
+           `"children":N` inside escaped JSON rather than between two angle
+           brackets. Reading it out of the payload is the only way to assert the
+           number the member is actually shown — an earlier version of this check
+           regexed for HTML that does not exist, passed against the live leak,
+           and proved nothing. */
+        const rendered = html.replace(/\\+/g, "");
+        const label = rendered.indexOf("Active clients");
+        const value = label >= 0
+          ? /text-\[34px\][^}]*"children":\s*(\d+)/.exec(rendered.slice(label, label + 900))
+          : null;
+
+        check("the Active clients tile rendered a number", Boolean(value), "not found");
+
+        if (value) {
+          check(
+            "the tile shows the member's own count, not the global one",
+            Number(value[1]) === activeForCheryl,
+            `tile ${value[1]}, hers ${activeForCheryl}, global ${activeEverywhere}`,
+          );
+        }
+      }
+
     } finally {
+      if (plantedClient) {
+        await prisma.client.delete({ where: { id: plantedClient.id } }).catch(() => {});
+      }
       for (const row of planted) {
         await prisma.salesActivity.deleteMany({ where: { leadId: row.leadId } });
         await prisma.lead.delete({ where: { id: row.leadId } }).catch(() => {});
