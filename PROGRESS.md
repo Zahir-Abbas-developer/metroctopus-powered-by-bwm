@@ -2804,3 +2804,106 @@ npm run smoke:browser ✓ 69 pages hydrated across 3 roles
 - Department scoping is enforced on **creation and writes**, not on reads: no
   pipeline or lead list query filters by department yet.
 - `User.jobTitle` still drives auto-assignment in `lib/templates.ts`.
+
+## BWM Phase T4, part 1 — department isolation, search and the analytics layer (9 September 2026)
+
+**Section 3 and the foundations of 1 and 2.** The dashboard UI and the §4
+acceptance audit are not done — see the end.
+
+Taken in this order deliberately: §1's aggregates and §2's search both have to be
+scoped by §3, and §4 cannot honestly be signed off until they are.
+
+### Doctrine 2 is now enforced on reads
+
+This was the largest gap between the doctrine as written and as built, carried
+since T2 and flagged at the end of every phase since.
+
+`Viewer` gained `departmentIds`, resolved once per request in `viewerFor` from
+the database rather than the session — removing somebody from a department has
+to take effect on the next request, not the next time they sign in.
+`departmentScope(viewer)` is the one filter every query over Lead, Client, Task
+and SalesActivity now applies. One helper rather than a repeated `departmentId:
+{ in: ... }`, because the way to stop forgetting a filter is to have one thing to
+remember.
+
+The field is **required, not optional**, on purpose: a fixture missing it is a
+compile error rather than a silent all-access default. That caught seven test
+fixtures immediately.
+
+An empty list means *no records*, not all of them — the direction a missing
+filter has to fail in.
+
+Scoped here: the pipeline list (which previously returned every department's
+deals to every signed-in person), lead detail, and search. A lead in another
+department answers **404, not 403** — distinguishing them confirms the record
+exists to somebody who may not know that.
+
+### Search
+
+It now searches **leads**, which it did not before: the pipeline was invisible to
+the one control meant to find anything. Phone and email match partially, because
+half a number read off a missed call is the most common thing typed into that
+box.
+
+Scoping search is not the same problem as scoping a list. A list shows what you
+asked for; search answers whether something *exists*, so an unscoped hit
+discloses the name and phone number of a record in a department that is not
+yours even when opening it 404s. Retainer projects and milestones are only
+searched when that module is on — a hit linking to a "switched off" screen is a
+worse result than no hit.
+
+### The analytics layer
+
+`lib/analytics.ts` holds every dashboard figure, so the page owns no arithmetic
+of its own (Doctrine 4). Everything is derived from one scoped read rather than
+from per-metric queries, so no single count can escape the filter.
+
+Three decisions recorded because they are easy to get quietly wrong:
+
+- **Conversion rate excludes open deals** from the denominator. Otherwise a
+  healthy pipeline reads as a collapsing conversion rate, falling every time
+  somebody adds a lead. It returns `null`, not `0`, when nothing has closed —
+  "no data" and "lost everything" are different claims and 0% makes the second.
+- **Revenue is dated by the stage move, not by creation.** A deal created in
+  March and won in June is June's revenue.
+- **Range ends are exclusive.** An inclusive end has to be `23:59:59.999`, which
+  drops the final millisecond and reads as correct while being wrong. A custom
+  "1st to 5th" adds a day so the 5th is included.
+
+`startOfCompanyDay` moved into `lib/date.ts` — `lib/tasks.ts` had it privately
+and analytics needed the same rule, so the dashboard's "overdue" and the task
+board's cannot disagree.
+
+### Cross-department leak tests
+
+Added to `permtest`, where the spec asked for them: **171 → 194 checks.**
+
+Both directions, always. A test that only checks what is hidden passes perfectly
+against an implementation that returns nothing, so every case also asserts the
+member still receives their own department's records.
+
+Cheryl (Culture Plus only) is checked against planted records in all four
+departments via the lead list, search, partial phone search, the analytics
+aggregates and direct fetch. Tayyaba is checked for 403 on stage move, edit and
+activity log against an Affiliates lead, and the record is re-read afterwards to
+confirm it was not modified.
+
+### Stability gate
+
+```
+npx tsc --noEmit      ✓ clean
+npm test              ✓ 434/434  (421 + 13 analytics)
+npm run smoke         ✓ every route × every role
+npm run smoke:empty   ✓ every route × every role
+npm run permtest      ✓ 194 checks (171 + 23 cross-department)
+npm run leaks         ✓ no owner-only value reached a non-owner
+npm run fieldtest     ✓ 45 checks
+npm run journeytest   ✓ 78 checks
+```
+
+### Not done — the rest of T4
+
+- **§1's dashboard UI.** The analytics layer, its endpoint and its unit tests
+  exist and are scoped; the page still renders the old figures and has no filter
+  bar or charts.
+- **§4's acceptance audit**, `seed:prod`, the README, and the `bwm-v1.0.0` tag.

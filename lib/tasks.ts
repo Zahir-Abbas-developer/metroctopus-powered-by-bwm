@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { departmentIdsForUser } from "@/lib/departments";
 import { companyTimezone } from "@/lib/company-time";
-import { dueDeadline, toDateOnly } from "@/lib/date";
+import { dueDeadline, startOfCompanyDay, toDateOnly } from "@/lib/date";
 import type { TaskPriority, TaskStatus } from "@/lib/constants";
 
 /**
@@ -72,19 +72,6 @@ export function bucketFor(
   return toDateOnly(dueAt).getTime() <= startOfCompanyDay(now, timeZone).getTime()
     ? "TODAY"
     : "UPCOMING";
-}
-
-/** Midnight of the company's current calendar day, as a date-only UTC value. */
-function startOfCompanyDay(at: Date, timeZone: string): Date {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(at);
-  const get = (type: string) =>
-    Number(parts.find((part) => part.type === type)?.value ?? "0");
-  return new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
 }
 
 /**

@@ -10,12 +10,13 @@ import {
   Layers,
   Search,
   Users2,
+  Wallet,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 type Result = {
-  kind: "client" | "project" | "milestone" | "member";
+  kind: "lead" | "client" | "project" | "milestone" | "member";
   id: string;
   title: string;
   subtitle: string;
@@ -23,6 +24,7 @@ type Result = {
 };
 
 const ICONS = {
+  lead: Wallet,
   client: Briefcase,
   project: Layers,
   milestone: KanbanSquare,
@@ -30,6 +32,7 @@ const ICONS = {
 };
 
 const GROUP_LABEL: Record<Result["kind"], string> = {
+  lead: "Pipeline",
   client: "Clients",
   project: "Projects",
   milestone: "Milestones",
@@ -102,7 +105,7 @@ export function CommandPalette() {
   }, [query]);
 
   const grouped = useMemo(() => {
-    const order: Result["kind"][] = ["milestone", "client", "project", "member"];
+    const order: Result["kind"][] = ["lead", "client", "milestone", "project", "member"];
     return order
       .map((kind) => ({ kind, items: results.filter((r) => r.kind === kind) }))
       .filter((group) => group.items.length > 0);

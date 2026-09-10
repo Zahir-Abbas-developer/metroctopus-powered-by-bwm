@@ -35,9 +35,40 @@ export type Viewer = {
   assignedClientIds: readonly string[];
   /** Members currently carrying work in this person's service lines. */
   podMemberIds: readonly string[];
+  /**
+   * Departments this person may see records from.
+   *
+   * For an admin this is every active department, so the same field answers the
+   * question for everyone and no call site has to branch on the role to build a
+   * query. An empty array means exactly what it says — a member belonging to no
+   * department sees no records, rather than all of them, which is the direction
+   * a missing filter fails in.
+   */
+  departmentIds: readonly string[];
 };
 
 export const isOwner = (viewer: Viewer): boolean => viewer.role === "ADMIN";
+
+/**
+ * The department filter for any query over Lead, Client, Task or SalesActivity.
+ *
+ * One helper rather than `departmentId: { in: ... }` written out at each call
+ * site, because Doctrine 2 says a query that forgets to scope is a data-leak
+ * bug — and the way to stop forgetting is to have one thing to remember.
+ *
+ * Admins get an unrestricted fragment rather than a list of every department:
+ * the query plan is simpler, and it cannot go stale the moment a department is
+ * added.
+ */
+export function departmentScope(viewer: Viewer): { departmentId?: { in: string[] } } {
+  if (isOwner(viewer)) return {};
+  return { departmentId: { in: [...viewer.departmentIds] } };
+}
+
+/** Is this specific record inside the viewer's departments? */
+export function inViewerDepartments(viewer: Viewer, departmentId: string): boolean {
+  return isOwner(viewer) || viewer.departmentIds.includes(departmentId);
+}
 
 /* ------------------------------------------------------------- predicates -- */
 

@@ -32,6 +32,7 @@ const owner: Viewer = {
   isBusinessDev: false,
   assignedClientIds: [],
   podMemberIds: [],
+  departmentIds: ["dept-a"],
 };
 
 const lead: Viewer = {
@@ -41,6 +42,7 @@ const lead: Viewer = {
   isBusinessDev: false,
   assignedClientIds: ["c1"],
   podMemberIds: ["member"],
+  departmentIds: ["dept-a"],
 };
 
 const member: Viewer = {
@@ -50,6 +52,7 @@ const member: Viewer = {
   isBusinessDev: false,
   assignedClientIds: ["c1"],
   podMemberIds: [],
+  departmentIds: ["dept-a"],
 };
 
 const keysOf = (value: object) => Object.keys(value).sort();

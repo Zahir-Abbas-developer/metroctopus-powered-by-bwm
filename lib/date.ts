@@ -145,6 +145,30 @@ export const DAY_MS = 24 * 60 * 60 * 1000;
  * a year. Returns a positive number east of UTC (Karachi +5), negative west
  * (New York -5, or -4 while on daylight time).
  */
+/**
+ * Midnight of the company's current calendar day, as a date-only UTC value.
+ *
+ * "Today" is a calendar day in the company's zone, not a rolling 24 hours and
+ * not the server's day. On a server running in UTC, "today" is already tomorrow
+ * for several hours of every New York evening — which is how work due tonight
+ * reads as overdue.
+ */
+export function startOfCompanyDay(
+  at: DateInput = new Date(),
+  timeZone: string = COMPANY_TIMEZONE,
+): Date {
+  const date = toDate(at);
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const get = (type: string) =>
+    Number(parts.find((part) => part.type === type)?.value ?? "0");
+  return new Date(Date.UTC(get("year"), get("month") - 1, get("day")));
+}
+
 export function utcOffsetHours(
   at: DateInput = new Date(),
   timeZone: string = COMPANY_TIMEZONE,

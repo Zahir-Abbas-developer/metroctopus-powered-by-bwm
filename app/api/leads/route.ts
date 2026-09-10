@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { apiError } from "@/lib/api";
 import { viewerFor } from "@/lib/viewer";
+import { departmentScope } from "@/lib/visibility";
 import { serializeLead, serializePipelineMetrics } from "@/lib/serializers";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
@@ -62,6 +63,11 @@ export async function GET(request: Request) {
   const [leads, metrics, owners, services] = await Promise.all([
     prisma.lead.findMany({
       where: {
+        // Doctrine 2. Before this, every signed-in person received every
+        // department's pipeline from this endpoint — the component showed less
+        // than the response carried, which is not the same as the response
+        // carrying less.
+        ...departmentScope(viewer),
         ...(ownerId && ownerId !== "ALL" ? { ownerId } : {}),
         ...(includeClosed ? {} : { stage: { notIn: ["WON", "LOST"] } }),
       },

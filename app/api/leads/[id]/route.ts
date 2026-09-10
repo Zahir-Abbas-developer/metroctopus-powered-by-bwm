@@ -7,6 +7,7 @@ import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { moveLeadStage } from "@/lib/stages";
+import { canUseDepartment } from "@/lib/departments";
 import { LEAD_SOURCES, LEAD_STAGES, LOST_REASONS } from "@/lib/pipeline-types";
 import { hasAdminPower } from "@/lib/constants";
 
@@ -45,6 +46,13 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   });
 
   if (!lead) return apiError("That lead no longer exists", 404);
+
+  // A lead in another department answers exactly as a lead that does not exist.
+  // Distinguishing them would confirm the record is real to somebody who may
+  // not know that, which is a disclosure in itself.
+  if (!(await canUseDepartment(user.id, hasAdminPower(user.role), lead.departmentId))) {
+    return apiError("That lead no longer exists", 404);
+  }
 
   return NextResponse.json({
     lead: {

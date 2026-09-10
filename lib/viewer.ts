@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Viewer } from "@/lib/visibility";
 import { hasAdminPower } from "@/lib/constants";
+import { departmentIdsForUser } from "@/lib/departments";
 
 /**
  * Turns a signed-in user into the `Viewer` the visibility matrix takes.
@@ -15,7 +16,9 @@ import { hasAdminPower } from "@/lib/constants";
  * so it is derived here and nowhere else.
  */
 export async function viewerFor(user: { id: string; role: string }): Promise<Viewer> {
-  const [account, leads, assignments, pod] = await Promise.all([
+  const isAdmin = hasAdminPower(user.role);
+
+  const [account, leads, assignments, pod, departmentIds] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
       select: { isBusinessDev: true },
@@ -34,6 +37,11 @@ export async function viewerFor(user: { id: string; role: string }): Promise<Vie
       where: { userId: user.id },
       select: { serviceId: true },
     }),
+    // Doctrine 2, resolved once per request. Read from the database rather than
+    // the session for the same reason as everything else here: removing someone
+    // from a department has to take effect on the next request, not the next
+    // time they sign in.
+    departmentIdsForUser(user.id, isAdmin),
   ]);
 
   const leadServiceIds = leads.map((lead) => lead.serviceId);
@@ -74,5 +82,6 @@ export async function viewerFor(user: { id: string; role: string }): Promise<Vie
     isBusinessDev: account?.isBusinessDev ?? false,
     assignedClientIds,
     podMemberIds,
+    departmentIds,
   };
 }

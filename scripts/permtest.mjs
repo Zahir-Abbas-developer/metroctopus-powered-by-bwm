@@ -295,6 +295,218 @@ async function main() {
     );
   }
 
+  /* ------------------------------------------ cross-department isolation -- */
+
+  /**
+   * Doctrine 2, checked as a leak rather than as a rule.
+   *
+   * A member must not receive another department's records from *any* endpoint
+   * — not a list, not search, not an aggregate. Search matters most: a list
+   * shows what you asked for, but search answers whether something exists, so
+   * an unscoped hit discloses the name and often the phone number of a record
+   * in a department that is not yours even if opening it 404s.
+   *
+   * Both directions are asserted. A test that only checks what is hidden passes
+   * perfectly against an implementation that returns nothing at all, so each
+   * case also asserts the member still receives their own department's records.
+   */
+  const departments = await prisma.department.findMany({
+    where: { isActive: true },
+    orderBy: { order: "asc" },
+    select: { id: true, slug: true, shortLabel: true },
+  });
+
+  const cheryl = accounts.find((a) => a.email === "cheryl@bwm.local");
+  const tayyaba = accounts.find((a) => a.email === "tayyaba@bwm.local");
+
+  if (cheryl && tayyaba && departments.length > 1) {
+    const membershipsOf = async (userId) =>
+      (
+        await prisma.departmentMembership.findMany({
+          where: { userId },
+          select: { departmentId: true },
+        })
+      ).map((row) => row.departmentId);
+
+    const cherylDepts = await membershipsOf(cheryl.id);
+    const forbidden = departments.filter((d) => !cherylDepts.includes(d.id));
+    const permitted = departments.filter((d) => cherylDepts.includes(d.id));
+
+    check(
+      "there is a department Cheryl is not in",
+      forbidden.length > 0,
+      `${forbidden.length}`,
+    );
+
+    // Plant one lead in each department so both directions have something to
+    // find. Named distinctly so search has an exact term to match.
+    const planted = [];
+    for (const dept of departments) {
+      const stage = await prisma.pipelineStage.findFirst({
+        where: { departmentId: dept.id, kind: "OPEN" },
+        orderBy: { sortOrder: "asc" },
+        select: { key: true },
+      });
+      const lead = await prisma.lead.create({
+        data: {
+          departmentId: dept.id,
+          businessName: `Scopeprobe ${dept.slug}`,
+          contactName: "Scope Probe",
+          email: `scopeprobe-${dept.slug}@bwm.local`,
+          phone: "555-0100",
+          stage: stage?.key ?? "NEW",
+        },
+      });
+      planted.push({ dept, leadId: lead.id });
+    }
+
+    try {
+      const session = new Session("cheryl");
+      await session.signIn(cheryl.email, SEED_PASSWORD);
+
+      // --- the pipeline list -------------------------------------------------
+      const board = await (await session.fetch("/api/leads")).json();
+      const seenIds = new Set((board.leads ?? []).map((lead) => lead.id));
+
+      for (const row of planted) {
+        const allowed = cherylDepts.includes(row.dept.id);
+        check(
+          allowed
+            ? `Cheryl receives her own ${row.dept.shortLabel} lead from /api/leads`
+            : `Cheryl receives no ${row.dept.shortLabel} lead from /api/leads`,
+          seenIds.has(row.leadId) === allowed,
+        );
+      }
+
+      // --- search ------------------------------------------------------------
+      const search = await (await session.fetch("/api/search?q=Scopeprobe")).json();
+      const hits = (search.results ?? []).map((result) => result.id);
+
+      for (const row of planted) {
+        const allowed = cherylDepts.includes(row.dept.id);
+        check(
+          allowed
+            ? `search returns Cheryl's own ${row.dept.shortLabel} record`
+            : `search hides the ${row.dept.shortLabel} record from Cheryl`,
+          hits.includes(row.leadId) === allowed,
+        );
+      }
+
+      // A partial phone match must not become a way around the scope.
+      const byPhone = await (await session.fetch("/api/search?q=555-0100")).json();
+      const phoneHits = new Set((byPhone.results ?? []).map((r) => r.id));
+      for (const row of planted.filter((p) => !cherylDepts.includes(p.dept.id))) {
+        check(
+          `partial phone search hides the ${row.dept.shortLabel} record`,
+          !phoneHits.has(row.leadId),
+        );
+      }
+
+      // --- aggregates --------------------------------------------------------
+      const analytics = await (await session.fetch("/api/analytics")).json();
+      const reported = (analytics.departments ?? []).map((d) => d.id);
+      check(
+        "dashboard offers Cheryl only her own departments",
+        reported.length === cherylDepts.length &&
+          reported.every((id) => cherylDepts.includes(id)),
+        `got ${reported.length}, expected ${cherylDepts.length}`,
+      );
+      check(
+        "dashboard totals count only permitted departments",
+        (analytics.totals?.totalLeads ?? 0) <= planted.length - forbidden.length + 500,
+      );
+      for (const row of analytics.byDepartment ?? []) {
+        check(
+          `aggregate row ${row.shortLabel} is a department Cheryl belongs to`,
+          cherylDepts.includes(row.departmentId),
+        );
+      }
+
+      // --- the record itself -------------------------------------------------
+      for (const row of planted.filter((p) => !cherylDepts.includes(p.dept.id))) {
+        const detail = await session.fetch(`/api/leads/${row.leadId}`);
+        check(
+          `Cheryl cannot open a ${row.dept.shortLabel} lead`,
+          detail.status === 404 || detail.status === 403,
+          `got ${detail.status}`,
+        );
+      }
+
+      if (permitted.length > 0) {
+        const own = planted.find((p) => p.dept.id === permitted[0].id);
+        const detail = await session.fetch(`/api/leads/${own.leadId}`);
+        check(
+          "Cheryl can still open her own department's lead",
+          detail.status === 200,
+          `got ${detail.status}`,
+        );
+      }
+
+      // --- mutation across a department boundary -----------------------------
+      const tayyabaDepts = await membershipsOf(tayyaba.id);
+      const affiliates = departments.find((d) => d.slug === "affiliates");
+
+      if (affiliates && !tayyabaDepts.includes(affiliates.id)) {
+        const other = new Session("tayyaba");
+        await other.signIn(tayyaba.email, SEED_PASSWORD);
+
+        const target = planted.find((p) => p.dept.id === affiliates.id);
+
+        const stageMove = await other.fetch(`/api/leads/${target.leadId}/stage`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stage: "QUALIFIED" }),
+        });
+        check(
+          "Tayyaba cannot move an Affiliates lead",
+          stageMove.status === 403,
+          `got ${stageMove.status}`,
+        );
+
+        const edit = await other.fetch(`/api/leads/${target.leadId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ businessName: "Should not persist" }),
+        });
+        check(
+          "Tayyaba cannot edit an Affiliates lead",
+          edit.status === 403,
+          `got ${edit.status}`,
+        );
+
+        const logged = await other.fetch("/api/activities", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            leadId: target.leadId,
+            type: "CALL",
+            note: "Should not persist",
+          }),
+        });
+        check(
+          "Tayyaba cannot log activity on an Affiliates lead",
+          logged.status === 403,
+          `got ${logged.status}`,
+        );
+
+        const after = await prisma.lead.findUnique({
+          where: { id: target.leadId },
+          select: { businessName: true },
+        });
+        check(
+          "the Affiliates lead was not modified",
+          after?.businessName === `Scopeprobe ${affiliates.slug}`,
+          after?.businessName,
+        );
+      }
+    } finally {
+      for (const row of planted) {
+        await prisma.salesActivity.deleteMany({ where: { leadId: row.leadId } });
+        await prisma.lead.delete({ where: { id: row.leadId } }).catch(() => {});
+      }
+    }
+  }
+
   /* ------------------------------------------------------------ report -- */
 
   console.log(`\n${pass + failures.length} checks\n`);
@@ -304,7 +516,7 @@ async function main() {
     console.log();
     process.exit(1);
   }
-  console.log("✓ no forbidden field or mutation reached a non-owner\n");
+  console.log("✓ no forbidden field, mutation or department reached a non-owner\n");
   process.exit(0);
 }
 
