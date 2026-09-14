@@ -10,10 +10,20 @@ import { notify } from "@/lib/notifications";
 /**
  * The 9am follow-up call.
  *
- * Runs hourly and does its work only in the company's 9 o'clock hour, rather
- * than being scheduled at a fixed UTC time. A cron pinned to 14:00 UTC is 9am in
- * New York for half the year and 10am for the other half — the hour moves
- * twice a year and nobody would connect the drift to daylight saving.
+ * Scheduled daily at 13:00 UTC, which is 08:00 in New York in winter and 09:00
+ * in summer.
+ *
+ * It was hourly, guarded to act only in the company's 9 o'clock hour, so the
+ * time never drifted with daylight saving. **Vercel's Hobby plan allows only
+ * daily crons**, so that design is not available here.
+ *
+ * The guard had to widen with it. Keeping `hour === 9` against a fixed daily UTC
+ * time would have skipped the run *entirely* for half the year — the schedule
+ * and the guard would disagree every spring, and the failure would be silence
+ * rather than an error. A morning window fires year-round and accepts an hour of
+ * seasonal drift, which is the honest trade at this plan level.
+ *
+ * On Pro, restore `0 * * * *` and narrow the window back to a single hour.
  *
  * Deduped per record per day, so a retry, a second Vercel region, or an hour
  * that runs twice on the night the clocks go back cannot send the same person
@@ -28,10 +38,18 @@ export async function POST(request: Request) {
     const timeZone = await companyTimezone();
     const hour = companyHour(now, timeZone);
 
-    if (hour !== 9) {
+    // 8–10 rather than exactly 9: see the note above. Wide enough to survive the
+    // daylight-saving shift, narrow enough that a mistimed or manual invocation
+    // in the afternoon still does nothing.
+    if (hour < 8 || hour > 10) {
       // Not an error, and not silence either: a cron whose logs say nothing is
       // indistinguishable from a cron that is not running.
-      return NextResponse.json({ status: "skipped", reason: "not 9am", hour, timeZone });
+      return NextResponse.json({
+        status: "skipped",
+        reason: "outside the morning window",
+        hour,
+        timeZone,
+      });
     }
 
     const due = await dueFollowUps(now);
