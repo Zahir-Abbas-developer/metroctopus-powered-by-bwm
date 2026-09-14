@@ -21,6 +21,12 @@ import { cn } from "@/lib/utils";
 
 type Stage = { key: string; label: string; kind: StageKind; colorToken: string | null };
 
+/** What the server filed, and where. The board needs both to show the record. */
+export type CreatedLead = {
+  id: string;
+  departmentId: string;
+};
+
 type FormContext = {
   fields: FieldDefinitionView[];
   stages: Stage[];
@@ -85,7 +91,7 @@ export function LeadFormModal({
   services: { slug: string; name: string }[];
   canAssign: boolean;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (created: CreatedLead) => void;
 }) {
   const toast = useToast();
   const [step, setStep] = useState(0);
@@ -169,9 +175,21 @@ export function LeadFormModal({
   }
 
   async function toStageStep() {
-    // Free-text answers describe the work; they are what the ranking matches
-    // member skills against.
-    const terms = Object.values(values).filter(Boolean).slice(0, 12);
+    /* Everything that describes the work, in the order the server reads it.
+
+       The services are the strongest signal of the three — "shopify-development"
+       says what this deal is far more plainly than a note does — and they were
+       previously left out, so the ranking on step 3 could recommend one person
+       while the server routed to another. The two must be built from the same
+       inputs or the hint is a lie. */
+    const terms = [
+      ...draft.interestedServices,
+      ...Object.values(values).filter(Boolean),
+      draft.notes,
+    ]
+      .filter(Boolean)
+      .slice(0, 12);
+
     await loadContext(departmentId, terms);
     setStep(2);
   }
@@ -236,8 +254,26 @@ export function LeadFormModal({
         return;
       }
 
-      toast.success(`${draft.businessName} added to the pipeline.`);
-      onSaved();
+      /* Name the person it went to. Automatic routing that happens silently is
+         indistinguishable from a lead going missing, which is the complaint it
+         was built to answer — so the outcome is said out loud, every time. */
+      const assignment = body?.assignment as
+        | { name: string | null; reason: string }
+        | null
+        | undefined;
+
+      toast.success(
+        assignment?.name
+          ? `${draft.businessName} added — assigned to ${assignment.name}.`
+          : `${draft.businessName} added to the pipeline.`,
+      );
+
+      onSaved({
+        id: String(body?.lead?.id ?? ""),
+        // The server is the authority on where it landed; the local draft is
+        // the fallback only because a missing id must not strand the board.
+        departmentId: String(body?.lead?.departmentId ?? departmentId),
+      });
     } finally {
       setSaving(false);
     }
@@ -424,10 +460,13 @@ export function LeadFormModal({
                 members={context?.assignees ?? []}
                 value={draft.ownerId}
                 onChange={(userId) => set("ownerId", userId)}
+                allowAuto
+                autoHint={autoHint(context?.assignees ?? [])}
               />
             ) : (
               <p className="text-[13px] text-ink/55">
-                This lead will be yours. Only an admin can assign it to someone else.
+                {autoHint(context?.assignees ?? []) ??
+                  "This lead will be yours. Only an admin can assign it to someone else."}
               </p>
             )}
             {errors.ownerId && <p className="text-[12px] text-danger">{errors.ownerId}</p>}
@@ -445,6 +484,25 @@ export function LeadFormModal({
       </div>
     </Modal>
   );
+}
+
+/**
+ * What automatic routing would do with this form, in one line.
+ *
+ * Read from the same ranked list the server uses, so the sentence shown here
+ * and the decision taken on save cannot drift apart. Null when the department
+ * has nobody in it — there is nothing honest to promise.
+ */
+function autoHint(assignees: readonly AssignableMember[]): string | null {
+  const best = assignees[0];
+  if (!best) return null;
+  if (best.matchScore > 0) {
+    const why = best.matchedSkills.length > 0
+      ? best.matchedSkills.join(", ")
+      : best.jobTitle;
+    return `Automatic: ${best.name} — ${why}`;
+  }
+  return `Automatic: ${best.name} — lightest workload`;
 }
 
 /** Core keys whose errors belong to step 2 of the wizard. */

@@ -60,6 +60,8 @@ const settingsSchema = z
     disputeSlaHours: z.number().int().min(1).max(720),
     leaderboardVisibility: z.enum(["ADMIN_ONLY", "TEAM_VISIBLE"]),
     backupWarnHours: z.number().int().min(1).max(336),
+    // Automatic routing.
+    autoAssignEnabled: z.boolean(),
   })
   .partial()
   // Cross-field rules, because a setting that is individually valid can still

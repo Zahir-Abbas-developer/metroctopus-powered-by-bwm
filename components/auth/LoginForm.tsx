@@ -7,6 +7,36 @@ import { AlertCircle, ArrowRight, Lock, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { THROTTLED_ERROR } from "@/lib/constants";
+
+/**
+ * What went wrong, in words that tell the person what to do next.
+ *
+ * Two outcomes, not one. "Wrong password" and "too many attempts" both used to
+ * render as "those credentials didn't work", so somebody holding the correct
+ * password had no way to learn that the only problem was the clock — they just
+ * retyped it, which spent another attempt, which extended the wait.
+ *
+ * The credentials case stays deliberately vague: the server genuinely cannot
+ * say whether the account exists, is deactivated, or the password was wrong,
+ * and guessing on its behalf would turn the form into a way to find out who
+ * works here.
+ */
+function messageFor(error: string): string {
+  if (!error.startsWith(THROTTLED_ERROR)) {
+    return "Those credentials didn't work. Check them and try again.";
+  }
+
+  const seconds = Number(error.split(":")[1]);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return "Too many sign-in attempts. Wait a few minutes and try again.";
+  }
+
+  const minutes = Math.ceil(seconds / 60);
+  return minutes <= 1
+    ? "Too many sign-in attempts. Try again in about a minute."
+    : `Too many sign-in attempts. Try again in about ${minutes} minutes.`;
+}
 
 export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
   const router = useRouter();
@@ -33,9 +63,7 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
       });
 
       if (!result || result.error) {
-        // Deliberately vague: the server can't tell us whether the account
-        // exists, is deactivated, or the password was wrong.
-        setError("Those credentials didn't work. Check them and try again.");
+        setError(messageFor(result?.error ?? ""));
         return;
       }
 

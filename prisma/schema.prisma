@@ -1195,6 +1195,18 @@ model Settings {
   /// Asia/Karachi and BWM operates US-based.
   timezone String @default("America/New_York")
 
+  // --- Automatic routing ----------------------------------------------------
+  /// Whether a record filed without an assignee is routed to the department
+  /// member whose skills or job title name the work, falling back to whoever
+  /// is carrying the least. Off means the old behaviour: the record stays with
+  /// whoever created it.
+  ///
+  /// A setting rather than a constant because the right answer differs by
+  /// business line — a sales desk may want every enquiry to stay with the
+  /// person who took it — and because a routing rule nobody can switch off is
+  /// a routing rule nobody trusts.
+  autoAssignEnabled Boolean @default(true)
+
   // --- BWM fork: parked module flags ---------------------------------------
   /// Modules inherited from the agency fork that BWM did not request. All
   /// default off, and off means the feature *disappears* — no nav item, no

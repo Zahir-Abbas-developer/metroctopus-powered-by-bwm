@@ -109,6 +109,13 @@ export function PipelineBoard() {
   const [owner, setOwner] = useState("ALL");
   const [dragging, setDragging] = useState<PipelineLead | null>(null);
   const [creating, setCreating] = useState(false);
+  /* Bumped to force a refetch when nothing else changed.
+
+     Without it, saving a lead into the department already on screen sets no
+     state React considers different, the effect below never re-runs, and the
+     board keeps showing the list it fetched before the lead existed — which
+     reads exactly like the lead was never saved. */
+  const [reloadToken, setReloadToken] = useState(0);
   const [losing, setLosing] = useState<{ lead: PipelineLead; stage: Stage } | null>(null);
 
   const openId = searchParams.get("lead");
@@ -131,7 +138,12 @@ export function PipelineBoard() {
     } catch {
       setState("error");
     }
-  }, [departmentId, owner]);
+    /* `reloadToken` is read by nothing in the body, and that is the point: it
+       exists purely so a caller can ask for a refetch when no filter changed.
+       The lint rule is right that it is an unusual dependency and wrong that it
+       is unnecessary — dropping it is what let a freshly saved lead go missing. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departmentId, owner, reloadToken]);
 
   useEffect(() => {
     void load();
@@ -528,9 +540,26 @@ export function PipelineBoard() {
         services={data?.services ?? []}
         canAssign={data?.viewer.isAdmin ?? false}
         onClose={() => setCreating(false)}
-        onSaved={() => {
+        onSaved={(created) => {
           setCreating(false);
-          void load();
+
+          /* Follow the lead to wherever it was actually filed.
+
+             The wizard asks for the department first and offers every one the
+             viewer belongs to, so a lead added from the Pilot Cars board can
+             perfectly well be a Culture Plus lead. Reloading the board that
+             happened to be on screen then shows a list the new record is not
+             in. The owner filter is cleared for the same reason: a board
+             narrowed to one person hides a lead that was routed to another. */
+          const landed = created?.departmentId;
+          if (landed && landed !== departmentId) {
+            const name =
+              data?.departments.find((row) => row.id === landed)?.shortLabel ?? null;
+            setDepartmentId(landed);
+            if (name) toast.toast(`Showing ${name} — that's where this lead was filed.`, "info");
+          }
+          setOwner("ALL");
+          setReloadToken((token) => token + 1);
         }}
       />
 

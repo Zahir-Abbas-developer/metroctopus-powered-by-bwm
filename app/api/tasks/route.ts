@@ -8,6 +8,8 @@ import { fieldErrors } from "@/lib/validation";
 import { taskBoard } from "@/lib/tasks";
 import { canUseDepartment } from "@/lib/departments";
 import { canBeAssigned } from "@/lib/assignment";
+import { autoAssign, taskSignals } from "@/lib/auto-assign";
+import { notify } from "@/lib/notifications";
 import { parseDateInput } from "@/lib/date";
 import { hasAdminPower, TASK_PRIORITIES } from "@/lib/constants";
 
@@ -119,6 +121,20 @@ export async function POST(request: Request) {
     });
   }
 
+  /* Who does the work. An explicit choice wins; otherwise the title and note
+     are read for what the job actually is and it goes to the person in this
+     department who does that, falling back to the lightest workload. The old
+     default — whoever typed it in — is still the floor, because unassigned
+     work is invisible work. */
+  const routed = data.assigneeId
+    ? null
+    : await autoAssign(
+        data.departmentId,
+        taskSignals({ title: data.title, note: data.note }),
+      );
+
+  const assigneeId = data.assigneeId ?? routed?.userId ?? user.id;
+
   const task = await prisma.task.create({
     data: {
       departmentId: data.departmentId,
@@ -126,14 +142,39 @@ export async function POST(request: Request) {
       clientId: data.clientId ?? null,
       title: data.title,
       note: data.note || null,
-      // Unassigned work is invisible work. Whoever adds it owns it unless they
-      // say otherwise — the same rule leads follow.
-      assigneeId: data.assigneeId ?? user.id,
+      assigneeId,
       createdById: user.id,
       dueAt,
       priority: data.priority,
     },
   });
 
-  return NextResponse.json({ task }, { status: 201 });
+  // Work that lands on someone silently is work they find out about late.
+  if (assigneeId !== user.id) {
+    await notify({
+      userId: assigneeId,
+      type: "TASK_ASSIGNED",
+      title: "A task was assigned to you",
+      body: routed?.reason
+        ? `${data.title} — ${routed.reason}.`
+        : `${data.title} was assigned to you.`,
+      href: "/tasks",
+    });
+  }
+
+  return NextResponse.json(
+    {
+      task,
+      assignment:
+        routed && routed.userId
+          ? {
+              userId: routed.userId,
+              name: routed.name,
+              strategy: routed.strategy,
+              reason: routed.reason,
+            }
+          : null,
+    },
+    { status: 201 },
+  );
 }

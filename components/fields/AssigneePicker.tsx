@@ -1,5 +1,7 @@
 "use client";
 
+import { Sparkles } from "lucide-react";
+
 import { Avatar } from "@/components/ui/Avatar";
 import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -18,6 +20,12 @@ import { cn } from "@/lib/utils";
  * The list is the department's members and nobody else. Ranking is a hint, not
  * a filter: the best-fit people are on top, and every member stays pickable,
  * because whoever knows why this deal is different outranks the scoring.
+ *
+ * With `allowAuto` the list opens with a row for leaving the decision to the
+ * router. That row is what an empty value has always meant on the server; it is
+ * drawn explicitly because an unticked radio group reads as "not answered yet",
+ * and the difference between "nobody chose" and "we chose to let it route"
+ * matters when somebody later asks why the work went where it went.
  */
 export function AssigneePicker({
   members,
@@ -25,12 +33,18 @@ export function AssigneePicker({
   onChange,
   label = "Assign to",
   emptyHint,
+  allowAuto = false,
+  autoHint,
 }: {
   members: readonly AssignableMember[];
   value: string;
   onChange: (userId: string) => void;
   label?: string;
   emptyHint?: string;
+  /** Offer "let the router decide" as the first, default row. */
+  allowAuto?: boolean;
+  /** What the router would do, in one line. Null when it cannot say. */
+  autoHint?: string | null;
 }) {
   if (members.length === 0) {
     return (
@@ -49,6 +63,36 @@ export function AssigneePicker({
       <legend className="mb-2 text-[13px] font-medium text-ink/80">{label}</legend>
 
       <div className="divide-y divide-line overflow-hidden rounded-card border border-line bg-white">
+        {allowAuto && (
+          <label
+            className={cn(
+              "flex cursor-pointer items-center gap-3 px-3.5 py-2.5 transition-colors",
+              value === "" ? "bg-brand-tint" : "hover:bg-cream",
+            )}
+          >
+            <input
+              type="radio"
+              name="assignee"
+              className="h-4 w-4 border-line text-brand focus:ring-brand/25"
+              checked={value === ""}
+              onChange={() => onChange("")}
+            />
+
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-line bg-cream">
+              <Sparkles aria-hidden className="h-3.5 w-3.5 text-brand" />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-medium text-ink">
+                Decide automatically
+              </span>
+              <span className="mt-0.5 block truncate text-[12px] text-ink/50">
+                {autoHint ?? "Routed by skill, then by who is carrying the least"}
+              </span>
+            </span>
+          </label>
+        )}
+
         {members.map((member) => {
           const selected = value === member.userId;
 

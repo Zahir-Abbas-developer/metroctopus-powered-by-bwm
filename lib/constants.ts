@@ -453,3 +453,13 @@ export function canTransition(
 ): boolean {
   return allowedTransitions(role, from).includes(to);
 }
+
+/**
+ * How `authorize` in lib/auth.ts tells the login form a sign-in was throttled
+ * rather than wrong, with the seconds to wait appended after the colon.
+ *
+ * It lives here rather than beside the auth options because the login form is a
+ * client component: importing lib/auth.ts to read one string would pull Prisma
+ * and bcrypt into the browser bundle.
+ */
+export const THROTTLED_ERROR = "RateLimited";

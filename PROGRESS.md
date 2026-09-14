@@ -2907,3 +2907,117 @@ npm run journeytest   ✓ 78 checks
   exist and are scoped; the page still renders the old figures and has no filter
   bar or charts.
 - **§4's acceptance audit**, `seed:prod`, the README, and the `bwm-v1.0.0` tag.
+
+---
+
+## Fixes — leads that did not appear, routing, and sign-in (14 September 2026)
+
+Three faults reported from use, and each turned out to be a different kind of
+problem: one in the UI's idea of what it was looking at, one missing feature,
+and one security control tuned for a threat model the agency does not have.
+
+### A lead was added and did not show up
+
+The record was always written. The board was looking somewhere else.
+
+`LeadFormModal` asks for the department *first* and offers every one the viewer
+belongs to, so a lead added from the Pilot Cars board can perfectly well be a
+Culture Plus lead. On save the board called `load()`, which refetches whichever
+department is currently selected — the one the lead is not in. To the person who
+just filled in three steps of a wizard, that is indistinguishable from the save
+having failed.
+
+Two changes. `POST /api/leads` now answers with where the lead landed rather
+than the raw row (a lean shape, which also stops handing the deal value back to
+a creator the visibility matrix would not otherwise show it to), and the board
+follows it: it switches department, clears the owner filter — a board narrowed
+to one person hides a lead routed to another — and says which board it moved to.
+
+A `reloadToken` forces the refetch. Without it, saving into the department
+already on screen changes no state React considers different, the effect never
+re-runs, and the board keeps showing the list it fetched before the lead
+existed. That is the same bug wearing a different hat.
+
+### Work now routes to whoever does that work
+
+`lib/assignment.ts` already ranked a department's members by skill, but only to
+order a picker. Nothing acted on it: an unassigned record fell to whoever created
+it, so every enquiry accumulated on the person who answered the phone.
+
+`lib/auto-assign.ts` acts on it, for leads and tasks alike, and reports which of
+three things happened rather than blending them — `SKILL` when somebody's skills
+or job title named the work, `BALANCED` when nobody's did and it went to the
+lightest workload, `NONE` when there was nobody to give it to or the owner has
+switched routing off in Settings. An explicit choice always wins. The reason is
+written to the lead timeline as a system entry and sent to the assignee, because
+a routing decision nobody can see is a routing decision nobody trusts.
+
+`lib/matching.ts` is the part that makes it work. Four things had to be true at
+once, and three of them were bugs found by testing rather than by reading:
+
+- **The job title has to count.** "Shopify Developer" is already on the user
+  record. Requiring someone to retype "shopify" into a skills box before a
+  Shopify job reaches the Shopify developer is the feature failing at its one
+  example.
+- **The department's own name must not count.** Every member of "Pilot Cars
+  Sales & Dispatch" has "sales" or "dispatch" in their skills, so scoring
+  against the department name scored everybody — loudest for whoever listed the
+  most of the department's own words, which is a fact about data entry. Worse,
+  it drowned the one term that described the job. It is now a tie-break, after
+  the real match and after workload.
+- **A word and its own plural must stem alike.** The first stemmer turned
+  "insurances" into "insuranc", which matched nothing — not even "insurance",
+  the word it came from.
+- **Multi-word platform names are one thing.** Split into words, "Google Ads"
+  leaves a stray "ads" that matches every other advertising skill: a Facebook
+  brief scored against a Google Ads specialist and the reason on the record read
+  "google ads" — true of the token, false about the work. Meanwhile "PPC" and
+  "Google Ads" never met at all.
+
+Whole-word matching is kept throughout, so CLAUDE.md's named failure still
+holds: "Cam" does not match "campaign".
+
+The alias and phrase tables are held to their own rules by a test: anything this
+module produces must survive being fed back through it. Both of the table bugs
+above were entries that could never match, and nothing at runtime said so.
+
+### Credentials that stopped working
+
+Not a password problem. The login limiter kept a bucket per source address at
+the same 8-attempt ceiling as the per-account one, and `clientIp` returned the
+string `"unknown"` when no proxy header identified the caller. A literal
+`"unknown"` is a perfectly good map key, so every request without those headers
+shared one bucket: eight failed sign-ins by anybody locked out everybody for ten
+minutes, and each of them was told their password was wrong.
+
+The address bucket is now skipped when the source cannot be identified, and set
+at 60 where it can — a script trips it, a shared office does not. The per-account
+bucket, which is the actual defence, is unchanged at 8. Throttling is also
+reported honestly now; disguising it bought nothing an attacker could not measure
+by timing, and cost a real user any way of learning that waiting would fix it.
+
+### Gate
+
+```
+npx tsc --noEmit      ✓ clean
+npm run lint          ✓ clean
+npm run build         ✓ clean
+npm test              ✓ 461/461  (434 + 27 matching)
+npm run permtest      ✓ 198 checks
+npm run leaks         ✓ no owner-only value reached a non-owner
+npm run fieldtest     ✓ 45 checks
+npm run journeytest   ✓ 77 checks
+```
+
+Plus an end-to-end pass over HTTP against the built app: a lead filed into a
+department other than the one on screen comes back on that department's board
+and on no other, repeated wrong passwords report throttling rather than bad
+credentials, and a colleague signing in from the same connection is unaffected.
+
+### Note on the schema
+
+`Settings.autoAssignEnabled` was added with `db push`, matching how the whole
+BWM fork was built — `prisma/migrations` has tracked nothing since
+`20260809120000_visibility` and predates departments entirely. `vercel-build`
+runs `db push`, so the column arrives on deploy. Adding a lone migration now
+would fail against a database that has drifted this far from the history.

@@ -18,6 +18,7 @@ how is the team actually performing.
 | **Engagements** | One monthly cycle per client, expanded from planning templates into modules and dated milestones |
 | **Board** | Drag-and-drop kanban with per-role permissions, filters, and a detail drawer per milestone |
 | **Collaboration** | Threaded comments with @mentions, file attachments, and an audit trail on every milestone |
+| **Routing** | A lead or task filed without an assignee goes to the person in that department whose skills or job title name the work — a Shopify job to the Shopify developer — and to the lightest workload when nothing matches. A choice made by hand always wins |
 | **Scoring** | Everyone starts each month at 100; points come off for late, missed and rejected work, and back for early delivery |
 | **Reports** | Weekly and monthly member reports, plus a client weekly — frozen snapshots, printable to A4 |
 | **Notifications** | In-app bell plus optional email: welcome, weekly digest, report ready, overdue alert |
@@ -289,10 +290,21 @@ produces no double-charges and no duplicate reports.
 - **Passwords** are bcrypt-hashed (cost 10 for seeded accounts, 12 for the
   production owner). No plaintext is ever stored; the welcome email is the one
   moment a generated password exists, in the request that created it.
-- **Login is rate limited** — 8 attempts per 10 minutes, bucketed by both IP
-  and account, with a sliding window. The counters are in-process, so each
-  serverless instance keeps its own; swapping `lib/rate-limit.ts` for
-  Upstash/Redis is a drop-in change if you need a global limit.
+- **Login is rate limited**, with a sliding window and two buckets sized
+  differently, because they defend against different things. Per account: 8
+  attempts per 10 minutes — that is one person's own typing, and the real
+  defence against guessing one password. Per source address: 60, because an
+  address is not a person. A whole office behind one NAT arrives as a single
+  IP, so a limit sized for one person locks out everybody who shares the
+  connection the moment two colleagues fumble a password. A request that
+  arrives with no proxy header to identify it skips the address bucket
+  entirely, rather than sharing a placeholder one with every other visitor.
+  Being throttled is reported as such, not disguised as a wrong password: an
+  attacker can measure it by timing anyway, and hiding it left real users
+  retyping a correct password and extending their own lockout. The counters
+  are in-process, so each serverless instance keeps its own; swapping
+  `lib/rate-limit.ts` for Upstash/Redis is a drop-in change if you need a
+  global limit.
 - **Every mutation validates its body with zod** before touching the database.
 - **Uploads** are limited to 10 MB and an allowlist of types. SVG is refused
   deliberately — it is script-capable. Stored filenames are server-generated

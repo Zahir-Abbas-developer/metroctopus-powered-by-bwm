@@ -57,6 +57,7 @@ type SettingsShape = {
   disputeSlaHours: number;
   leaderboardVisibility: string;
   backupWarnHours: number;
+  autoAssignEnabled: boolean;
 };
 
 const DAYS = [
@@ -437,6 +438,36 @@ export function SettingsPanel() {
         </div>
       </Card>
 
+
+      <Card>
+        <h2 className="font-display text-base font-bold tracking-tight text-ink">
+          Automatic routing
+        </h2>
+        <p className="mt-0.5 text-[13px] text-ink/50">
+          A lead or task filed without an assignee goes to the person in that
+          department whose skills or job title name the work &mdash; a Shopify job
+          to the Shopify developer. With nothing matching, it goes to whoever is
+          carrying the least. Anyone picked by hand always wins.
+        </p>
+
+        <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-card border border-line p-4">
+          <input
+            type="checkbox"
+            checked={draft.autoAssignEnabled}
+            onChange={(event) => set("autoAssignEnabled", event.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-brand"
+          />
+          <span className="min-w-0">
+            <span className="block text-[13px] font-medium text-ink">
+              Route unassigned work automatically
+            </span>
+            <span className="mt-0.5 block text-[13px] leading-relaxed text-ink/55">
+              Off means an unassigned record stays with whoever created it, which
+              is how work ends up parked on the person who answered the phone.
+            </span>
+          </span>
+        </label>
+      </Card>
       <Card>
         <h2 className="font-display text-base font-bold tracking-tight text-ink">
           Auto-renewal

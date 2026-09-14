@@ -13,6 +13,8 @@ import { LEAD_SOURCES } from "@/lib/pipeline-types";
 import { hasAdminPower } from "@/lib/constants";
 import { canUseDepartment } from "@/lib/departments";
 import { canBeAssigned } from "@/lib/assignment";
+import { autoAssign, leadSignals } from "@/lib/auto-assign";
+import { notify } from "@/lib/notifications";
 import { fieldsFor, validateFieldValues, writeFieldValues } from "@/lib/fields";
 
 const leadSchema = z.object({
@@ -198,6 +200,27 @@ export async function POST(request: Request) {
     );
   }
 
+  /* Who does this deal actually belong to.
+
+     An explicit choice always wins — the person filling in the form knows why
+     this one is different. With no choice made, the router reads what the deal
+     is about and sends it to whoever does that work, because the previous
+     default (whoever typed it in) reliably parked every enquiry on the person
+     who answered the phone. If the router cannot decide, that old default is
+     still the floor: an unowned lead is invisible work. */
+  const routed = data.ownerId
+    ? null
+    : await autoAssign(
+        department.id,
+        leadSignals({
+          interestedServices: data.interestedServices,
+          fieldValues: data.fieldValues,
+          notes: data.notes,
+        }),
+      );
+
+  const ownerId = data.ownerId ?? routed?.userId ?? user.id;
+
   const lead = await prisma.lead.create({
     data: {
       departmentId: department.id,
@@ -210,9 +233,7 @@ export async function POST(request: Request) {
       interestedServices: data.interestedServices.join(","),
       estimatedMonthlyValue: data.estimatedMonthlyValue,
       dealValue: data.dealValue,
-      // Unowned leads are invisible work. Whoever adds one owns it unless the
-      // owner says otherwise.
-      ownerId: data.ownerId ?? user.id,
+      ownerId,
       notes: data.notes || null,
       stage,
     },
@@ -220,7 +241,65 @@ export async function POST(request: Request) {
 
   await writeFieldValues(lead.id, definitions, data.fieldValues);
 
-  return NextResponse.json({ lead }, { status: 201 });
+  /* A routing decision nobody can see is a routing decision nobody trusts, so
+     the reason goes on the lead timeline as a system entry and the person who
+     now owns the deal is told. Neither is allowed to fail the creation. */
+  if (routed?.userId) {
+    await recordRouting(lead.id, department.id, routed.userId, routed.reason);
+  }
+  if (ownerId !== user.id) {
+    await notify({
+      userId: ownerId,
+      type: "TASK_ASSIGNED",
+      title: "A lead was assigned to you",
+      body: routed?.reason
+        ? `${data.businessName} — ${routed.reason}.`
+        : `${data.businessName} was assigned to you.`,
+      href: `/pipeline?lead=${lead.id}`,
+    });
+  }
+
+  /* A lean shape rather than the raw row: the caller needs to know *where* the
+     lead landed so it can show the board it landed on. Returning the record
+     wholesale would also hand the deal value back to a creator the visibility
+     matrix would not otherwise show it to. */
+  return NextResponse.json(
+    {
+      lead: {
+        id: lead.id,
+        departmentId: lead.departmentId,
+        stage: lead.stage,
+        ownerId: lead.ownerId,
+      },
+      assignment: routed && routed.userId
+        ? { userId: routed.userId, name: routed.name, strategy: routed.strategy, reason: routed.reason }
+        : null,
+    },
+    { status: 201 },
+  );
+}
+
+/** The "why it went there" line on the lead timeline. Never throws. */
+async function recordRouting(
+  leadId: string,
+  departmentId: string,
+  userId: string,
+  reason: string,
+): Promise<void> {
+  try {
+    await prisma.salesActivity.create({
+      data: {
+        departmentId,
+        leadId,
+        userId,
+        type: "ASSIGNMENT",
+        note: `Routed automatically. ${reason}.`,
+        isSystem: true,
+      },
+    });
+  } catch (error) {
+    console.error("routing activity failed", error);
+  }
 }
 
 /** Comma-separated slugs, as stored. Local — a route may only export handlers. */

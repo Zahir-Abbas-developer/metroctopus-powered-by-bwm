@@ -61,6 +61,8 @@ export type AgencySettings = {
   backupWarnHours: number;
   /** IANA zone the whole app reasons in (Doctrine 6). */
   timezone: string;
+  /** Route records filed without an assignee to whoever should do the work. */
+  autoAssignEnabled: boolean;
 };
 
 export const DEFAULT_SETTINGS: AgencySettings = {
@@ -109,6 +111,7 @@ export const DEFAULT_SETTINGS: AgencySettings = {
   leaderboardVisibility: "ADMIN_ONLY",
   backupWarnHours: 26,
   timezone: "America/New_York",
+  autoAssignEnabled: true,
 };
 
 export async function getSettings(): Promise<AgencySettings> {
@@ -164,6 +167,7 @@ export async function getSettings(): Promise<AgencySettings> {
     leaderboardVisibility: row.leaderboardVisibility,
     backupWarnHours: row.backupWarnHours,
     timezone: row.timezone,
+    autoAssignEnabled: row.autoAssignEnabled,
   };
 }
 
