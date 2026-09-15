@@ -22,9 +22,14 @@ export function ClientCard({ client }: { client: ClientSummary }) {
   const project = client.currentProject;
 
   return (
+    /* `min-w-0` because the card is a grid item, and a grid item's automatic
+       minimum width is its content's — here, the full un-truncated business
+       name beside a column of labels that never wrap. On a phone that made the
+       single column 48px wider than the screen, the whole Clients page scrolled
+       sideways, and the `truncate` below never got the chance to truncate. */
     <Link
       href={`/clients/${client.id}`}
-      className="group flex flex-col rounded-card border border-line bg-white p-5 transition-colors hover:border-ink/20 focus-visible:border-ink/20"
+      className="group flex min-w-0 flex-col rounded-card border border-line bg-white p-5 transition-colors hover:border-ink/20 focus-visible:border-ink/20"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">

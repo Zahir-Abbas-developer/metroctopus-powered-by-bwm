@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/Input";
 import { Modal } from "@/components/ui/Modal";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
+import { DepartmentPicker } from "@/components/fields/DepartmentPicker";
+import type { CreatableDepartment } from "@/lib/departments";
 import { CLIENT_STATUSES, CLIENT_STATUS_LABEL, INDUSTRIES } from "@/lib/constants";
 import { addDays, formatDate, toDateInput } from "@/lib/date";
 import { clientDetailsSchema, fieldErrors } from "@/lib/validation";
@@ -26,6 +28,8 @@ const STEPS: { step: Step; label: string; hint: string }[] = [
 ];
 
 type Draft = {
+  /** The business line the client belongs to. Required by the server. */
+  departmentId: string;
   businessName: string;
   contactName: string;
   email: string;
@@ -43,6 +47,7 @@ type Draft = {
 function emptyDraft(): Draft {
   const today = new Date();
   return {
+    departmentId: "",
     businessName: "",
     contactName: "",
     email: "",
@@ -87,6 +92,9 @@ export function ClientWizard({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [departments, setDepartments] = useState<CreatableDepartment[] | null>(null);
+  /** Bumped to send the dialog back to its top without changing step. */
+  const [scrollToken, setScrollToken] = useState(0);
 
   useEffect(() => {
     if (!open) return;
@@ -94,6 +102,39 @@ export function ClientWizard({
     setDraft(emptyDraft());
     setErrors({});
     setFormError(null);
+  }, [open]);
+
+  /* The departments this person may file a client under.
+
+     The wizard predates departments and never asked for one — while the server
+     has required `departmentId` since the multi-department fork, because a
+     client with no department is invisible to every department-scoped query.
+     The result was a wizard that could not be completed by anyone: step 1
+     failed validation on a field it did not render, so the error had nowhere
+     to appear and Continue simply did nothing. */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    void (async () => {
+      const response = await fetch("/api/departments/creatable").catch(() => null);
+      const body = response?.ok ? await response.json().catch(() => ({})) : {};
+      if (cancelled) return;
+
+      const list: CreatableDepartment[] = body?.departments ?? [];
+      setDepartments(list);
+      // One choice is not a choice. A converted lead brings its own department
+      // and wins over this, so only an empty draft is filled.
+      if (list.length === 1) {
+        setDraft((current) =>
+          current.departmentId ? current : { ...current, departmentId: list[0]!.id },
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   /**
@@ -116,6 +157,7 @@ export function ClientWizard({
 
       const body = (await response.json()) as {
         draft: {
+          departmentId: string;
           businessName: string;
           contactName: string;
           email: string;
@@ -132,6 +174,8 @@ export function ClientWizard({
 
       setDraft((current) => ({
         ...current,
+        // A won deal becomes a client of the same business line.
+        departmentId: body.draft.departmentId || current.departmentId,
         businessName: body.draft.businessName,
         contactName: body.draft.contactName,
         email: body.draft.email,
@@ -187,6 +231,7 @@ export function ClientWizard({
 
   function validateStep1(): boolean {
     const parsed = clientDetailsSchema.safeParse({
+      departmentId: draft.departmentId,
       businessName: draft.businessName,
       contactName: draft.contactName,
       email: draft.email,
@@ -200,6 +245,9 @@ export function ClientWizard({
 
     if (!parsed.success) {
       setErrors(fieldErrors(parsed.error));
+      // The department and the first fields sit at the top of a long step;
+      // on a phone the person is at the bottom, next to Continue.
+      setScrollToken((token) => token + 1);
       return false;
     }
     setErrors({});
@@ -233,6 +281,7 @@ export function ClientWizard({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          departmentId: draft.departmentId,
           businessName: draft.businessName,
           contactName: draft.contactName,
           email: draft.email,
@@ -274,7 +323,10 @@ export function ClientWizard({
         }).catch(() => {});
       }
 
-      router.push(`/projects/${body.project.id}`);
+      // The server picks the destination: the plan when the retainer-projects
+      // module is on, otherwise the client's own page — never a page that
+      // would announce a disabled module right after a successful save.
+      router.push(body.next ?? `/clients/${body.client.id}`);
       router.refresh();
     } catch {
       setFormError("We couldn't reach the server. Check your connection and retry.");
@@ -296,6 +348,7 @@ export function ClientWizard({
       size="lg"
       eyebrow={`Step ${step} of 3 · ${STEPS[step - 1].hint}`}
       title="Onboard a client"
+      scrollKey={`${step}:${scrollToken}`}
       footer={
         <>
           {step > 1 ? (
@@ -340,6 +393,26 @@ export function ClientWizard({
 
       {step === 1 && (
         <div className="space-y-4">
+          <div>
+            <p className="mb-2 text-[13px] font-medium text-ink/80">
+              Department <span className="text-danger">*</span>
+            </p>
+            {departments === null ? (
+              <p className="text-[13px] text-ink/45">Loading departments…</p>
+            ) : (
+              <DepartmentPicker
+                departments={departments}
+                value={draft.departmentId}
+                onChange={(id) => set("departmentId", id)}
+              />
+            )}
+            {errors.departmentId && (
+              <p role="alert" className="mt-2 text-[12px] text-danger">
+                {errors.departmentId}
+              </p>
+            )}
+          </div>
+
           <Input
             label="Business name"
             requiredMark
@@ -451,6 +524,21 @@ export function ClientWizard({
             Each service brings its own workstream and dated milestones. You can
             edit every one of them afterwards.
           </p>
+
+          {/* A client cannot be onboarded without at least one service, so an
+              empty catalogue makes this step a dead end. Say so, and say where
+              the catalogue lives, rather than showing a blank step whose
+              Continue answers only "pick at least one service". */}
+          {services.length === 0 && (
+            <div
+              role="alert"
+              className="rounded-card border border-line bg-cream p-4 text-[13px] leading-relaxed text-ink/70"
+            >
+              There are no services in the catalogue yet, and a client needs at
+              least one. Close this, open <strong>Services</strong> at the top of
+              the Clients page, add one, then onboard the client again.
+            </div>
+          )}
 
           {services.map((service) => {
             const selected = draft.serviceIds.includes(service.id);

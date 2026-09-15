@@ -122,7 +122,9 @@ export function ClientDetail({
               <p className="eyebrow mb-3 text-brand-tint/70">
                 {client.industry ?? "Client"}
               </p>
-              <h1 className="font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.02em] text-paper sm:text-[38px]">
+              {/* break-words: at this size a single long word in a business
+                  name is wider than a phone, and the dark card clips it. */}
+              <h1 className="break-words font-display text-[30px] font-extrabold leading-[1.05] tracking-[-0.02em] text-paper sm:text-[38px]">
                 {client.businessName}
               </h1>
 

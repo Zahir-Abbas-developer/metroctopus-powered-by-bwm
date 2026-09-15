@@ -10,6 +10,7 @@ import { alertsForClients } from "@/lib/kpi-service";
 import { containsInsensitive } from "@/lib/db-features";
 import { departmentIdsForUser } from "@/lib/departments";
 import { hasAdminPower } from "@/lib/constants";
+import { isModuleEnabled } from "@/lib/modules";
 
 export async function GET(request: Request) {
   const { user, response } = await requireAdminApi();
@@ -166,7 +167,17 @@ export async function POST(request: Request) {
       serviceIds,
     });
 
-    return NextResponse.json({ client, project }, { status: 201 });
+    /* Where the person should land, decided here because only the server
+       knows which modules are on. The wizard used to go straight to the new
+       project's plan — but that page belongs to the retainer-projects module,
+       which BWM ships switched off, so every successful onboarding ended on
+       "Retainer projects is switched off". The client had been created; the
+       screen said otherwise. The client's own page is never gated. */
+    const next = (await isModuleEnabled("retainerProjects"))
+      ? `/projects/${project.id}`
+      : `/clients/${client.id}`;
+
+    return NextResponse.json({ client, project, next }, { status: 201 });
   } catch {
     return apiError("Couldn't onboard this client", 500);
   }

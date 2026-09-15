@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 import { apiError, requireAdminApi } from "@/lib/api";
+import { WINNING_STAGE_KINDS, type StageKind } from "@/lib/constants";
 
 /**
  * Everything the onboarding wizard needs to open pre-filled from a won deal.
@@ -29,7 +30,21 @@ export async function GET(_request: Request, { params }: { params: { id: string 
       undefined,
     );
   }
-  if (lead.stage !== "WON") {
+  /* Won means a stage whose *kind* is a winning one, not a stage keyed "WON".
+
+     Stages are per-department records with their own keys: Pilot Cars wins at
+     COMPLETED, and other lines name theirs differently again. Comparing the
+     key to "WON" refused every one of them, so a closed deal in any real
+     department could never become a client. The literal key still counts,
+     for leads filed before departments had pipelines of their own. */
+  const stage = await prisma.pipelineStage.findUnique({
+    where: { departmentId_key: { departmentId: lead.departmentId, key: lead.stage } },
+    select: { kind: true },
+  });
+  const won =
+    lead.stage === "WON" ||
+    (stage !== null && WINNING_STAGE_KINDS.includes(stage.kind as StageKind));
+  if (!won) {
     return apiError("Mark the deal won before converting it", 409);
   }
 
@@ -47,6 +62,8 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   return NextResponse.json({
     draft: {
       leadId: lead.id,
+      // The client belongs to the business line that won the deal.
+      departmentId: lead.departmentId,
       businessName: lead.businessName,
       contactName: lead.contactName,
       email: lead.email ?? "",

@@ -174,7 +174,34 @@ export function LeadFormModal({
     setStep(1);
   }
 
+  /**
+   * The two answers the server insists on, checked before leaving step 2.
+   *
+   * Continue used to be disabled until both were filled, silently. On a phone
+   * both fields sit above the fold, so the person looking at a greyed-out
+   * button at the bottom of a long form had no way to learn why — and before
+   * the Modal fix could not even scroll up to find out. Now the button always
+   * responds: it names what is missing on the field itself and takes them
+   * back to the top where that field is.
+   */
+  function missingCoreFields(): Record<string, string> {
+    return {
+      ...(draft.businessName.trim().length < 2 ? { businessName: "Give the business a name" } : {}),
+      ...(draft.contactName.trim().length < 2 ? { contactName: "Who are we talking to?" } : {}),
+    };
+  }
+
+  /** Bumped to send the dialog back to its top without changing step. */
+  const [scrollToken, setScrollToken] = useState(0);
+
   async function toStageStep() {
+    const missing = missingCoreFields();
+    if (Object.keys(missing).length > 0) {
+      setErrors((current) => ({ ...current, ...missing }));
+      setScrollToken((token) => token + 1);
+      return;
+    }
+
     /* Everything that describes the work, in the order the server reads it.
 
        The services are the strongest signal of the three — "shopify-development"
@@ -214,6 +241,15 @@ export function LeadFormModal({
   }
 
   async function save() {
+    // Reachable with the fields emptied again after going Back, so the same
+    // check runs here and returns the person to the step that owns it.
+    const missing = missingCoreFields();
+    if (Object.keys(missing).length > 0) {
+      setErrors(missing);
+      setStep(1);
+      return;
+    }
+
     setSaving(true);
     setErrors({});
 
@@ -279,11 +315,14 @@ export function LeadFormModal({
     }
   }
 
-  const coreReady =
-    draft.businessName.trim().length >= 2 && draft.contactName.trim().length >= 2;
-
   return (
-    <Modal open={open} onClose={onClose} title="Add a lead" size="lg">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Add a lead"
+      size="lg"
+      scrollKey={`${step}:${scrollToken}`}
+    >
       <div className="space-y-5">
         <StepRail step={step} />
 
@@ -431,11 +470,7 @@ export function LeadFormModal({
               <Button variant="ghost" onClick={() => setStep(0)}>
                 Back
               </Button>
-              <Button
-                loading={loadingContext}
-                disabled={!coreReady}
-                onClick={() => void toStageStep()}
-              >
+              <Button loading={loadingContext} onClick={() => void toStageStep()}>
                 Continue
               </Button>
             </div>
@@ -475,7 +510,7 @@ export function LeadFormModal({
               <Button variant="ghost" onClick={() => setStep(1)}>
                 Back
               </Button>
-              <Button loading={saving} disabled={!coreReady} onClick={() => void save()}>
+              <Button loading={saving} onClick={() => void save()}>
                 Add lead
               </Button>
             </div>
