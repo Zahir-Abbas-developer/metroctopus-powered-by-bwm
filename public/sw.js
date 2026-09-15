@@ -69,7 +69,7 @@ self.addEventListener("fetch", (event) => {
 
 self.addEventListener("push", (event) => {
   let payload = {
-    title: "BWM",
+    title: "Metroctopus",
     body: "You have a new notification.",
     url: "/dashboard",
   };

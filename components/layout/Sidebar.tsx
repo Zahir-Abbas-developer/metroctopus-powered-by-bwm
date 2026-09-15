@@ -97,10 +97,10 @@ export function Sidebar({
             className="flex items-center gap-2.5 rounded-[10px]"
           >
             <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand font-display text-sm font-extrabold text-paper">
-              B
+              M
             </span>
             <span className="font-display text-[15px] font-extrabold tracking-[-0.01em] text-paper">
-              BWM
+              Metroctopus
             </span>
           </Link>
         </div>

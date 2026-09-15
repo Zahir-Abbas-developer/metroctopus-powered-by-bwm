@@ -40,9 +40,9 @@ export default async function ChangePasswordPage() {
       <div className="w-full max-w-[380px]">
         <div className="mb-7 flex items-center gap-2.5">
           <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand font-display text-sm font-extrabold text-paper">
-            B
+            M
           </span>
-          <span className="eyebrow text-ink/45">Building Wealth Mindset</span>
+          <span className="eyebrow text-ink/45">Metroctopus</span>
         </div>
 
         <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-card border border-line bg-cream">

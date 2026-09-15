@@ -32,7 +32,7 @@ export default async function LoginPage({
         <div className="relative">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand font-display text-sm font-extrabold text-paper">
-              B
+              M
             </span>
             <span className="eyebrow text-paper/50">Internal platform</span>
           </div>
@@ -40,11 +40,12 @@ export default async function LoginPage({
 
         <div className="relative mt-10 lg:mt-0">
           <h1 className="font-display text-[42px] font-extrabold leading-[0.95] tracking-[-0.035em] text-paper sm:text-[58px] lg:text-[64px]">
-            BUILDING
+            {/* Two lines rather than one: Syne at 64px is wide enough that
+                METROCTOPUS on a single line overruns the panel on a laptop
+                screen, and the panel clips its overflow. */}
+            METRO
             <br />
-            WEALTH
-            <br />
-            MINDSET
+            CTOPUS
           </h1>
           <p className="mt-6 max-w-sm text-[15px] leading-relaxed text-paper/55">
             Every lead, client and follow-up across all four departments in one

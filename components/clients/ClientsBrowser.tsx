@@ -228,7 +228,7 @@ export function ClientsBrowser({
             icon={Building2}
             eyebrow="No clients yet"
             title="Onboard your first client"
-            description="Capture their details, pick the services they've bought, and BWM builds the month's plan for you."
+            description="Capture their details, pick the services they've bought, and Metroctopus builds the month's plan for you."
             action={
               <Button icon={<Plus className="h-4 w-4" />} onClick={() => setWizardOpen(true)}>
                 Onboard a client

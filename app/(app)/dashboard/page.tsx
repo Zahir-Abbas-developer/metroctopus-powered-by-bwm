@@ -329,7 +329,7 @@ export default async function DashboardPage({
       <section>
         <div className="mb-4 flex flex-wrap items-baseline justify-between gap-4">
           <h2 className="font-display text-lg font-bold tracking-tight text-ink">
-            {isAdmin ? "BWM at a glance" : "Your month"}
+            {isAdmin ? "Metroctopus at a glance" : "Your month"}
           </h2>
           {isAdmin && (flags.scoring || flags.attendance || flags.retainerProjects) && (
             <RunEvaluationButton />

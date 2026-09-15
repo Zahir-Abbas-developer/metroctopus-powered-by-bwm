@@ -1,7 +1,7 @@
 {
-  "name": "Building Wealth Mindset",
-  "short_name": "BWM",
-  "description": "Leads, clients, deals and follow-ups across every BWM business line.",
+  "name": "Metroctopus",
+  "short_name": "Metroctopus",
+  "description": "Leads, clients, deals and follow-ups across every Metroctopus business line.",
   "start_url": "/dashboard",
   "scope": "/",
   "display": "standalone",

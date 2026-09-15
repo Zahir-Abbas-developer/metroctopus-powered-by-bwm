@@ -34,7 +34,7 @@ export function ComingSoon({
           icon={icon}
           eyebrow={phase}
           title="Not built yet"
-          description="This is part of the next phase of BWM. The foundation it needs — accounts, roles and the design system — is already in place."
+          description="This is part of the next phase of Metroctopus. The foundation it needs — accounts, roles and the design system — is already in place."
           action={
             <Link href="/dashboard" className={buttonClasses("secondary", "md")}>
               Back to dashboard

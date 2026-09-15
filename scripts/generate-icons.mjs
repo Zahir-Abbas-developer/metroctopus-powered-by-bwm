@@ -95,48 +95,56 @@ function inTriangle(px, py, [ax, ay], [bx, by], [cx, cy]) {
 }
 
 /**
- * The "A" from the sidebar wordmark: two diagonals and a crossbar, drawn as
- * polygons so it scales cleanly to any size.
+ * The "M" from the Metroctopus wordmark: two upright stems and two diagonals
+ * meeting in a V, drawn as polygons so it scales cleanly to any size.
+ *
+ * It replaces an "A" inherited from the agency fork. The sidebar, the login
+ * panel and the mobile bar all show an "M" tile, and an installed app whose
+ * home-screen icon carries a different letter from the app it opens reads as
+ * two different products.
  */
 function inGlyph(x, y, size, inset) {
   const s = size - inset * 2;
   const u = (v) => inset + v * s;
 
-  const apexX = u(0.5);
-  const apexY = u(0.16);
-  const footY = u(0.84);
-  const halfWidth = 0.115 * s;
+  const top = u(0.18);
+  const foot = u(0.82);
+  const left = u(0.17);
+  const right = u(0.83);
+  const stem = 0.15 * s;
 
-  // Left and right strokes, each a quadrilateral split into two triangles.
-  const strokes = [
+  // The two stems.
+  if (inRoundedRect(x, y, left, top, left + stem, foot, stem * 0.12)) return true;
+  if (inRoundedRect(x, y, right - stem, top, right, foot, stem * 0.12)) return true;
+
+  // The two diagonals, each a quadrilateral split into two triangles. They
+  // start at the full width of a stem's top edge and narrow slightly into the
+  // point of the V, which sits a little above the middle so the letter does
+  // not look like a W turned over.
+  const vX = u(0.5);
+  const vY = u(0.64);
+  const vHalf = stem * 0.5;
+
+  const diagonals = [
     [
-      [apexX - halfWidth * 0.55, apexY],
-      [apexX + halfWidth * 0.35, apexY],
-      [u(0.29) + halfWidth, footY],
-      [u(0.29) - halfWidth, footY],
+      [left, top],
+      [left + stem, top],
+      [vX + vHalf, vY],
+      [vX - vHalf, vY],
     ],
     [
-      [apexX - halfWidth * 0.35, apexY],
-      [apexX + halfWidth * 0.55, apexY],
-      [u(0.71) + halfWidth, footY],
-      [u(0.71) - halfWidth, footY],
+      [right - stem, top],
+      [right, top],
+      [vX + vHalf, vY],
+      [vX - vHalf, vY],
     ],
   ];
 
-  for (const [p0, p1, p2, p3] of strokes) {
+  for (const [p0, p1, p2, p3] of diagonals) {
     if (inTriangle(x, y, p0, p1, p2) || inTriangle(x, y, p0, p2, p3)) return true;
   }
 
-  // Crossbar.
-  return inRoundedRect(
-    x,
-    y,
-    u(0.325),
-    u(0.585),
-    u(0.675),
-    u(0.585) + halfWidth * 1.5,
-    halfWidth * 0.4,
-  );
+  return false;
 }
 
 /**

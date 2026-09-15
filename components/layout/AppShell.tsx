@@ -61,10 +61,10 @@ export function AppShell({
       <div className="no-print sticky top-0 z-20 flex items-center justify-between border-b border-line bg-paper/95 px-4 py-3 backdrop-blur lg:hidden">
         <div className="flex items-center gap-2.5">
           <span className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-brand font-display text-xs font-extrabold text-paper">
-            B
+            M
           </span>
           <span className="font-display text-sm font-extrabold tracking-[-0.01em] text-ink">
-            BWM
+            Metroctopus
           </span>
         </div>
         <div className="flex items-center gap-2">

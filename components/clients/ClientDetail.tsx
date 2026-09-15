@@ -362,7 +362,7 @@ export function ClientDetail({
                 icon={CalendarPlus}
                 eyebrow="Nothing live"
                 title="No engagement running"
-                description="Start a cycle and BWM will lay out the modules and milestones from the services they've bought."
+                description="Start a cycle and Metroctopus will lay out the modules and milestones from the services they've bought."
                 action={
                   <Button size="sm" onClick={() => setCreating(true)}>
                     Start an engagement

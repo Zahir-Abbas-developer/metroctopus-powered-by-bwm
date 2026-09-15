@@ -61,7 +61,7 @@ export default async function ProjectsPage() {
             icon={Layers}
             eyebrow="Nothing running"
             title="No engagements yet"
-            description="Onboard a client and BWM lays out their first month of work automatically."
+            description="Onboard a client and Metroctopus lays out their first month of work automatically."
             action={
               <Link href="/clients" className={buttonClasses("primary", "md")}>
                 Go to clients

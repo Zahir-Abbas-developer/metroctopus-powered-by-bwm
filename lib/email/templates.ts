@@ -73,7 +73,7 @@ function shell({ eyebrow, title, intro, body, cta, footnote }: ShellOptions): st
 
         <tr><td style="border-top:1px solid ${LINE};background:${CREAM};padding:18px 32px;">
           <p style="margin:0;font-size:12px;line-height:1.6;color:rgba(12,12,10,0.45);">
-            BWM${footnote ? ` · ${escape(footnote)}` : ""}<br />
+            Metroctopus${footnote ? ` · ${escape(footnote)}` : ""}<br />
             All times ${AGENCY_TIMEZONE.replace("/", " / ")}.
           </p>
         </td></tr>
@@ -118,7 +118,7 @@ export function welcomeEmail(input: {
 }): Email {
   const body = `
     <p style="margin:0 0 18px;font-size:15px;line-height:1.65;">
-      You've been added to BWM as <strong>${escape(input.jobTitle)}</strong>.
+      You've been added to Metroctopus as <strong>${escape(input.jobTitle)}</strong>.
       This is where your milestones, deadlines and monthly performance live.
     </p>
     <div style="background:${BRAND_TINT};border:1px solid rgba(26,107,58,0.2);border-radius:10px;padding:16px 18px;margin:0 0 18px;">
@@ -129,7 +129,7 @@ export function welcomeEmail(input: {
     </p>`;
 
   return {
-    subject: "Your BWM account",
+    subject: "Your Metroctopus account",
     html: shell({
       eyebrow: "Welcome",
       title: `Hello ${input.name.split(" ")[0]}`,
@@ -140,7 +140,7 @@ export function welcomeEmail(input: {
     text: [
       `Hello ${input.name.split(" ")[0]},`,
       "",
-      `You've been added to BWM as ${input.jobTitle}.`,
+      `You've been added to Metroctopus as ${input.jobTitle}.`,
       "",
       `Email: ${input.email}`,
       `Temporary password: ${input.password}`,

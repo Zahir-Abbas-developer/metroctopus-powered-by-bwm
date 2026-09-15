@@ -78,7 +78,7 @@ export function ActivityFeed({ activity }: { activity: ActivityRow[] }) {
                     <span className="font-medium text-ink">{entry.actor.name}</span>
                   </span>
                 ) : (
-                  <span className="font-medium text-ink">BWM</span>
+                  <span className="font-medium text-ink">Metroctopus</span>
                 )}{" "}
                 {entry.summary}
               </p>
