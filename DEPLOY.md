@@ -45,7 +45,7 @@ are required; the fifth is strongly recommended and explained below.
 | `DATABASE_URL` | Your pooled Postgres string |
 | `DATABASE_URL_UNPOOLED` | The direct string, if your provider offers one |
 | `NEXTAUTH_SECRET` | `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | The deployed URL — see step 5, this is the trap |
+| `NEXTAUTH_URL` | The deployed URL — see step 5 for what it does and does not control |
 | `CRON_SECRET` | `openssl rand -hex 32` |
 | `SEED_PASSWORD` | **Read the next section before skipping this.** |
 
@@ -57,12 +57,22 @@ Push to `main`, or run `vercel --prod`.
 `postgresql`, pushes the schema, and runs `prisma/seed.ts` before building. You
 do not run any database command by hand.
 
-### 5. Fix `NEXTAUTH_URL`, then redeploy
+### 5. `NEXTAUTH_URL` — less of a trap on Vercel than it looks
 
-This is the trap. NextAuth builds its callback URLs from `NEXTAUTH_URL`, and
-until it matches the real domain exactly, **login fails** — you are redirected
-back to `/login` with nothing in the log. Vercel only tells you the domain after
-the first deploy, so set the variable to the assigned URL and deploy once more.
+An earlier version of this guide said login fails until `NEXTAUTH_URL` matches
+the deployed domain. On Vercel that is not true, and it sent people through an
+extra redeploy for nothing. NextAuth 4's `detectOrigin` checks
+`process.env.VERCEL`, which Vercel sets on every deployment, and when it is
+present builds its URLs from the host the request actually arrived on —
+`NEXTAUTH_URL` is not consulted. Adding or renaming a domain therefore needs no
+redeploy for sign-in to work: `/api/auth/providers` on the new domain already
+reports callback URLs on that domain.
+
+It still matters in two places. **Off Vercel** — `next start` on your own
+machine, `npm run share`, any other host — `NEXTAUTH_URL` is the only source of
+the origin, and a mismatch does bounce every sign-in back to `/login` with no
+error. And **email links** fall back to `NEXTAUTH_URL` when `APP_URL` is unset,
+so keep one of the two pointing at the address you actually share.
 
 ---
 
