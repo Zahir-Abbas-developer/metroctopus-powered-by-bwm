@@ -92,9 +92,14 @@ one.
 Send it to the team through a channel that is not this repository, and have
 everyone sign in and set their own password the same day.
 
-Redeploys are safe: the seed upserts, and its update clause never touches
-`passwordHash`, so a password somebody has already changed survives every
-subsequent deploy.
+Redeploys leave the database alone. The seed creates what is missing and
+overwrites nothing: an existing account keeps its password, name, role, job
+title and skills; an existing department keeps its name, stages and fields;
+and a stage, field or membership an admin deleted stays deleted. (It used to
+rewrite all of that on every deploy, and put back whatever had been removed.)
+
+It also means `SEED_PASSWORD` only matters for accounts that do not exist
+yet. Setting it after the first deploy changes nobody's password.
 
 ## After it is live
 

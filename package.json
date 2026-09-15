@@ -9,6 +9,7 @@
     "build": "next build",
     "vercel-build": "node scripts/sync-db-provider.mjs && prisma generate && PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=true DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" prisma db push && DATABASE_URL=\"${DATABASE_URL_UNPOOLED:-$DATABASE_URL}\" tsx prisma/seed.ts && next build",
     "start": "next start",
+    "share": "node scripts/share.mjs",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test tests/*.test.ts",

@@ -21,6 +21,35 @@ import { serializeSkills } from "../lib/skills";
  * Placeholder passwords are paired with `mustChangePassword: true`, so a
  * seeded credential cannot survive first contact with a real user. Override
  * the default with SEED_PASSWORD.
+ *
+ * ## It creates, and never overwrites
+ *
+ * `vercel-build` runs this file on every deploy, against the live database.
+ * That makes it a bootstrap, not a sync — and it used to behave like a sync.
+ * Every upsert rewrote what it found, so each push to `main` quietly put back
+ * the names, roles, job titles and skills of the six team accounts, the labels
+ * and order of every department and stage, and the shape of every field. It
+ * also resurrected anything an admin had removed: stages, field definitions
+ * and department memberships are hard-deleted by the settings screens, and the
+ * next deploy recreated all of them. An admin could not make a change that
+ * outlived a commit.
+ *
+ * So each record is created only if it is missing, and its children are
+ * created only alongside it:
+ *
+ * - A department that already exists is left exactly as it is, and its stages
+ *   and fields are not touched — they were seeded when it was, and anything
+ *   missing now was removed on purpose.
+ * - A team account that already exists is left exactly as it is, password
+ *   included.
+ * - A membership is created only when the account or the department was created
+ *   in this same run, because that is the only case in which nobody could have
+ *   removed it.
+ *
+ * The cost is that a stage or field added to an existing department *here*
+ * will not reach a database that already has that department. That is the
+ * intended direction: once a business line exists, its shape belongs to
+ * Settings -> Departments, not to a deploy.
  */
 
 const prisma = new PrismaClient();
@@ -301,18 +330,24 @@ async function main() {
   });
 
   const departmentIdBySlug = new Map<string, string>();
+  /** Slugs created in this run — the only departments whose children we add. */
+  const createdDepartments = new Set<string>();
 
   for (const dept of DEPARTMENTS) {
-    const department = await prisma.department.upsert({
+    const existing = await prisma.department.findUnique({
       where: { slug: dept.slug },
-      update: {
-        name: dept.name,
-        shortLabel: dept.shortLabel,
-        colorToken: dept.colorToken,
-        description: dept.description,
-        order: dept.order,
-      },
-      create: {
+      select: { id: true },
+    });
+
+    // Already there: it belongs to the admin now. Its name, its stages and its
+    // fields are whatever they have been made into, including absent.
+    if (existing) {
+      departmentIdBySlug.set(dept.slug, existing.id);
+      continue;
+    }
+
+    const department = await prisma.department.create({
+      data: {
         slug: dept.slug,
         name: dept.name,
         shortLabel: dept.shortLabel,
@@ -322,17 +357,11 @@ async function main() {
       },
     });
     departmentIdBySlug.set(dept.slug, department.id);
+    createdDepartments.add(dept.slug);
 
     for (const stage of dept.stages) {
-      await prisma.pipelineStage.upsert({
-        where: { departmentId_key: { departmentId: department.id, key: stage.key } },
-        update: {
-          label: stage.label,
-          sortOrder: stage.sortOrder,
-          kind: stage.kind,
-          colorToken: stage.colorToken,
-        },
-        create: {
+      await prisma.pipelineStage.create({
+        data: {
           departmentId: department.id,
           key: stage.key,
           label: stage.label,
@@ -360,48 +389,58 @@ async function main() {
           showIfValues: "showIfValues" in field ? field.showIfValues : "",
         };
 
-        await prisma.fieldDefinition.upsert({
-          where: {
-            departmentId_entity_key: {
-              departmentId: department.id,
-              entity,
-              key: field.key,
-            },
-          },
-          update: shape,
-          create: { departmentId: department.id, entity, key: field.key, ...shape },
+        await prisma.fieldDefinition.create({
+          data: { departmentId: department.id, entity, key: field.key, ...shape },
         });
       }
     }
   }
 
+  /** Emails created in this run — the only accounts whose memberships we add. */
+  const createdUsers = new Set<string>();
+
   for (const person of TEAM) {
-    const user = await prisma.user.upsert({
+    let user = await prisma.user.findUnique({
       where: { email: person.email },
-      update: { name: person.name, role: person.role, jobTitle: person.jobTitle },
-      create: {
-        name: person.name,
-        email: person.email,
-        passwordHash,
-        role: person.role,
-        jobTitle: person.jobTitle,
-        mustChangePassword: true,
-        avatarColor: avatarColorFor(person.name),
-      },
+      select: { id: true },
     });
+
+    // An existing account is never rewritten: not its name, not its role, and
+    // above all not its password.
+    if (!user) {
+      user = await prisma.user.create({
+        data: {
+          name: person.name,
+          email: person.email,
+          passwordHash,
+          role: person.role,
+          jobTitle: person.jobTitle,
+          mustChangePassword: true,
+          avatarColor: avatarColorFor(person.name),
+        },
+        select: { id: true },
+      });
+      createdUsers.add(person.email);
+    }
 
     for (const membership of person.departments) {
       const departmentId = departmentIdBySlug.get(membership.slug);
       if (!departmentId) throw new Error(`Unknown department slug: ${membership.slug}`);
-      const skills = serializeSkills(membership.skills);
+
+      // A membership between an account and a department that both already
+      // existed may have been removed on purpose, so it is not recreated.
+      const isNewRelationship =
+        createdUsers.has(person.email) || createdDepartments.has(membership.slug);
+      if (!isNewRelationship) continue;
+
       await prisma.departmentMembership.upsert({
         where: { userId_departmentId: { userId: user.id, departmentId } },
-        update: { roleInDept: membership.roleInDept, skills },
+        update: {},
         create: {
           userId: user.id,
           departmentId,
           roleInDept: membership.roleInDept,
-          skills,
+          skills: serializeSkills(membership.skills),
         },
       });
     }
@@ -415,13 +454,21 @@ async function main() {
   ]);
   const memberships = await prisma.departmentMembership.count();
 
+  const keptDepartments = DEPARTMENTS.length - createdDepartments.size;
+  const keptUsers = TEAM.length - createdUsers.size;
+
   console.log("BWM seed complete");
+  console.log(`  created         ${createdDepartments.size} department(s), ${createdUsers.size} account(s)`);
+  console.log(`  left untouched  ${keptDepartments} department(s), ${keptUsers} account(s)`);
+  console.log("");
   console.log(`  departments     ${departments}`);
   console.log(`  pipeline stages ${stages}`);
   console.log(`  field defs      ${fields}`);
   console.log(`  users           ${users}`);
   console.log(`  memberships     ${memberships}`);
-  console.log(`\n  All accounts use the placeholder password and must change it on first login.`);
+  if (createdUsers.size > 0) {
+    console.log(`\n  New accounts use the placeholder password and must change it on first login.`);
+  }
 }
 
 main()
