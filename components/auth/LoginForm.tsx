@@ -3,10 +3,11 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { AlertCircle, ArrowRight, Lock, Mail } from "lucide-react";
+import { AlertCircle, ArrowRight, Mail } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 import { THROTTLED_ERROR } from "@/lib/constants";
 
 /**
@@ -93,6 +94,12 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         type="email"
         name="email"
         autoComplete="email"
+        // A phone that capitalises or "corrects" an address like
+        // tayyaba@bwm.local sends a different account name.
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        inputMode="email"
         placeholder="you@bwm.local"
         icon={<Mail className="h-4 w-4" />}
         value={email}
@@ -101,13 +108,11 @@ export function LoginForm({ callbackUrl }: { callbackUrl: string }) {
         required
       />
 
-      <Input
+      <PasswordInput
         label="Password"
-        type="password"
         name="password"
         autoComplete="current-password"
         placeholder="••••••••"
-        icon={<Lock className="h-4 w-4" />}
         value={password}
         onChange={(event) => setPassword(event.target.value)}
         disabled={submitting}

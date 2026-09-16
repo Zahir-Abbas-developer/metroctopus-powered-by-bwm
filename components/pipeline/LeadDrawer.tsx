@@ -2,64 +2,63 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Mail, Phone, Trash2 } from "lucide-react";
+import { ArrowRight, Mail, Pencil, Phone } from "lucide-react";
 
 import { Avatar } from "@/components/ui/Avatar";
-import { Badge } from "@/components/ui/Badge";
+import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Drawer } from "@/components/ui/Drawer";
-import { EmptyState, ErrorState } from "@/components/ui/EmptyState";
+import { ErrorState } from "@/components/ui/EmptyState";
 import { Skeleton } from "@/components/ui/Skeleton";
-import { Textarea } from "@/components/ui/Textarea";
 import { useToast } from "@/components/ui/Toast";
 import { ActivityTimeline } from "@/components/activity/ActivityTimeline";
-import { formatDateTime, formatDate } from "@/lib/date";
 import {
-  ACTIVITY_LABEL,
-  ACTIVITY_TYPES,
+  LEAD_EDIT_FORM_ID,
+  LeadEditForm,
+  type EditableLead,
+} from "@/components/pipeline/LeadEditForm";
+import { formatDate } from "@/lib/date";
+import { displayValue, isVisible, type FieldDefinitionView, type FieldValueMap } from "@/lib/fields";
+import {
   LEAD_SOURCE_LABEL,
   LOST_REASON_LABEL,
   STAGE_LABEL,
   STAGE_TONE,
   formatMoney,
-  type ActivityType,
   type LeadSource,
   type LeadStage,
   type LostReason,
 } from "@/lib/pipeline-types";
-import { cn } from "@/lib/utils";
+import { TERMINAL_STAGE_KINDS, WINNING_STAGE_KINDS, type StageKind } from "@/lib/constants";
 
 type Detail = {
   viewer?: { id: string; isAdmin: boolean };
-  lead: {
-    id: string;
-    businessName: string;
-    contactName: string;
-    email: string | null;
-    phone: string | null;
-    source: string;
-    country: string | null;
-    interestedServices: string[];
-    estimatedMonthlyValue: number;
-    stage: LeadStage;
+  lead: EditableLead & {
+    stage: string;
     stageChangedAt: string;
     lostReason: string | null;
     lostNote: string | null;
-    notes: string | null;
     createdAt: string;
     convertedAt: string | null;
+    department: { id: string; shortLabel: string } | null;
     owner: { id: string; name: string; avatarColor: string; jobTitle: string } | null;
     convertedClient: { id: string; businessName: string } | null;
-    activities: {
-      id: string;
-      type: string;
-      note: string;
-      occurredAt: string;
-      user: { id: string; name: string; avatarColor: string };
-    }[];
   };
+  stageInfo: { label: string; kind: string; colorToken: string | null } | null;
+  fields: FieldDefinitionView[];
+  fieldValues: FieldValueMap;
   canEdit: boolean;
+  canMove: boolean;
+  canSeeMoney: boolean;
 };
+
+/** A department stage's colour, in the badge's vocabulary. */
+function toneForStage(kind: string | undefined, colorToken: string | null | undefined): BadgeTone {
+  if (kind === "WON" || kind === "ACTIVE_CLIENT") return "success";
+  if (kind === "LOST") return "danger";
+  const allowed: BadgeTone[] = ["neutral", "info", "warning", "success", "danger"];
+  return allowed.includes(colorToken as BadgeTone) ? (colorToken as BadgeTone) : "neutral";
+}
 
 /**
  * One deal, and everything that has been done about it.
@@ -67,13 +66,19 @@ type Detail = {
  * The quick-log row is the point of the drawer: logging a call has to be a
  * two-tap job or it doesn't get logged, and activity that doesn't get logged
  * makes the targets — and therefore the BD score — a fiction.
+ *
+ * It is also where a lead is corrected. Until the Edit button existed, nothing
+ * in the app could change a lead after it was filed.
  */
 export function LeadDrawer({
   leadId,
+  services = [],
   onClose,
   onChanged,
 }: {
   leadId: string | null;
+  /** The service catalogue, for the "interested in" choices when editing. */
+  services?: { slug: string; name: string }[];
   onClose: () => void;
   onChanged: () => void;
 }) {
@@ -81,9 +86,9 @@ export function LeadDrawer({
   const toast = useToast();
   const [data, setData] = useState<Detail | null>(null);
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
-  const [type, setType] = useState<ActivityType>("CALL");
-  const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!leadId) return;
@@ -99,60 +104,13 @@ export function LeadDrawer({
   }, [leadId]);
 
   useEffect(() => {
+    setEditing(false);
     if (!leadId) {
       setData(null);
       return;
     }
     void load();
   }, [leadId, load]);
-
-  async function log() {
-    if (!leadId) return;
-    setBusy(true);
-
-    try {
-      const response = await fetch(`/api/leads/${leadId}/activities`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ type, note }),
-      });
-      const body = await response.json().catch(() => ({}));
-
-      if (!response.ok) {
-        toast.error(body?.error ?? "Couldn't log that.");
-        return;
-      }
-
-      toast.success(
-        body.stageAdvanced
-          ? `Logged — moved to ${STAGE_LABEL[body.stage as LeadStage]}.`
-          : "Logged.",
-      );
-      setNote("");
-      await load();
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeActivity(activityId: string) {
-    if (!leadId) return;
-    const response = await fetch(`/api/leads/${leadId}/activities`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ activityId }),
-    });
-
-    if (!response.ok) {
-      const body = await response.json().catch(() => ({}));
-      toast.error(body?.error ?? "Couldn't remove that.");
-      return;
-    }
-
-    await load();
-    onChanged();
-  }
 
   async function convert() {
     if (!leadId) return;
@@ -174,26 +132,57 @@ export function LeadDrawer({
   }
 
   const lead = data?.lead;
-  const closed = lead?.stage === "WON" || lead?.stage === "LOST";
+  const kind = data?.stageInfo?.kind as StageKind | undefined;
+  // By the stage's kind, not its key: departments name their stages
+  // themselves, and only a few of them call the winning one "WON".
+  const closed = kind ? TERMINAL_STAGE_KINDS.includes(kind) : lead?.stage === "WON" || lead?.stage === "LOST";
+  const won = kind ? WINNING_STAGE_KINDS.includes(kind) : lead?.stage === "WON";
+  const lost = kind ? kind === "LOST" : lead?.stage === "LOST";
+  const stageLabel = data?.stageInfo?.label ?? STAGE_LABEL[lead?.stage as LeadStage] ?? lead?.stage;
+
+  const answers =
+    data && lead
+      ? data.fields
+          .filter((field) => isVisible(field, data.fieldValues, data.fields))
+          .map((field) => ({ field, value: displayValue(field, data.fieldValues[field.key]) }))
+          .filter((row) => row.value)
+      : [];
+
+  const footer = editing ? (
+    <div className="flex items-center justify-end gap-2">
+      <Button variant="ghost" onClick={() => setEditing(false)} disabled={saving}>
+        Cancel
+      </Button>
+      <Button type="submit" form={LEAD_EDIT_FORM_ID} loading={saving}>
+        Save changes
+      </Button>
+    </div>
+  ) : lead && won && !lead.convertedClient ? (
+    <Button
+      fullWidth
+      loading={busy}
+      icon={<ArrowRight className="h-4 w-4" />}
+      onClick={() => void convert()}
+    >
+      Convert to client
+    </Button>
+  ) : undefined;
 
   return (
     <Drawer
       open={Boolean(leadId)}
-      onClose={onClose}
-      eyebrow={lead ? (LEAD_SOURCE_LABEL[lead.source as LeadSource] ?? lead.source) : "Lead"}
-      title={lead?.businessName ?? "Loading…"}
-      footer={
-        lead && lead.stage === "WON" && !lead.convertedClient ? (
-          <Button
-            fullWidth
-            loading={busy}
-            icon={<ArrowRight className="h-4 w-4" />}
-            onClick={() => void convert()}
-          >
-            Convert to client
-          </Button>
-        ) : undefined
+      onClose={() => {
+        if (!saving) onClose();
+      }}
+      eyebrow={
+        editing
+          ? "Editing lead"
+          : lead
+            ? (LEAD_SOURCE_LABEL[lead.source as LeadSource] ?? lead.source)
+            : "Lead"
       }
+      title={lead?.businessName ?? "Loading…"}
+      footer={footer}
     >
       {state === "loading" && (
         <div className="space-y-3 p-5">
@@ -210,33 +199,73 @@ export function LeadDrawer({
         />
       )}
 
-      {state === "ready" && lead && (
+      {state === "ready" && data && lead && editing && (
+        <div className="p-5">
+          <LeadEditForm
+            lead={lead}
+            fields={data.fields}
+            fieldValues={data.fieldValues}
+            services={services}
+            canSeeMoney={data.canSeeMoney}
+            canReassign={Boolean(data.viewer?.isAdmin)}
+            onSavingChange={setSaving}
+            onSaved={() => {
+              setEditing(false);
+              void load();
+              onChanged();
+            }}
+          />
+        </div>
+      )}
+
+      {state === "ready" && data && lead && !editing && (
         <div className="space-y-6 p-5">
           {/* Facts */}
           <div className="rounded-card border border-line bg-white p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-display text-2xl font-extrabold tabular-nums leading-none text-ink">
-                  {formatMoney(lead.estimatedMonthlyValue)}
-                  <span className="ml-1 text-[13px] font-medium text-ink/40">/month</span>
-                </p>
-                <p className="mt-1.5 text-[13px] text-ink/55">
+                {data.canSeeMoney && typeof lead.estimatedMonthlyValue === "number" && (
+                  <p className="mb-1.5 font-display text-2xl font-extrabold tabular-nums leading-none text-ink">
+                    {formatMoney(lead.estimatedMonthlyValue)}
+                    <span className="ml-1 text-[13px] font-medium text-ink/40">/month</span>
+                  </p>
+                )}
+                <p className="break-words text-[13px] text-ink/55">
                   {lead.contactName}
                   {lead.country ? ` · ${lead.country}` : ""}
                 </p>
               </div>
-              <Badge tone={STAGE_TONE[lead.stage]} dot>
-                {STAGE_LABEL[lead.stage]}
-              </Badge>
+              <div className="flex items-center gap-2">
+                <Badge
+                  tone={
+                    data.stageInfo
+                      ? toneForStage(data.stageInfo.kind, data.stageInfo.colorToken)
+                      : (STAGE_TONE[lead.stage as LeadStage] ?? "neutral")
+                  }
+                  dot
+                >
+                  {stageLabel}
+                </Badge>
+                {data.canEdit && !lead.convertedClient && (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<Pencil className="h-3.5 w-3.5" />}
+                    onClick={() => setEditing(true)}
+                  >
+                    Edit
+                  </Button>
+                )}
+              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px]">
               {lead.email && (
                 <a
                   href={`mailto:${lead.email}`}
-                  className="inline-flex items-center gap-1.5 text-ink/60 hover:text-brand"
+                  className="inline-flex min-w-0 items-center gap-1.5 break-all text-ink/60 hover:text-brand"
                 >
-                  <Mail className="h-3.5 w-3.5" />
+                  <Mail className="h-3.5 w-3.5 shrink-0" />
                   {lead.email}
                 </a>
               )}
@@ -251,6 +280,19 @@ export function LeadDrawer({
               )}
             </div>
 
+            {/* The department's own answers — what was asked when the lead was
+                filed, which the drawer used to hold but never show. */}
+            {answers.length > 0 && (
+              <dl className="mt-4 grid gap-x-4 gap-y-2.5 border-t border-line pt-3 sm:grid-cols-2">
+                {answers.map(({ field, value }) => (
+                  <div key={field.key} className="min-w-0">
+                    <dt className="text-[11px] uppercase tracking-wide text-ink/40">{field.label}</dt>
+                    <dd className="whitespace-pre-line break-words text-[13px] text-ink/75">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+
             {lead.owner && (
               <div className="mt-4 flex items-center gap-2 border-t border-line pt-3">
                 <Avatar name={lead.owner.name} color={lead.owner.avatarColor} size="sm" />
@@ -262,12 +304,12 @@ export function LeadDrawer({
             )}
 
             {lead.notes && (
-              <p className="mt-3 border-t border-line pt-3 text-[13px] leading-relaxed text-ink/60">
+              <p className="mt-3 whitespace-pre-line break-words border-t border-line pt-3 text-[13px] leading-relaxed text-ink/60">
                 {lead.notes}
               </p>
             )}
 
-            {lead.stage === "LOST" && lead.lostReason && (
+            {lost && lead.lostReason && (
               <div className="mt-3 rounded-[10px] border border-danger/20 bg-danger-tint px-3 py-2.5">
                 <p className="text-[13px] font-medium text-danger">
                   {LOST_REASON_LABEL[lead.lostReason as LostReason] ?? lead.lostReason}
@@ -299,7 +341,6 @@ export function LeadDrawer({
             isAdmin={Boolean(data.viewer?.isAdmin)}
             onChanged={onChanged}
           />
-
         </div>
       )}
     </Drawer>

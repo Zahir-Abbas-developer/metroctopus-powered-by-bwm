@@ -1,8 +1,8 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
 
 import { prisma } from "@/lib/prisma";
+import { passwordMatches } from "@/lib/passwords";
 import { THROTTLED_ERROR, type Role } from "@/lib/constants";
 import { LOGIN_ROUTE } from "@/lib/routes";
 import {
@@ -80,8 +80,7 @@ export const authOptions: NextAuthOptions = {
         // login form cannot be used to enumerate who works here.
         if (!user || !user.isActive) return null;
 
-        const passwordMatches = await bcrypt.compare(password, user.passwordHash);
-        if (!passwordMatches) return null;
+        if (!(await passwordMatches(password, user.passwordHash))) return null;
 
         // A good password clears the account bucket, so someone who mistyped
         // a few times isn't locked out once they get it right.

@@ -6,6 +6,7 @@ import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { canUseDepartment } from "@/lib/departments";
 import { moveLeadStage } from "@/lib/stages";
+import { canMoveLead } from "@/lib/lead-access";
 import { hasAdminPower } from "@/lib/constants";
 
 /**
@@ -54,7 +55,7 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   if (!(await canUseDepartment(user.id, isAdmin, lead.departmentId))) {
     return apiError("That department isn't one of yours", 403);
   }
-  if (!isAdmin && lead.ownerId !== user.id) {
+  if (!canMoveLead(user, lead)) {
     return apiError("Only the owner of this deal can move it", 403);
   }
 

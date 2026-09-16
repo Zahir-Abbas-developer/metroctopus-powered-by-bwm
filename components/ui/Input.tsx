@@ -10,6 +10,11 @@ export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
   hint?: string;
   error?: string;
   icon?: ReactNode;
+  /**
+   * An interactive control inside the right edge of the field — a show/hide
+   * toggle on a password, for instance. Unlike `icon` it receives clicks.
+   */
+  trailing?: ReactNode;
   /** Appends a required marker to the label. */
   requiredMark?: boolean;
 }
@@ -28,7 +33,7 @@ export const fieldClasses = (hasError?: boolean, hasIcon?: boolean) =>
 export const labelClasses = "mb-1.5 block text-[13px] font-medium text-ink/80";
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
-  { label, hint, error, icon, requiredMark, className, id, ...props },
+  { label, hint, error, icon, trailing, requiredMark, className, id, ...props },
   ref,
 ) {
   const generatedId = useId();
@@ -62,9 +67,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           id={inputId}
           aria-invalid={error ? true : undefined}
           aria-describedby={describedBy}
-          className={cn(fieldClasses(Boolean(error), Boolean(icon)), className)}
+          className={cn(fieldClasses(Boolean(error), Boolean(icon)), trailing && "pr-11", className)}
           {...props}
         />
+        {trailing && (
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2">{trailing}</span>
+        )}
       </div>
 
       {error ? (

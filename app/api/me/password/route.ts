@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 import { z } from "zod";
 
 import { prisma } from "@/lib/prisma";
@@ -7,6 +6,7 @@ import { apiError } from "@/lib/api";
 import { getCurrentUser } from "@/lib/session";
 import { fieldErrors } from "@/lib/validation";
 import { recordAudit } from "@/lib/audit";
+import { hashPassword, passwordMatches } from "@/lib/passwords";
 
 const schema = z
   .object({
@@ -56,7 +56,9 @@ export async function POST(request: Request) {
   });
   if (!user || !user.isActive) return apiError("You must be signed in", 401);
 
-  const matches = await bcrypt.compare(parsed.data.currentPassword, user.passwordHash);
+  // Same tolerance as sign-in: this field is where a temporary password copied
+  // out of a chat message is pasted, trailing space and all.
+  const matches = await passwordMatches(parsed.data.currentPassword, user.passwordHash);
   if (!matches) {
     return apiError("That current password is wrong", 422, {
       currentPassword: "That doesn't match your current password",
@@ -66,7 +68,7 @@ export async function POST(request: Request) {
   await prisma.user.update({
     where: { id: user.id },
     data: {
-      passwordHash: await bcrypt.hash(parsed.data.newPassword, 10),
+      passwordHash: await hashPassword(parsed.data.newPassword),
       // Clearing the flag is what lifts the forced-change redirect.
       mustChangePassword: false,
     },

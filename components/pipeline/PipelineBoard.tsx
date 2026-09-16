@@ -578,6 +578,7 @@ export function PipelineBoard() {
 
       <LeadDrawer
         leadId={openId}
+        services={data?.services ?? []}
         onClose={() => router.push("/pipeline")}
         onChanged={() => void load()}
       />

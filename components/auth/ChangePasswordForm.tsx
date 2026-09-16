@@ -2,10 +2,10 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, ArrowRight, Lock } from "lucide-react";
+import { AlertCircle, ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { Input } from "@/components/ui/Input";
+import { PasswordInput } from "@/components/auth/PasswordInput";
 
 /**
  * The forced first-password change. Same field, button and error treatment as
@@ -64,13 +64,11 @@ export function ChangePasswordForm() {
         </div>
       )}
 
-      <Input
+      <PasswordInput
         label="Current password"
-        type="password"
         name="currentPassword"
         autoComplete="current-password"
         placeholder="••••••••"
-        icon={<Lock className="h-4 w-4" />}
         value={currentPassword}
         error={fields.currentPassword}
         onChange={(event) => setCurrentPassword(event.target.value)}
@@ -78,13 +76,11 @@ export function ChangePasswordForm() {
         required
       />
 
-      <Input
+      <PasswordInput
         label="New password"
-        type="password"
         name="newPassword"
         autoComplete="new-password"
         placeholder="At least 10 characters"
-        icon={<Lock className="h-4 w-4" />}
         value={newPassword}
         error={fields.newPassword}
         onChange={(event) => setNewPassword(event.target.value)}
@@ -92,13 +88,11 @@ export function ChangePasswordForm() {
         required
       />
 
-      <Input
+      <PasswordInput
         label="Repeat new password"
-        type="password"
         name="confirmPassword"
         autoComplete="new-password"
         placeholder="••••••••"
-        icon={<Lock className="h-4 w-4" />}
         value={confirmPassword}
         error={fields.confirmPassword}
         onChange={(event) => setConfirmPassword(event.target.value)}

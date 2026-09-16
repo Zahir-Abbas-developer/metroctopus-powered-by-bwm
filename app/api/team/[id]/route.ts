@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
 
 import { prisma } from "@/lib/prisma";
+import { hashPassword } from "@/lib/passwords";
 import { apiError, requireAdminApi } from "@/lib/api";
 import { fieldErrors, updateUserSchema } from "@/lib/validation";
 import { hasAdminPower } from "@/lib/constants";
@@ -67,7 +67,15 @@ export async function PATCH(
       where: { id: params.id },
       data: {
         ...rest,
-        ...(password ? { passwordHash: await bcrypt.hash(password, 10) } : {}),
+        ...(password
+          ? {
+              passwordHash: await hashPassword(password),
+              // A password one person chose for another is a handover, not a
+              // password: the member replaces it at their next sign-in. Your
+              // own, set from here, is simply yours.
+              ...(isSelf ? {} : { mustChangePassword: true }),
+            }
+          : {}),
       },
       select: SELECT,
     });

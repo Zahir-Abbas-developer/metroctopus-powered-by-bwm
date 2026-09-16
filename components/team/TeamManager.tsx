@@ -6,6 +6,7 @@ import {
   ArrowDown,
   ArrowUp,
   CheckCircle2,
+  KeyRound,
   Pencil,
   RotateCcw,
   UserPlus,
@@ -37,6 +38,7 @@ import {
 } from "@/components/ui/Table";
 import { MemberStatusModal } from "@/components/team/MemberStatusModal";
 import { TeamMemberModal } from "@/components/team/TeamMemberModal";
+import { ResetPasswordModal } from "@/components/team/ResetPasswordModal";
 import { formatDate } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import type { TeamMember } from "@/lib/types";
@@ -67,6 +69,7 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [statusTarget, setStatusTarget] = useState<TeamMember | null>(null);
+  const [resetTarget, setResetTarget] = useState<TeamMember | null>(null);
 
   const load = useCallback(async () => {
     setStatus("loading");
@@ -276,7 +279,13 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                     onClick={() => toggleSort("joined")}
                   />
                 </TH>
-                <TH className="text-right">Actions</TH>
+                {/* Pinned to the right edge. The table is nine columns wide, so on
+                    a phone the actions sat far off-screen behind a sideways
+                    scroll, and the only way to reset a password looked like it
+                    did not exist. */}
+                <TH className="sticky right-0 z-10 bg-cream text-right shadow-[-8px_0_8px_-8px_rgba(12,12,10,0.15)]">
+                  Actions
+                </TH>
               </TR>
             </THead>
             <TBody>
@@ -427,19 +436,39 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                       {formatDate(member.createdAt)}
                     </TD>
 
-                    <TD>
+                    <TD
+                      className={cn(
+                        "sticky right-0 z-10 shadow-[-8px_0_8px_-8px_rgba(12,12,10,0.15)]",
+                        member.isActive ? "bg-white" : "bg-paper",
+                      )}
+                    >
+                      {/* Labels from sm up; icons alone below, with the label kept
+                          for screen readers, so the pinned column stays narrow. */}
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           size="sm"
                           variant="ghost"
                           icon={<Pencil className="h-3.5 w-3.5" />}
+                          aria-label={`Edit ${member.name}`}
                           onClick={() => {
                             setEditing(member);
                             setFormOpen(true);
                           }}
                         >
-                          Edit
+                          <span className="hidden sm:inline">Edit</span>
                         </Button>
+
+                        {!isSelf && member.isActive && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            icon={<KeyRound className="h-3.5 w-3.5" />}
+                            aria-label={`Reset ${member.name}'s password`}
+                            onClick={() => setResetTarget(member)}
+                          >
+                            <span className="hidden sm:inline">Reset password</span>
+                          </Button>
+                        )}
 
                         {/* The owner can't switch off their own access. */}
                         {!isSelf && (
@@ -454,9 +483,12 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
                               )
                             }
                             onClick={() => setStatusTarget(member)}
+                            aria-label={`${member.isActive ? "Deactivate" : "Restore"} ${member.name}`}
                             className={member.isActive ? "hover:text-danger" : "hover:text-brand"}
                           >
-                            {member.isActive ? "Deactivate" : "Restore"}
+                            <span className="hidden sm:inline">
+                              {member.isActive ? "Deactivate" : "Restore"}
+                            </span>
                           </Button>
                         )}
                       </div>
@@ -492,6 +524,12 @@ export function TeamManager({ currentUserId }: { currentUserId: string }) {
           setEditing(null);
         }}
         onSaved={onSaved}
+      />
+
+      <ResetPasswordModal
+        member={resetTarget}
+        onClose={() => setResetTarget(null)}
+        onReset={() => void load()}
       />
 
       <MemberStatusModal

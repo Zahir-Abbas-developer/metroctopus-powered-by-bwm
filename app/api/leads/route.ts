@@ -234,6 +234,9 @@ export async function POST(request: Request) {
       estimatedMonthlyValue: data.estimatedMonthlyValue,
       dealValue: data.dealValue,
       ownerId,
+      // Recorded separately from the owner: routing usually gives the lead to
+      // someone else, and its author must still be able to correct it.
+      createdById: user.id,
       notes: data.notes || null,
       stage,
     },

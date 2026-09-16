@@ -78,6 +78,7 @@ model User {
   blocksRaised   BlockPeriod[]          @relation("BlockAuthor")
   blocksCleared  BlockPeriod[]          @relation("BlockReleaser")
   leads          Lead[]                 @relation("LeadOwner")
+  leadsCreated   Lead[]                 @relation("LeadCreator")
   salesActivity  SalesActivity[]
   targets        ActivityTarget[]
   kpiEntries     ClientKpiEntry[]       @relation("KpiAuthor")
@@ -873,6 +874,11 @@ model Lead {
   /// at the lead stage leaves it at zero.
   dealValue             Int       @default(0)
   ownerId               String?
+  /// Who filed the lead. Kept apart from the owner because automatic routing
+  /// hands most leads to someone else, and the person who entered a lead must
+  /// still be able to correct what they typed. Null for leads filed before the
+  /// column existed.
+  createdById           String?
   /// "NEW" | "CONTACTED" | "MEETING_BOOKED" | "PROPOSAL_SENT" | "NEGOTIATION"
   /// | "WON" | "LOST"
   stage                 String    @default("NEW")
@@ -893,6 +899,7 @@ model Lead {
 
   department      Department      @relation(fields: [departmentId], references: [id])
   owner           User?           @relation("LeadOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdBy       User?           @relation("LeadCreator", fields: [createdById], references: [id], onDelete: SetNull)
   convertedClient Client?         @relation(fields: [convertedClientId], references: [id], onDelete: SetNull)
   activities      SalesActivity[]
 
